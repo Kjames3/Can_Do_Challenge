@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en" class="h-full">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,12 +10,15 @@
     <style>
         /* Custom style for vertical sliders */
         input[type="range"].vertical {
-            writing-mode: bt-lr; /* IE */
-            -webkit-appearance: slider-vertical; /* WebKit */
+            writing-mode: bt-lr;
+            /* IE */
+            -webkit-appearance: slider-vertical;
+            /* WebKit */
             appearance: slider-vertical;
         }
     </style>
 </head>
+
 <body class="bg-gray-900 text-gray-100 font-sans h-full flex flex-col items-center justify-center p-4">
 
     <div class="w-full max-w-4xl mx-auto p-6 bg-gray-800 rounded-xl shadow-lg overflow-y-auto max-h-full">
@@ -26,19 +30,38 @@
             <p class="text-sm text-gray-300 mb-3">
                 This connects to the local Python script, which must be running.
             </p>
-            <button id="connect-btn" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200">Connect</button>
+            <button id="connect-btn"
+                class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200">Connect</button>
             <div id="status-light" class="w-4 h-4 rounded-full bg-red-500 inline-block mr-2 mt-3"></div>
             <span id="status-message" class="align-middle">Not Connected</span>
+
+            <!-- Controller Status -->
+            <div class="mt-4 pt-4 border-t border-gray-600">
+                <div class="flex items-center">
+                    <svg class="w-6 h-6 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z">
+                        </path>
+                    </svg>
+                    <span class="font-semibold mr-2">Controller:</span>
+                    <span id="controller-status" class="text-gray-400">Searching...</span>
+                </div>
+                <p class="text-xs text-gray-400 mt-1 ml-8">
+                    Use <strong>Right Stick</strong> to drive. Press <strong>X</strong> for E-Stop.
+                </p>
+            </div>
         </div>
 
         <!-- 2. Control & Readout Area -->
         <div id="control-area" class="opacity-30 pointer-events-none">
-            
+
             <!-- Camera Feed -->
             <div class="mb-6 p-4 bg-gray-700 rounded-lg">
                 <h2 class="text-xl font-semibold mb-3">2. Camera Feed</h2>
                 <div class="flex justify-center">
-                    <img id="cam-feed" src="" alt="Waiting for camera..." class="w-full max-w-md rounded-lg bg-black border-2 border-gray-600 min-h-[240px] object-contain">
+                    <img id="cam-feed" src="" alt="Waiting for camera..."
+                        class="w-full max-w-md rounded-lg bg-black border-2 border-gray-600 min-h-[240px] object-contain">
                 </div>
             </div>
 
@@ -52,7 +75,8 @@
                     </label>
                 </div>
                 <div class="flex justify-center">
-                    <canvas id="lidar-canvas" width="400" height="400" class="bg-black rounded-lg border-2 border-gray-600"></canvas>
+                    <canvas id="lidar-canvas" width="400" height="400"
+                        class="bg-black rounded-lg border-2 border-gray-600"></canvas>
                 </div>
                 <p class="text-center text-xs text-gray-400 mt-2">Scale: 100px = 1 meter (Approx)</p>
             </div>
@@ -84,26 +108,29 @@
             <div>
                 <h2 class="text-xl font-semibold mb-4">5. Motor Control</h2>
                 <div class="flex flex-col md:flex-row items-center justify-around">
-                    
+
                     <!-- Sliders -->
                     <div class="flex justify-around w-full md:w-2/3 mb-6 md:mb-0">
                         <!-- Left Slider -->
                         <div class="flex flex-col items-center">
                             <label for="left-slider" class="font-medium mb-3">LEFT</label>
-                            <input type="range" id="left-slider" class="vertical h-48" min="-100" max="100" value="0" step="1">
+                            <input type="range" id="left-slider" class="vertical h-48" min="-100" max="100" value="0"
+                                step="1">
                             <span id="left-slider-val" class="mt-3 font-mono">0</span>
                         </div>
                         <!-- Right Slider -->
                         <div class="flex flex-col items-center">
                             <label for="right-slider" class="font-medium mb-3">RIGHT</label>
-                            <input type="range" id="right-slider" class="vertical h-48" min="-100" max="100" value="0" step="1">
+                            <input type="range" id="right-slider" class="vertical h-48" min="-100" max="100" value="0"
+                                step="1">
                             <span id="right-slider-val" class="mt-3 font-mono">0</span>
                         </div>
                     </div>
 
                     <!-- Stop Button -->
                     <div class="w-full md:w-1/3 flex justify-center">
-                        <button id="stop-btn" class="w-48 h-48 bg-red-600 hover:bg-red-700 text-white text-3xl font-bold rounded-full border-4 border-red-800 shadow-lg flex items-center justify-center transition duration-200">
+                        <button id="stop-btn"
+                            class="w-48 h-48 bg-red-600 hover:bg-red-700 text-white text-3xl font-bold rounded-full border-4 border-red-800 shadow-lg flex items-center justify-center transition duration-200">
                             STOP
                         </button>
                     </div>
@@ -138,6 +165,13 @@
         const leftPowerEl = document.getElementById('left-power');
         const rightPosEl = document.getElementById('right-pos');
         const rightPowerEl = document.getElementById('right-power');
+
+        // --- Gamepad Variables ---
+        const controllerStatusEl = document.getElementById('controller-status');
+        let gamepadIndex = null;
+        let gamepadPollingInterval = null;
+        let lastLeftPower = 0;
+        let lastRightPower = 0;
 
         // --- Connect Function ---
         function connect() {
@@ -191,7 +225,7 @@
             ws.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data);
-                    
+
                     if (data.type === "readout") {
                         updateReadouts(data);
                         updateSensors(data);
@@ -208,7 +242,7 @@
 
             const slider = event.target;
             const power = parseFloat(slider.value) / 100.0; // Convert 100 -> 1.0
-            
+
             let motorId = "";
             if (slider.id === 'left-slider') {
                 leftSliderVal.textContent = slider.value;
@@ -228,10 +262,10 @@
 
         function stopMotors() {
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
-            
+
             console.log("STOPPING MOTORS");
             ws.send(JSON.stringify({ type: "stop" }));
-                
+
             // Reset sliders in UI
             leftSlider.value = 0;
             rightSlider.value = 0;
@@ -283,7 +317,7 @@
 
             // Draw points
             lidarCtx.fillStyle = '#00ff00';
-            
+
             for (let i = 0; i < points.length; i++) {
                 const point = points[i];
                 // point is [x, y] in meters
@@ -298,13 +332,13 @@
                 // Robot Y (left) -> Screen X (left)
                 // So: ScreenX = cx - point[1] * scale
                 //     ScreenY = cy - point[0] * scale
-                
-                const x = cx - (point[1] * scale); 
+
+                const x = cx - (point[1] * scale);
                 const y = cy - (point[0] * scale);
 
                 lidarCtx.fillRect(x, y, 2, 2);
             }
-            
+
             // Draw robot center
             lidarCtx.fillStyle = 'red';
             lidarCtx.fillRect(cx - 2, cy - 2, 4, 4);
@@ -313,10 +347,120 @@
         // --- Page Event Listeners ---
         connectBtn.addEventListener('click', connect);
         stopBtn.addEventListener('click', stopMotors);
-        
+
         // Use 'input' event to update motors live as the slider moves
         leftSlider.addEventListener('input', handleSlider);
         rightSlider.addEventListener('input', handleSlider);
+
+        // --- Gamepad Logic ---
+        window.addEventListener("gamepadconnected", (e) => {
+            console.log("Gamepad connected at index %d: %s. %d buttons, %d axes.",
+                e.gamepad.index, e.gamepad.id,
+                e.gamepad.buttons.length, e.gamepad.axes.length);
+
+            gamepadIndex = e.gamepad.index;
+            controllerStatusEl.textContent = "Connected: " + e.gamepad.id.substring(0, 20) + "...";
+            controllerStatusEl.classList.remove('text-gray-400');
+            controllerStatusEl.classList.add('text-green-400');
+
+            // Start polling
+            if (!gamepadPollingInterval) {
+                gamepadPollingInterval = setInterval(pollGamepad, 50); // 20Hz
+            }
+        });
+
+        window.addEventListener("gamepaddisconnected", (e) => {
+            console.log("Gamepad disconnected from index %d: %s",
+                e.gamepad.index, e.gamepad.id);
+
+            if (gamepadIndex === e.gamepad.index) {
+                gamepadIndex = null;
+                controllerStatusEl.textContent = "Disconnected";
+                controllerStatusEl.classList.remove('text-green-400');
+                controllerStatusEl.classList.add('text-red-400');
+
+                // Stop motors for safety if controller disconnects while driving
+                stopMotors();
+            }
+        });
+
+        function pollGamepad() {
+            if (gamepadIndex === null) return;
+
+            const gamepad = navigator.getGamepads()[gamepadIndex];
+            if (!gamepad) return;
+
+            // --- Emergency Stop (X Button - usually button 0 on PS4) ---
+            // Note: Mapping can vary by OS/Browser. On standard Gamepad API:
+            // 0: Cross (A), 1: Circle (B), 2: Square (X), 3: Triangle (Y)
+            // User asked for "X button". On PS4 controller, "X" is the Cross button (Bottom).
+            // Usually Button 0.
+            if (gamepad.buttons[0].pressed) {
+                stopMotors();
+                return; // Don't process movement if E-Stop is held
+            }
+
+            // --- Arcade Drive (Right Stick) ---
+            // Axis 2: Right Stick X (Left/Right) -1..1
+            // Axis 3: Right Stick Y (Up/Down) -1..1
+
+            // Deadzone
+            const deadzone = 0.1;
+            let rx = gamepad.axes[2];
+            let ry = gamepad.axes[3];
+
+            if (Math.abs(rx) < deadzone) rx = 0;
+            if (Math.abs(ry) < deadzone) ry = 0;
+
+            // Calculate Drive
+            // Forward is usually -1 on Y axis. Invert it so Forward is +1.
+            const throttle = -ry;
+            const turn = rx;
+
+            // Mixing: Arcade Drive
+            // Left = Throttle + Turn
+            // Right = Throttle - Turn
+            let leftPower = throttle + turn;
+            let rightPower = throttle - turn;
+
+            // Clamp to -1..1
+            leftPower = Math.max(-1, Math.min(1, leftPower));
+            rightPower = Math.max(-1, Math.min(1, rightPower));
+
+            // Only send if changed significantly or if we haven't sent in a while?
+            // For simplicity and smoothness, we send if connected.
+            // But we should avoid spamming if 0 and already 0.
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                // Threshold to avoid jitter spam
+                if (Math.abs(leftPower - lastLeftPower) > 0.01 || Math.abs(rightPower - lastRightPower) > 0.01 || (leftPower !== 0 && rightPower !== 0)) {
+
+                    // Send Left
+                    ws.send(JSON.stringify({
+                        type: "set_power",
+                        motor: "left",
+                        power: leftPower
+                    }));
+
+                    // Send Right
+                    ws.send(JSON.stringify({
+                        type: "set_power",
+                        motor: "right",
+                        power: rightPower
+                    }));
+
+                    lastLeftPower = leftPower;
+                    lastRightPower = rightPower;
+
+                    // Update UI Sliders to reflect controller input
+                    leftSlider.value = Math.round(leftPower * 100);
+                    rightSlider.value = Math.round(rightPower * 100);
+                    leftSliderVal.textContent = leftSlider.value;
+                    rightSliderVal.textContent = rightSlider.value;
+                }
+            }
+        }
     </script>
 </body>
+
 </html>
