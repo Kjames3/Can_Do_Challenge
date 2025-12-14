@@ -1,138 +1,757 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Viam Rover Control (Python Backend)</title>
-    <!-- Load Tailwind CSS for styling -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Viam Rover Control Panel</title>
+    <meta name="description" content="Control panel for Viam-powered rover with camera, lidar, and object detection">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
     <style>
-        /* Custom style for vertical sliders */
-        input[type="range"].vertical {
+        /* =================================================================
+           CSS Variables & Reset
+           ================================================================= */
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #334155;
+            --bg-hover: #475569;
+
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+
+            --accent-cyan: #06b6d4;
+            --accent-cyan-dark: #0891b2;
+            --accent-green: #22c55e;
+            --accent-red: #ef4444;
+            --accent-yellow: #eab308;
+            --accent-purple: #a855f7;
+
+            --border-color: #475569;
+            --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.4);
+
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 16px;
+
+            --transition: 0.2s ease;
+        }
+
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html,
+        body {
+            height: 100%;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+            overflow-x: hidden;
+        }
+
+        /* =================================================================
+           Layout
+           ================================================================= */
+        .app-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1.5rem;
+            min-height: 100%;
+        }
+
+        /* =================================================================
+           Header
+           ================================================================= */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .header-title h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header-title .logo {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--bg-secondary);
+            border-radius: var(--radius-md);
+            font-size: 0.875rem;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--accent-red);
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.connected {
+            background: var(--accent-green);
+        }
+
+        .status-dot.connecting {
+            background: var(--accent-yellow);
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        /* =================================================================
+           Buttons
+           ================================================================= */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.625rem 1.25rem;
+            font-family: inherit;
+            font-size: 0.875rem;
+            font-weight: 600;
+            border: none;
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            transition: all var(--transition);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-cyan-dark));
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, var(--accent-red), #dc2626);
+            color: white;
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+        }
+
+        /* =================================================================
+           Cards
+           ================================================================= */
+        .card {
+            background: var(--bg-secondary);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+            transition: all var(--transition);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 1.25rem;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .card-header h2 {
+            font-size: 1rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .card-header .icon {
+            font-size: 1.25rem;
+        }
+
+        .card-body {
+            padding: 1.25rem;
+        }
+
+        /* =================================================================
+           Toggle Switch
+           ================================================================= */
+        .toggle-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .toggle-label {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        .toggle {
+            position: relative;
+            width: 48px;
+            height: 26px;
+            background: var(--bg-tertiary);
+            border-radius: 13px;
+            cursor: pointer;
+            transition: all var(--transition);
+        }
+
+        .toggle::after {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            transition: all var(--transition);
+        }
+
+        .toggle.active {
+            background: var(--accent-cyan);
+        }
+
+        .toggle.active::after {
+            left: 25px;
+        }
+
+        /* =================================================================
+           Grid Layout
+           ================================================================= */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1.5rem;
+        }
+
+        @media (min-width: 992px) {
+            .main-grid {
+                grid-template-columns: 2fr 1fr;
+            }
+        }
+
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        /* =================================================================
+           Camera Feed
+           ================================================================= */
+        .camera-feed {
+            width: 100%;
+            aspect-ratio: 4 / 3;
+            object-fit: contain;
+            background: #000;
+            border-radius: var(--radius-md);
+        }
+
+        .camera-placeholder {
+            width: 100%;
+            aspect-ratio: 4 / 3;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-md);
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        /* =================================================================
+           Detection Panel
+           ================================================================= */
+        .detection-panel {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-md);
+        }
+
+        .detection-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+
+        .detection-count {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        .detection-count strong {
+            color: var(--accent-cyan);
+            font-size: 1.25rem;
+        }
+
+        .detection-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .detection-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem;
+            background: var(--bg-secondary);
+            border-radius: var(--radius-sm);
+            font-size: 0.8125rem;
+        }
+
+        .detection-item-label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .detection-badge {
+            padding: 0.25rem 0.5rem;
+            background: var(--accent-cyan);
+            color: white;
+            border-radius: var(--radius-sm);
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: capitalize;
+        }
+
+        .detection-item-stats {
+            display: flex;
+            gap: 1rem;
+            color: var(--text-secondary);
+        }
+
+        .confidence-bar {
+            width: 50px;
+            height: 6px;
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            background: var(--accent-green);
+            border-radius: 3px;
+            transition: width var(--transition);
+        }
+
+        .no-detections {
+            text-align: center;
+            padding: 1.5rem;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        /* =================================================================
+           Motor Readouts
+           ================================================================= */
+        .motor-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .motor-card {
+            text-align: center;
+            padding: 1rem;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-md);
+        }
+
+        .motor-card h3 {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.75rem;
+        }
+
+        .motor-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            font-family: 'SF Mono', 'Monaco', monospace;
+        }
+
+        .motor-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+
+        /* =================================================================
+           Motor Controls
+           ================================================================= */
+        .control-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        .sliders-container {
+            display: flex;
+            justify-content: center;
+            gap: 3rem;
+            width: 100%;
+        }
+
+        .slider-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .slider-label {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .vertical-slider {
             writing-mode: bt-lr;
-            /* IE */
             -webkit-appearance: slider-vertical;
-            /* WebKit */
             appearance: slider-vertical;
+            width: 24px;
+            height: 160px;
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            cursor: pointer;
+        }
+
+        .slider-value {
+            font-family: 'SF Mono', 'Monaco', monospace;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--accent-cyan);
+        }
+
+        .stop-btn {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: linear-gradient(145deg, var(--accent-red), #b91c1c);
+            border: 4px solid #991b1b;
+            color: white;
+            font-size: 1.5rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all var(--transition);
+            box-shadow: 0 8px 24px rgba(239, 68, 68, 0.3);
+        }
+
+        .stop-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 12px 32px rgba(239, 68, 68, 0.4);
+        }
+
+        .stop-btn:active {
+            transform: scale(0.98);
+        }
+
+        /* =================================================================
+           Lidar
+           ================================================================= */
+        .lidar-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .lidar-canvas {
+            width: 100%;
+            max-width: 300px;
+            aspect-ratio: 1;
+            background: #000;
+            border-radius: var(--radius-md);
+        }
+
+        .lidar-scale {
+            margin-top: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* =================================================================
+           Controller Status
+           ================================================================= */
+        .controller-status {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-md);
+            font-size: 0.875rem;
+        }
+
+        .controller-icon {
+            font-size: 1.25rem;
+        }
+
+        .controller-info {
+            flex: 1;
+        }
+
+        .controller-info-name {
+            font-weight: 500;
+        }
+
+        .controller-info-hint {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* =================================================================
+           Utilities
+           ================================================================= */
+        .mt-1 {
+            margin-top: 0.5rem;
+        }
+
+        .mt-2 {
+            margin-top: 1rem;
+        }
+
+        .text-muted {
+            color: var(--text-muted);
+        }
+
+        .text-secondary {
+            color: var(--text-secondary);
+        }
+
+        .disabled-overlay {
+            opacity: 0.4;
+            pointer-events: none;
+        }
+
+        /* =================================================================
+           Scrollbar
+           ================================================================= */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--bg-hover);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
         }
     </style>
 </head>
 
-<body class="bg-gray-900 text-gray-100 font-sans h-full flex flex-col items-center justify-center p-4">
-
-    <div class="w-full max-w-4xl mx-auto p-6 bg-gray-800 rounded-xl shadow-lg overflow-y-auto max-h-full">
-        <h1 class="text-3xl font-bold text-center mb-6 text-white">Viam Rover Control Panel</h1>
-
-        <!-- 1. Connection Area -->
-        <div id="connection-area" class="mb-6 p-4 bg-gray-700 rounded-lg">
-            <h2 class="text-xl font-semibold mb-3">1. Connect to Backend Server</h2>
-            <p class="text-sm text-gray-300 mb-3">
-                This connects to the local Python script, which must be running.
-            </p>
-            <button id="connect-btn"
-                class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200">Connect</button>
-            <div id="status-light" class="w-4 h-4 rounded-full bg-red-500 inline-block mr-2 mt-3"></div>
-            <span id="status-message" class="align-middle">Not Connected</span>
-
-            <!-- Controller Status -->
-            <div class="mt-4 pt-4 border-t border-gray-600">
-                <div class="flex items-center">
-                    <svg class="w-6 h-6 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                        xmlns="http://www.w3.org/2000/svg">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z">
-                        </path>
-                    </svg>
-                    <span class="font-semibold mr-2">Controller:</span>
-                    <span id="controller-status" class="text-gray-400">Searching...</span>
-                </div>
-                <p class="text-xs text-gray-400 mt-1 ml-8">
-                    Use <strong>Right Stick</strong> to drive. Press <strong>X</strong> for E-Stop.
-                </p>
-            </div>
-        </div>
-
-        <!-- 2. Control & Readout Area -->
-        <div id="control-area" class="opacity-30 pointer-events-none">
-
-            <!-- Camera Feed -->
-            <div class="mb-6 p-4 bg-gray-700 rounded-lg">
-                <h2 class="text-xl font-semibold mb-3">2. Camera Feed</h2>
-                <div class="flex justify-center">
-                    <img id="cam-feed" src="" alt="Waiting for camera..."
-                        class="w-full max-w-md rounded-lg bg-black border-2 border-gray-600 min-h-[240px] object-contain">
-                </div>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-title">
+                <div class="logo">🤖</div>
+                <h1>Viam Rover Control</h1>
             </div>
 
-            <!-- Lidar View -->
-            <div class="mb-6 p-4 bg-gray-700 rounded-lg">
-                <div class="flex justify-between items-center mb-3">
-                    <h2 class="text-xl font-semibold">3. Lidar View</h2>
-                    <label class="flex items-center space-x-2 cursor-pointer">
-                        <input type="checkbox" id="lidar-toggle" class="form-checkbox h-5 w-5 text-cyan-600">
-                        <span class="text-sm text-gray-300">Enable Lidar</span>
-                    </label>
+            <div class="connection-status">
+                <div class="status-indicator">
+                    <span id="status-dot" class="status-dot"></span>
+                    <span id="status-text">Disconnected</span>
                 </div>
-                <div class="flex justify-center">
-                    <canvas id="lidar-canvas" width="400" height="400"
-                        class="bg-black rounded-lg border-2 border-gray-600"></canvas>
-                </div>
-                <p class="text-center text-xs text-gray-400 mt-2">Scale: 100px = 1 meter (Approx)</p>
+                <button id="connect-btn" class="btn btn-primary">Connect</button>
             </div>
+        </header>
 
-            <!-- Readouts -->
-            <div class="mb-6">
-                <h2 class="text-xl font-semibold mb-3">4. Motor Readouts</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-center">
-                    <!-- Left Motor Readout -->
-                    <div class="bg-gray-700 p-4 rounded-lg">
-                        <h3 class="text-lg font-medium mb-2 text-cyan-400">Left Motor</h3>
-                        <p class="text-sm text-gray-400">Position (Revolutions)</p>
-                        <p id="left-pos" class="text-2xl font-mono font-bold">0.00</p>
-                        <p class="text-sm text-gray-400 mt-2">Power</p>
-                        <p id="left-power" class="text-2xl font-mono font-bold">0%</p>
-                    </div>
-                    <!-- Right Motor Readout -->
-                    <div class="bg-gray-700 p-4 rounded-lg">
-                        <h3 class="text-lg font-medium mb-2 text-cyan-400">Right Motor</h3>
-                        <p class="text-sm text-gray-400">Position (Revolutions)</p>
-                        <p id="right-pos" class="text-2xl font-mono font-bold">0.00</p>
-                        <p class="text-sm text-gray-400 mt-2">Power</p>
-                        <p id="right-power" class="text-2xl font-mono font-bold">0%</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Controls -->
+        <!-- Main Content -->
+        <div class="main-grid">
+            <!-- Left Column: Camera & Detection -->
             <div>
-                <h2 class="text-xl font-semibold mb-4">5. Motor Control</h2>
-                <div class="flex flex-col md:flex-row items-center justify-around">
-
-                    <!-- Sliders -->
-                    <div class="flex justify-around w-full md:w-2/3 mb-6 md:mb-0">
-                        <!-- Left Slider -->
-                        <div class="flex flex-col items-center">
-                            <label for="left-slider" class="font-medium mb-3">LEFT</label>
-                            <input type="range" id="left-slider" class="vertical h-48" min="-100" max="100" value="0"
-                                step="1">
-                            <span id="left-slider-val" class="mt-3 font-mono">0</span>
-                        </div>
-                        <!-- Right Slider -->
-                        <div class="flex flex-col items-center">
-                            <label for="right-slider" class="font-medium mb-3">RIGHT</label>
-                            <input type="range" id="right-slider" class="vertical h-48" min="-100" max="100" value="0"
-                                step="1">
-                            <span id="right-slider-val" class="mt-3 font-mono">0</span>
+                <div class="card">
+                    <div class="card-header">
+                        <h2><span class="icon">📹</span> Camera Feed</h2>
+                        <div class="toggle-wrapper">
+                            <span class="toggle-label">Detection</span>
+                            <div id="detection-toggle" class="toggle" title="Toggle object detection"></div>
                         </div>
                     </div>
+                    <div class="card-body">
+                        <img id="camera-feed" class="camera-feed" alt="Camera feed" style="display: none;">
+                        <div id="camera-placeholder" class="camera-placeholder">
+                            Waiting for camera feed...
+                        </div>
 
-                    <!-- Stop Button -->
-                    <div class="w-full md:w-1/3 flex justify-center">
-                        <button id="stop-btn"
-                            class="w-48 h-48 bg-red-600 hover:bg-red-700 text-white text-3xl font-bold rounded-full border-4 border-red-800 shadow-lg flex items-center justify-center transition duration-200">
-                            STOP
-                        </button>
+                        <!-- Detection Results -->
+                        <div id="detection-panel" class="detection-panel" style="display: none;">
+                            <div class="detection-header">
+                                <span class="detection-count">
+                                    <strong id="detection-count">0</strong> objects detected
+                                </span>
+                            </div>
+                            <div id="detection-list" class="detection-list">
+                                <div class="no-detections">No objects detected</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Motor Controls -->
+                <div class="card mt-2">
+                    <div class="card-header">
+                        <h2><span class="icon">🎮</span> Motor Control</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="control-section">
+                            <div class="sliders-container">
+                                <div class="slider-group">
+                                    <span class="slider-label">LEFT</span>
+                                    <input type="range" id="left-slider" class="vertical-slider" min="-100" max="100"
+                                        value="0" step="1">
+                                    <span id="left-slider-value" class="slider-value">0</span>
+                                </div>
+
+                                <button id="stop-btn" class="stop-btn">STOP</button>
+
+                                <div class="slider-group">
+                                    <span class="slider-label">RIGHT</span>
+                                    <input type="range" id="right-slider" class="vertical-slider" min="-100" max="100"
+                                        value="0" step="1">
+                                    <span id="right-slider-value" class="slider-value">0</span>
+                                </div>
+                            </div>
+
+                            <!-- Controller Status -->
+                            <div id="controller-status" class="controller-status">
+                                <span class="controller-icon">🎮</span>
+                                <div class="controller-info">
+                                    <div id="controller-name" class="controller-info-name text-muted">No controller
+                                        detected</div>
+                                    <div class="controller-info-hint">Use Right Stick to drive • X button for E-Stop
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Sidebar -->
+            <div class="sidebar" id="control-area">
+                <!-- Motor Readouts -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2><span class="icon">📊</span> Motor Status</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="motor-grid">
+                            <div class="motor-card">
+                                <h3>Left Motor</h3>
+                                <div id="left-pos" class="motor-value">0.00</div>
+                                <div class="motor-label">Position (rev)</div>
+                                <div id="left-power" class="motor-value mt-1">0%</div>
+                                <div class="motor-label">Power</div>
+                            </div>
+                            <div class="motor-card">
+                                <h3>Right Motor</h3>
+                                <div id="right-pos" class="motor-value">0.00</div>
+                                <div class="motor-label">Position (rev)</div>
+                                <div id="right-power" class="motor-value mt-1">0%</div>
+                                <div class="motor-label">Power</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Lidar -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2><span class="icon">📡</span> Lidar View</h2>
+                        <div class="toggle-wrapper">
+                            <span class="toggle-label">Enable</span>
+                            <div id="lidar-toggle" class="toggle"></div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="lidar-container">
+                            <canvas id="lidar-canvas" class="lidar-canvas" width="300" height="300"></canvas>
+                            <span class="lidar-scale">100px = 1 meter</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -140,271 +759,339 @@
     </div>
 
     <script>
-        // --- Global Variables ---
-        let ws = null; // WebSocket connection
-        const serverAddress = "ws://localhost:8081";
+        // =================================================================
+        // Application State
+        // =================================================================
+        const state = {
+            ws: null,
+            connected: false,
+            detectionEnabled: false,
+            lidarEnabled: false,
+            gamepadIndex: null,
+            lastLeftPower: 0,
+            lastRightPower: 0
+        };
 
-        // --- DOM Elements ---
-        const connectBtn = document.getElementById('connect-btn');
-        const statusLight = document.getElementById('status-light');
-        const statusMessage = document.getElementById('status-message');
-        const controlArea = document.getElementById('control-area');
+        const SERVER_ADDRESS = "ws://localhost:8081";
 
-        const camFeed = document.getElementById('cam-feed');
-        const lidarCanvas = document.getElementById('lidar-canvas');
-        const lidarCtx = lidarCanvas.getContext('2d');
-        const lidarToggle = document.getElementById('lidar-toggle');
+        // =================================================================
+        // DOM Elements
+        // =================================================================
+        const elements = {
+            // Connection
+            connectBtn: document.getElementById('connect-btn'),
+            statusDot: document.getElementById('status-dot'),
+            statusText: document.getElementById('status-text'),
+            controlArea: document.getElementById('control-area'),
 
-        const leftSlider = document.getElementById('left-slider');
-        const rightSlider = document.getElementById('right-slider');
-        const leftSliderVal = document.getElementById('left-slider-val');
-        const rightSliderVal = document.getElementById('right-slider-val');
-        const stopBtn = document.getElementById('stop-btn');
+            // Camera & Detection
+            cameraFeed: document.getElementById('camera-feed'),
+            cameraPlaceholder: document.getElementById('camera-placeholder'),
+            detectionToggle: document.getElementById('detection-toggle'),
+            detectionPanel: document.getElementById('detection-panel'),
+            detectionCount: document.getElementById('detection-count'),
+            detectionList: document.getElementById('detection-list'),
 
-        const leftPosEl = document.getElementById('left-pos');
-        const leftPowerEl = document.getElementById('left-power');
-        const rightPosEl = document.getElementById('right-pos');
-        const rightPowerEl = document.getElementById('right-power');
+            // Lidar
+            lidarToggle: document.getElementById('lidar-toggle'),
+            lidarCanvas: document.getElementById('lidar-canvas'),
+            lidarCtx: document.getElementById('lidar-canvas').getContext('2d'),
 
-        // --- Gamepad Variables ---
-        const controllerStatusEl = document.getElementById('controller-status');
-        let gamepadIndex = null;
-        let gamepadPollingInterval = null;
-        let lastLeftPower = 0;
-        let lastRightPower = 0;
+            // Motors
+            leftSlider: document.getElementById('left-slider'),
+            rightSlider: document.getElementById('right-slider'),
+            leftSliderValue: document.getElementById('left-slider-value'),
+            rightSliderValue: document.getElementById('right-slider-value'),
+            stopBtn: document.getElementById('stop-btn'),
+            leftPos: document.getElementById('left-pos'),
+            leftPower: document.getElementById('left-power'),
+            rightPos: document.getElementById('right-pos'),
+            rightPower: document.getElementById('right-power'),
 
-        // --- Connect Function ---
+            // Controller
+            controllerName: document.getElementById('controller-name')
+        };
+
+        // =================================================================
+        // WebSocket Connection
+        // =================================================================
         function connect() {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                console.log("Already connected.");
-                return;
-            }
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) return;
 
-            // Update UI to show connection in progress
-            statusMessage.textContent = "Connecting...";
-            statusLight.classList.remove('bg-red-500', 'bg-green-500');
-            statusLight.classList.add('bg-yellow-500');
-            connectBtn.disabled = true;
-            connectBtn.textContent = "Connecting...";
+            updateConnectionStatus('connecting');
+            state.ws = new WebSocket(SERVER_ADDRESS);
 
-            ws = new WebSocket(serverAddress);
-
-            // --- WebSocket Event Listeners ---
-
-            ws.onopen = () => {
-                console.log("Connected to WebSocket server!");
-                statusMessage.textContent = "Connected to Python Server";
-                statusLight.classList.remove('bg-yellow-500');
-                statusLight.classList.add('bg-green-500');
-                connectBtn.textContent = "Connected";
-                controlArea.classList.remove('opacity-30', 'pointer-events-none');
+            state.ws.onopen = () => {
+                state.connected = true;
+                updateConnectionStatus('connected');
+                elements.controlArea.classList.remove('disabled-overlay');
             };
 
-            ws.onclose = () => {
-                console.log("Disconnected from WebSocket server.");
-                statusMessage.textContent = "Disconnected. Run the Python script and reconnect.";
-                statusLight.classList.remove('bg-green-500', 'bg-yellow-500');
-                statusLight.classList.add('bg-red-500');
-                connectBtn.disabled = false;
-                connectBtn.textContent = "Connect";
-                controlArea.classList.add('opacity-30', 'pointer-events-none');
-                ws = null;
+            state.ws.onclose = () => {
+                state.connected = false;
+                updateConnectionStatus('disconnected');
+                elements.controlArea.classList.add('disabled-overlay');
+                state.ws = null;
             };
 
-            ws.onerror = (error) => {
-                console.error("WebSocket Error:", error);
-                statusMessage.textContent = "Error. Is the Python script running?";
-                statusLight.classList.remove('bg-green-500', 'bg-yellow-500');
-                statusLight.classList.add('bg-red-500');
-                connectBtn.disabled = false;
-                connectBtn.textContent = "Connect";
-                controlArea.classList.add('opacity-30', 'pointer-events-none');
-                ws = null;
+            state.ws.onerror = () => {
+                state.connected = false;
+                updateConnectionStatus('error');
+                elements.controlArea.classList.add('disabled-overlay');
+                state.ws = null;
             };
 
-            ws.onmessage = (event) => {
+            state.ws.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data);
-
                     if (data.type === "readout") {
-                        updateReadouts(data);
-                        updateSensors(data);
+                        handleReadout(data);
                     }
-                } catch (error) {
-                    console.error("Failed to parse message:", error);
+                } catch (e) {
+                    console.error("Message parse error:", e);
                 }
             };
         }
 
-        // --- Control Functions ---
-        function handleSlider(event) {
-            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        function updateConnectionStatus(status) {
+            elements.statusDot.className = 'status-dot';
 
-            const slider = event.target;
-            const power = parseFloat(slider.value) / 100.0; // Convert 100 -> 1.0
-
-            let motorId = "";
-            if (slider.id === 'left-slider') {
-                leftSliderVal.textContent = slider.value;
-                motorId = "left";
-            } else if (slider.id === 'right-slider') {
-                rightSliderVal.textContent = slider.value;
-                motorId = "right";
+            switch (status) {
+                case 'connected':
+                    elements.statusDot.classList.add('connected');
+                    elements.statusText.textContent = 'Connected';
+                    elements.connectBtn.textContent = 'Connected';
+                    elements.connectBtn.disabled = true;
+                    break;
+                case 'connecting':
+                    elements.statusDot.classList.add('connecting');
+                    elements.statusText.textContent = 'Connecting...';
+                    elements.connectBtn.textContent = 'Connecting...';
+                    elements.connectBtn.disabled = true;
+                    break;
+                case 'error':
+                    elements.statusText.textContent = 'Connection failed';
+                    elements.connectBtn.textContent = 'Retry';
+                    elements.connectBtn.disabled = false;
+                    break;
+                default:
+                    elements.statusText.textContent = 'Disconnected';
+                    elements.connectBtn.textContent = 'Connect';
+                    elements.connectBtn.disabled = false;
             }
-
-            const message = {
-                type: "set_power",
-                motor: motorId,
-                power: power
-            };
-            ws.send(JSON.stringify(message));
         }
 
-        function stopMotors() {
-            if (!ws || ws.readyState !== WebSocket.OPEN) return;
-
-            console.log("STOPPING MOTORS");
-            ws.send(JSON.stringify({ type: "stop" }));
-
-            // Reset sliders in UI
-            leftSlider.value = 0;
-            rightSlider.value = 0;
-            leftSliderVal.textContent = '0';
-            rightSliderVal.textContent = '0';
+        function sendMessage(data) {
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify(data));
+            }
         }
 
-        // --- Readout Function ---
-        function updateReadouts(data) {
-            // Update Left Motor UI
-            leftPosEl.textContent = data.left_pos.toFixed(2);
-            leftPowerEl.textContent = `${Math.round(data.left_power * 100)}%`;
+        // =================================================================
+        // Data Handlers
+        // =================================================================
+        function handleReadout(data) {
+            // Update motor readouts
+            elements.leftPos.textContent = data.left_pos.toFixed(2);
+            elements.leftPower.textContent = `${Math.round(data.left_power * 100)}%`;
+            elements.rightPos.textContent = data.right_pos.toFixed(2);
+            elements.rightPower.textContent = `${Math.round(data.right_power * 100)}%`;
 
-            // Update Right Motor UI
-            rightPosEl.textContent = data.right_pos.toFixed(2);
-            rightPowerEl.textContent = `${Math.round(data.right_power * 100)}%`;
-        }
-
-        // --- Sensor Update Function ---
-        function updateSensors(data) {
-            // Update Camera
+            // Update camera feed
             if (data.image) {
-                camFeed.src = "data:image/jpeg;base64," + data.image;
+                elements.cameraFeed.src = "data:image/jpeg;base64," + data.image;
+                elements.cameraFeed.style.display = 'block';
+                elements.cameraPlaceholder.style.display = 'none';
             }
 
-            // Update Lidar
-            if (data.lidar_points && lidarToggle.checked) {
+            // Update detections
+            if (data.detections !== undefined) {
+                updateDetections(data.detections);
+            }
+
+            // Update detection toggle state from server
+            if (data.detection_enabled !== undefined) {
+                state.detectionEnabled = data.detection_enabled;
+                elements.detectionToggle.classList.toggle('active', state.detectionEnabled);
+                elements.detectionPanel.style.display = state.detectionEnabled ? 'block' : 'none';
+            }
+
+            // Update lidar
+            if (data.lidar_points && state.lidarEnabled) {
                 drawLidar(data.lidar_points);
             }
         }
 
-        function drawLidar(points) {
-            const width = lidarCanvas.width;
-            const height = lidarCanvas.height;
-            const cx = width / 2;
-            const cy = height / 2;
-            const scale = 100; // 100 pixels per meter (so 2m radius fits in 400px)
+        function updateDetections(detections) {
+            elements.detectionCount.textContent = detections.length;
 
-            // Clear canvas
-            lidarCtx.fillStyle = 'black';
-            lidarCtx.fillRect(0, 0, width, height);
-
-            // Draw grid lines (optional)
-            lidarCtx.strokeStyle = '#333';
-            lidarCtx.beginPath();
-            lidarCtx.moveTo(0, cy); lidarCtx.lineTo(width, cy);
-            lidarCtx.moveTo(cx, 0); lidarCtx.lineTo(cx, height);
-            lidarCtx.stroke();
-
-            // Draw points
-            lidarCtx.fillStyle = '#00ff00';
-
-            for (let i = 0; i < points.length; i++) {
-                const point = points[i];
-                // point is [x, y] in meters
-                // In Viam/ROS, x is usually forward, y is left.
-                // On canvas, y is down.
-                // So we map:
-                // Canvas X = cx - y * scale (Rotate 90 deg? Or just standard map view?)
-                // Let's stick to standard: X is right, Y is up (so -Y on canvas)
-                // Wait, usually Robot Frame: X forward, Y left.
-                // Screen Frame: X right, Y down.
-                // Let's map Robot X (forward) -> Screen Y (up)
-                // Robot Y (left) -> Screen X (left)
-                // So: ScreenX = cx - point[1] * scale
-                //     ScreenY = cy - point[0] * scale
-
-                const x = cx - (point[1] * scale);
-                const y = cy - (point[0] * scale);
-
-                lidarCtx.fillRect(x, y, 2, 2);
+            if (detections.length === 0) {
+                elements.detectionList.innerHTML = '<div class="no-detections">No objects detected</div>';
+                return;
             }
 
-            // Draw robot center
-            lidarCtx.fillStyle = 'red';
-            lidarCtx.fillRect(cx - 2, cy - 2, 4, 4);
+            const html = detections.map(d => `
+                <div class="detection-item">
+                    <div class="detection-item-label">
+                        <span class="detection-badge">${d.label}</span>
+                    </div>
+                    <div class="detection-item-stats">
+                        <span title="Distance">${d.distance_cm.toFixed(0)}cm</span>
+                        <span title="Confidence">${(d.confidence * 100).toFixed(0)}%</span>
+                        <div class="confidence-bar" title="Confidence">
+                            <div class="confidence-fill" style="width: ${d.confidence * 100}%"></div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            elements.detectionList.innerHTML = html;
         }
 
-        // --- Page Event Listeners ---
-        connectBtn.addEventListener('click', connect);
-        stopBtn.addEventListener('click', stopMotors);
+        // =================================================================
+        // Lidar Rendering
+        // =================================================================
+        function drawLidar(points) {
+            const canvas = elements.lidarCanvas;
+            const ctx = elements.lidarCtx;
+            const width = canvas.width;
+            const height = canvas.height;
+            const cx = width / 2;
+            const cy = height / 2;
+            const scale = 75; // pixels per meter
 
-        // Use 'input' event to update motors live as the slider moves
-        leftSlider.addEventListener('input', handleSlider);
-        rightSlider.addEventListener('input', handleSlider);
+            // Clear canvas
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
 
-        // --- Gamepad Logic ---
+            // Draw grid
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+
+            // Concentric circles (1m, 2m)
+            [1, 2].forEach(r => {
+                ctx.beginPath();
+                ctx.arc(cx, cy, r * scale, 0, Math.PI * 2);
+                ctx.stroke();
+            });
+
+            // Cross lines
+            ctx.beginPath();
+            ctx.moveTo(0, cy);
+            ctx.lineTo(width, cy);
+            ctx.moveTo(cx, 0);
+            ctx.lineTo(cx, height);
+            ctx.stroke();
+
+            // Draw points
+            ctx.fillStyle = '#22c55e';
+            points.forEach(point => {
+                const x = cx - (point[1] * scale);
+                const y = cy - (point[0] * scale);
+                ctx.fillRect(x - 1, y - 1, 2, 2);
+            });
+
+            // Draw robot center
+            ctx.fillStyle = '#ef4444';
+            ctx.beginPath();
+            ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // =================================================================
+        // Motor Control
+        // =================================================================
+        function handleSliderInput(event) {
+            const slider = event.target;
+            const power = parseFloat(slider.value) / 100;
+            const motorId = slider.id.includes('left') ? 'left' : 'right';
+
+            if (motorId === 'left') {
+                elements.leftSliderValue.textContent = slider.value;
+            } else {
+                elements.rightSliderValue.textContent = slider.value;
+            }
+
+            sendMessage({
+                type: "set_power",
+                motor: motorId,
+                power: power
+            });
+        }
+
+        function stopMotors() {
+            sendMessage({ type: "stop" });
+
+            elements.leftSlider.value = 0;
+            elements.rightSlider.value = 0;
+            elements.leftSliderValue.textContent = '0';
+            elements.rightSliderValue.textContent = '0';
+        }
+
+        // =================================================================
+        // Toggle Handlers
+        // =================================================================
+        function toggleDetection() {
+            state.detectionEnabled = !state.detectionEnabled;
+            elements.detectionToggle.classList.toggle('active', state.detectionEnabled);
+            elements.detectionPanel.style.display = state.detectionEnabled ? 'block' : 'none';
+
+            sendMessage({
+                type: "toggle_detection",
+                enabled: state.detectionEnabled
+            });
+        }
+
+        function toggleLidar() {
+            state.lidarEnabled = !state.lidarEnabled;
+            elements.lidarToggle.classList.toggle('active', state.lidarEnabled);
+
+            if (!state.lidarEnabled) {
+                // Clear canvas when disabled
+                const ctx = elements.lidarCtx;
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, elements.lidarCanvas.width, elements.lidarCanvas.height);
+            }
+        }
+
+        // =================================================================
+        // Gamepad Support
+        // =================================================================
+        let gamepadPollingInterval = null;
+
         window.addEventListener("gamepadconnected", (e) => {
-            console.log("Gamepad connected at index %d: %s. %d buttons, %d axes.",
-                e.gamepad.index, e.gamepad.id,
-                e.gamepad.buttons.length, e.gamepad.axes.length);
+            state.gamepadIndex = e.gamepad.index;
+            elements.controllerName.textContent = e.gamepad.id.substring(0, 30);
+            elements.controllerName.classList.remove('text-muted');
+            elements.controllerName.style.color = 'var(--accent-green)';
 
-            gamepadIndex = e.gamepad.index;
-            controllerStatusEl.textContent = "Connected: " + e.gamepad.id.substring(0, 20) + "...";
-            controllerStatusEl.classList.remove('text-gray-400');
-            controllerStatusEl.classList.add('text-green-400');
-
-            // Start polling
             if (!gamepadPollingInterval) {
-                gamepadPollingInterval = setInterval(pollGamepad, 50); // 20Hz
+                gamepadPollingInterval = setInterval(pollGamepad, 50);
             }
         });
 
         window.addEventListener("gamepaddisconnected", (e) => {
-            console.log("Gamepad disconnected from index %d: %s",
-                e.gamepad.index, e.gamepad.id);
-
-            if (gamepadIndex === e.gamepad.index) {
-                gamepadIndex = null;
-                controllerStatusEl.textContent = "Disconnected";
-                controllerStatusEl.classList.remove('text-green-400');
-                controllerStatusEl.classList.add('text-red-400');
-
-                // Stop motors for safety if controller disconnects while driving
+            if (state.gamepadIndex === e.gamepad.index) {
+                state.gamepadIndex = null;
+                elements.controllerName.textContent = 'Controller disconnected';
+                elements.controllerName.style.color = 'var(--accent-red)';
                 stopMotors();
             }
         });
 
         function pollGamepad() {
-            if (gamepadIndex === null) return;
+            if (state.gamepadIndex === null || !state.connected) return;
 
-            const gamepad = navigator.getGamepads()[gamepadIndex];
+            const gamepad = navigator.getGamepads()[state.gamepadIndex];
             if (!gamepad) return;
 
-            // --- Emergency Stop (X Button - usually button 0 on PS4) ---
-            // Note: Mapping can vary by OS/Browser. On standard Gamepad API:
-            // 0: Cross (A), 1: Circle (B), 2: Square (X), 3: Triangle (Y)
-            // User asked for "X button". On PS4 controller, "X" is the Cross button (Bottom).
-            // Usually Button 0.
+            // E-Stop (X/A button)
             if (gamepad.buttons[0].pressed) {
                 stopMotors();
-                return; // Don't process movement if E-Stop is held
+                return;
             }
 
-            // --- Arcade Drive (Right Stick) ---
-            // Axis 2: Right Stick X (Left/Right) -1..1
-            // Axis 3: Right Stick Y (Up/Down) -1..1
-
-            // Deadzone
+            // Right stick for arcade drive
             const deadzone = 0.1;
             let rx = gamepad.axes[2];
             let ry = gamepad.axes[3];
@@ -412,54 +1099,42 @@
             if (Math.abs(rx) < deadzone) rx = 0;
             if (Math.abs(ry) < deadzone) ry = 0;
 
-            // Calculate Drive
-            // Forward is usually -1 on Y axis. Invert it so Forward is +1.
             const throttle = -ry;
             const turn = rx;
 
-            // Mixing: Arcade Drive
-            // Left = Throttle + Turn
-            // Right = Throttle - Turn
-            let leftPower = throttle + turn;
-            let rightPower = throttle - turn;
+            let leftPower = Math.max(-1, Math.min(1, throttle + turn));
+            let rightPower = Math.max(-1, Math.min(1, throttle - turn));
 
-            // Clamp to -1..1
-            leftPower = Math.max(-1, Math.min(1, leftPower));
-            rightPower = Math.max(-1, Math.min(1, rightPower));
+            // Only send if changed significantly
+            if (Math.abs(leftPower - state.lastLeftPower) > 0.02 ||
+                Math.abs(rightPower - state.lastRightPower) > 0.02) {
 
-            // Only send if changed significantly or if we haven't sent in a while?
-            // For simplicity and smoothness, we send if connected.
-            // But we should avoid spamming if 0 and already 0.
+                sendMessage({ type: "set_power", motor: "left", power: leftPower });
+                sendMessage({ type: "set_power", motor: "right", power: rightPower });
 
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                // Threshold to avoid jitter spam
-                if (Math.abs(leftPower - lastLeftPower) > 0.01 || Math.abs(rightPower - lastRightPower) > 0.01 || (leftPower !== 0 && rightPower !== 0)) {
+                state.lastLeftPower = leftPower;
+                state.lastRightPower = rightPower;
 
-                    // Send Left
-                    ws.send(JSON.stringify({
-                        type: "set_power",
-                        motor: "left",
-                        power: leftPower
-                    }));
-
-                    // Send Right
-                    ws.send(JSON.stringify({
-                        type: "set_power",
-                        motor: "right",
-                        power: rightPower
-                    }));
-
-                    lastLeftPower = leftPower;
-                    lastRightPower = rightPower;
-
-                    // Update UI Sliders to reflect controller input
-                    leftSlider.value = Math.round(leftPower * 100);
-                    rightSlider.value = Math.round(rightPower * 100);
-                    leftSliderVal.textContent = leftSlider.value;
-                    rightSliderVal.textContent = rightSlider.value;
-                }
+                // Update UI
+                elements.leftSlider.value = Math.round(leftPower * 100);
+                elements.rightSlider.value = Math.round(rightPower * 100);
+                elements.leftSliderValue.textContent = elements.leftSlider.value;
+                elements.rightSliderValue.textContent = elements.rightSlider.value;
             }
         }
+
+        // =================================================================
+        // Event Listeners
+        // =================================================================
+        elements.connectBtn.addEventListener('click', connect);
+        elements.stopBtn.addEventListener('click', stopMotors);
+        elements.leftSlider.addEventListener('input', handleSliderInput);
+        elements.rightSlider.addEventListener('input', handleSliderInput);
+        elements.detectionToggle.addEventListener('click', toggleDetection);
+        elements.lidarToggle.addEventListener('click', toggleLidar);
+
+        // Initialize disabled state
+        elements.controlArea.classList.add('disabled-overlay');
     </script>
 </body>
 
