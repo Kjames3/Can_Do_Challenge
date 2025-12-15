@@ -30,9 +30,9 @@ from ultralytics import YOLO
 # =============================================================================
 
 # Robot Connection Details
-ROBOT_ADDRESS = "rover-2-main.ayzp4fw8rj.viam.cloud"
-API_KEY_ID = "4ed5a063-a693-49a1-9212-2f04c7a50dd6"
-API_KEY = "q2h3tup8scoj1dnhneolqnoa3c5pw8br"
+ROBOT_ADDRESS = "rover-3-main.ayzp4fw8rj.viam.cloud"
+API_KEY_ID = "164902f7-7737-4675-85d6-151fedb70a82"
+API_KEY = "ab5lhwuctyf0t34wt7mu9gq24kgx8azh"
 
 # Component Names
 LEFT_MOTOR_NAME = "left"
