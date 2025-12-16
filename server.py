@@ -19,8 +19,6 @@ from viam.robot.client import RobotClient
 from viam.rpc.dial import DialOptions
 from viam.components.motor import Motor
 from viam.components.camera import Camera
-from viam.components.motor import Motor
-from viam.components.camera import Camera
 from viam.components.sensor import Sensor
 from viam.components.power_sensor import PowerSensor
 import base64
@@ -40,12 +38,12 @@ API_KEY_ID = "d55dcbc4-6c31-4d78-97d9-57792293a0b7"
 API_KEY = "3u88u6fsuowp1wv4inpyebnv13k6dkhn"
 
 # Component Names
-# Component Names
 LEFT_MOTOR_NAME = "left"
 RIGHT_MOTOR_NAME = "right"
 CAMERA_NAME = "cam"
 LIDAR_NAME = None  # No lidar on this robot
 BATTERY_NAME = "ina219"
+IMU_NAME = "imu" # Assuming an IMU named "imu"
 
 # Detection Configuration
 KNOWN_HEIGHT_BOTTLE = 20.0  # Standard water bottle height in cm
@@ -61,11 +59,9 @@ robot: RobotClient = None
 left_motor: Motor = None
 right_motor: Motor = None
 camera: Camera = None
-camera: Camera = None
-lidar: Camera = None
-camera: Camera = None
 lidar: Camera = None
 battery: PowerSensor = None
+imu: Sensor = None
 
 # Auto-drive state
 is_auto_driving: bool = False
@@ -78,6 +74,10 @@ frame_count: int = 0
 detection_interval: int = 3  # Run detection every N frames
 last_detections: list = []
 
+# Trackers
+tracker = None
+tracker_label = ""
+tracker_init_time = 0
 
 # Detection state
 detection_model: YOLO = None
@@ -253,13 +253,12 @@ def parse_pcd(data: bytes) -> list:
 
 async def connect_to_robot() -> bool:
     """Establish connection to the Viam robot."""
-    global robot, left_motor, right_motor, camera, lidar, battery
+    global robot, left_motor, right_motor, camera, lidar, battery, imu
     
     print("Connecting to robot...")
     
     try:
         options = RobotClient.Options.with_api_key(api_key=API_KEY, api_key_id=API_KEY_ID)
-        robot = await RobotClient.at_address(ROBOT_ADDRESS, options)
         robot = await RobotClient.at_address(ROBOT_ADDRESS, options)
         print(f"✓ Connected to {ROBOT_ADDRESS}")
         
@@ -283,6 +282,7 @@ async def connect_to_robot() -> bool:
             print("✓ Camera initialized")
         except Exception:
             print("✗ Camera not found")
+            camera = None
         
         # Initialize lidar (optional)
         if LIDAR_NAME:
@@ -302,6 +302,14 @@ async def connect_to_robot() -> bool:
         except Exception:
             print(f"✗ Battery '{BATTERY_NAME}' not found")
             battery = None
+            
+        # Initialize IMU (Confirmation)
+        try:
+            imu = Sensor.from_robot(robot, IMU_NAME)
+            print("✓ IMU initialized")
+        except Exception:
+            print(f"✗ IMU '{IMU_NAME}' not found")
+            imu = None
         
         return True
         
@@ -319,9 +327,9 @@ async def producer_task():
     Continuously broadcast sensor data to all connected clients.
     Runs at ~10Hz for smooth video/lidar updates.
     """
-    global robot, left_motor, right_motor, camera, lidar, battery
+    global robot, left_motor, right_motor, camera, lidar, battery, imu
     global connected_clients, detection_enabled, is_auto_driving
-    global frame_count, last_detections
+    global frame_count, last_detections, tracker, tracker_label, tracker_init_time
     
     last_video_time = 0
     VIDEO_INTERVAL = 1.0 / 24.0  # Cap video at ~24 FPS to prevent flooding
@@ -448,42 +456,96 @@ async def producer_task():
                                 # Let's optimize process_detection to accept an image array instead of bytes if possible, 
                                 # or just do it inline here to avoid re-encoding/decoding.
                                 
-                                # Refactoring process_detection is cleaner but complex edit.
-                                # Let's just use the logic here.
-                                
                                 if detection_model:
-                                    results = detection_model(frame, verbose=False, stream=True)
-                                    new_detections = []
-                                    for r in results:
-                                        for box in r.boxes:
-                                            cls_id = int(box.cls[0])
-                                            if cls_id not in TARGET_CLASSES: continue
+                                    # HYBRID TRACKING LOGIC
+                                    # 1. Run YOLO periodically (e.g. every 30 frames) OR if we lost tracking
+                                    run_yolo = (frame_count % detection_interval == 0) or (tracker is None)
+                                    
+                                    if run_yolo:
+                                        results = detection_model(frame, verbose=False, stream=True)
+                                        best_det = None
+                                        
+                                        # Process YOLO results
+                                        for r in results:
+                                            for box in r.boxes:
+                                                cls_id = int(box.cls[0])
+                                                if cls_id not in TARGET_CLASSES: continue
+                                                
+                                                conf = float(box.conf[0])
+                                                if conf < 0.4: continue # Skip weak
+                                                
+                                                # Select highest confidence object
+                                                if best_det is None or conf > best_det['confidence']:
+                                                    x1, y1, x2, y2 = [int(val) for val in box.xyxy[0]]
+                                                    width_px, height_px = x2-x1, y2-y1
+                                                    label = detection_model.names[cls_id]
+                                                    
+                                                    # Fix bounding box for tracker init
+                                                    # CSRT needs (x, y, w, h)
+                                                    best_det = {
+                                                        "bbox_tracker": (x1, y1, width_px, height_px),
+                                                        "label": label,
+                                                        "confidence": conf,
+                                                        "bbox_viz": [x1, y1, x2, y2]
+                                                    }
+
+                                        if best_det:
+                                            # Init Tracker
+                                            tracker = cv2.TrackerCSRT_create()
+                                            tracker.init(frame, best_det["bbox_tracker"])
+                                            tracker_label = best_det["label"]
+                                            # We will use the tracker update block below to set 'last_detections'
+                                            # to ensure consistency
+                                        else:
+                                            # No object found by YOLO
+                                            # Keep tracker if it was working? No, if YOLO says nothing, 
+                                            # and we are in a 'check' frame, maybe we should trust YOLO?
+                                            # Actually, YOLO might miss frames. 
+                                            # Strategy: Only reset tracker if it explicitly FAILED previous updates
+                                            # OR if we want to re-lock. 
+                                            # For simplicity: If YOLO finds nothing, we rely on tracker 
+                                            # UNLESS tracker also fails.
+                                            pass
+
+                                    # 2. Run Tracker (Every Frame where we have a tracker)
+                                    current_detections = []
+                                    if tracker:
+                                        success, box = tracker.update(frame)
+                                        if success:
+                                            x, y, w, h = [int(v) for v in box]
+                                            # center
+                                            center_x = int(x + w/2)
+                                            center_y = int(y + h/2)
                                             
-                                            x1, y1, x2, y2 = [int(val) for val in box.xyxy[0]]
-                                            width_px, height_px = x2-x1, y2-y1
-                                            label = detection_model.names[cls_id]
-                                            conf = float(box.conf[0])
-                                            center_x = int(x1 + width_px/2)
-                                            center_y = int(y1 + height_px/2)
-                                            real_h = KNOWN_HEIGHT_BOTTLE if label == 'bottle' else KNOWN_HEIGHT_CAN
-                                            dist_cm = calculate_distance(height_px, real_h)
+                                            # Re-calc distance
+                                            real_h = KNOWN_HEIGHT_BOTTLE if tracker_label == 'bottle' else KNOWN_HEIGHT_CAN
+                                            dist_cm = calculate_distance(h, real_h)
                                             
-                                            new_detections.append({
-                                                "label": label, "confidence": round(conf, 2),
+                                            current_detections.append({
+                                                "label": tracker_label,
+                                                "confidence": 1.0, # Tracker confidence is binary usually
                                                 "distance_cm": round(dist_cm, 1),
-                                                "center_x": center_x, "center_y": center_y,
-                                                "bbox": [x1, y1, x2, y2], "area_px": width_px * height_px
+                                                "center_x": center_x, 
+                                                "center_y": center_y,
+                                                "bbox": [x, y, x+w, y+h],
+                                                "area_px": w * h
                                             })
-                                    last_detections = new_detections
-                            
+                                        else:
+                                            # Tracking lost
+                                            tracker = None
+                                            tracker_label = ""
+                                    
+                                    last_detections = current_detections
+                                        
                             # Draw LAST known detections on CURRENT frame (Tracking effect)
                             for d in last_detections:
                                 x1, y1, x2, y2 = d['bbox']
                                 label = d['label']
-                                conf = d['confidence']
+                                # conf = d['confidence'] 
                                 dist = d['distance_cm']
                                 
-                                color = (0, 255, 0)
+                                # Use separate color for tracked vs detected?
+                                color = (0, 255, 255) # Cyan for tracker
                                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                                 cv2.circle(frame, (d['center_x'], d['center_y']), 4, (0, 0, 255), -1)
                                 cv2.putText(frame, f"{label} {dist}cm", (x1, y1-10), 
@@ -502,7 +564,7 @@ async def producer_task():
 
 
                         # === AUTO-DRIVE LOGIC ===
-                        # === AUTO-DRIVE LOGIC ===
+
                         if is_auto_driving:
                             # 1. Check for Active Detection (Filter low confidence)
                             active_target = None
@@ -540,29 +602,44 @@ async def producer_task():
                                 MIN_TURN = 0.30   # Reduced from 0.35 to reduce jerkiness
                                 MIN_MOVE = 0.25   # Keep driving power
                                 
-                                # Turn Logic
+                                # Arc-Pursuit Logic
+                                # 1. Calculate Angular (Turn)
                                 if abs(error_x) > center_threshold:
-                                    # Need to turn
                                     direction = 1 if error_x > 0 else -1
-                                    # Proportional turn, but clamped at MIN_TURN
                                     raw_turn = 0.2
                                     angular = max(MIN_TURN, raw_turn) * direction
-                                    # If using memory, maybe turn slower or same? Same is fine.
+                                    
+                                    # Dampen turn if using memory
+                                    if using_memory:
+                                        angular *= 0.5
                                 else:
-                                    # Centered, check distance
-                                    if dist > (target_dist + dist_threshold):
-                                        # Forward
-                                        linear = MIN_MOVE
-                                    elif dist < (target_dist - dist_threshold):
-                                        # Backward
-                                        linear = -MIN_MOVE
-                                    else:
-                                        # At target
-                                        linear = 0.0
-                                        angular = 0.0
-                                        if not using_memory: # Only stop if we actually see it
+                                    angular = 0.0
+
+                                # 2. Calculate Linear (Distance)
+                                # Default to stopping
+                                linear = 0.0
+                                
+                                if dist > (target_dist + dist_threshold):
+                                    # Need to move forward
+                                    # If turning, we still want to move forward to "Arc"
+                                    linear = MIN_MOVE
+                                    
+                                    # If we are effectively "blind" (using memory), keep moving forward 
+                                    # to follow the "theoretical line".
+                                    
+                                elif dist < (target_dist - dist_threshold):
+                                    # Too close, back up
+                                    linear = -MIN_MOVE
+                                    # If backing up, maybe don't turn as aggressively?
+                                    # For now, allow arc backing.
+                                else:
+                                    # At target distance
+                                    linear = 0.0
+                                    if abs(error_x) < center_threshold:
+                                        # Only stop completely if aligned AND at distance
+                                        if not using_memory:
                                             print("Target reached!")
-                                            is_auto_driving = False 
+                                            is_auto_driving = False
 
                                 # Apply
                                 l_pow = linear + angular
@@ -577,7 +654,7 @@ async def producer_task():
                                     await right_motor.set_power(r_pow)
                             
                             else:
-                                # No target, lost track > 1s
+                                # No target, lost track > 0.5s
                                 if left_motor and right_motor:
                                     await left_motor.set_power(0)
                                     await right_motor.set_power(0)
@@ -595,6 +672,20 @@ async def producer_task():
                     except Exception:
                         pass
                 
+                # Check IMU for confirmation
+                if imu:
+                    try:
+                        # get_readings() returns dict of values
+                        readings = await imu.get_readings()
+                        # data["imu"] = readings # Optional: send to GUI
+                        
+                        # Stall Detection Check (Basic)
+                        # If motors are powered > 0.5 but linear_accel is low
+                        # This requires checking current motor power state
+                        pass
+                    except Exception:
+                        pass
+
                 # Broadcast to all clients
                 message = json.dumps(data)
                 send_tasks = [client.send(message) for client in connected_clients]
