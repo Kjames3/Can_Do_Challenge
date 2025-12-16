@@ -1099,8 +1099,13 @@
             detectionCount: document.getElementById('detection-count'),
             detectionList: document.getElementById('detection-list'),
             autoDriveBtn: document.getElementById('auto-drive-btn'),
-            batteryStatus: document.getElementById('battery-status'),
-            batteryLevel: document.getElementById('battery-level'),
+
+            // Power Stats
+            powerStatsPanel: document.getElementById('power-stats'),
+            statVolts: document.getElementById('stat-volts'),
+            statAmps: document.getElementById('stat-amps'),
+            statWatts: document.getElementById('stat-watts'),
+
 
 
             // Lidar
@@ -1245,24 +1250,23 @@
                 elements.detectionPanel.style.display = state.detectionEnabled ? 'block' : 'none';
             }
 
+            // Update Auto-Driving Button State
+            if (data.is_auto_driving !== undefined) {
+                state.isAutoDriving = data.is_auto_driving;
+                updateAutoDriveButton();
+            }
+
             // Update lidar
             if (data.lidar_points && state.lidarEnabled) {
                 drawLidar(data.lidar_points);
             }
 
-            // Update Battery
+            // Update Battery / Power Stats
             if (data.battery) {
-                elements.batteryStatus.style.display = 'flex';
-                elements.batteryLevel.textContent = data.battery.percent + '%';
-
-                // Color code
-                if (data.battery.percent < 20) {
-                    elements.batteryLevel.style.color = 'var(--accent-red)';
-                } else if (data.battery.percent < 50) {
-                    elements.batteryLevel.style.color = 'var(--accent-yellow)';
-                } else {
-                    elements.batteryLevel.style.color = 'var(--accent-green)';
-                }
+                elements.powerStatsPanel.style.display = 'flex';
+                elements.statVolts.textContent = data.battery.voltage.toFixed(2) + ' V';
+                elements.statAmps.textContent = data.battery.amps.toFixed(3) + ' A';
+                elements.statWatts.textContent = data.battery.watts.toFixed(2) + ' W';
             }
         }
 
