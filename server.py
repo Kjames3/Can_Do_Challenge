@@ -12,6 +12,7 @@ Usage:
 """
 
 import asyncio
+import time
 import json
 import websockets
 from viam.robot.client import RobotClient
@@ -321,9 +322,19 @@ async def producer_task():
     global robot, left_motor, right_motor, camera, lidar, battery
     global connected_clients, detection_enabled, is_auto_driving
     global frame_count, last_detections
-
+    
+    last_video_time = 0
+    VIDEO_INTERVAL = 1.0 / 24.0  # Cap video at ~24 FPS to prevent flooding
+    last_battery_time = 0
+    BATTERY_INTERVAL = 5.0       # Update battery every 5s
+    
+    current_volts = 0.0
+    current_amps = 0.0
+    current_watts = 0.0
+    current_pct = 0.0
     
     while True:
+        current_time = time.time()
         if robot and connected_clients:
             try:
                 # Gather motor data
@@ -359,6 +370,49 @@ async def producer_task():
                 
                 if camera:
                     try:
+                        # --- Battery Logic ---
+                        if battery and (current_time - last_battery_time > BATTERY_INTERVAL):
+                            try:
+                                # get_voltage returns (volts, is_ac)
+                                volts_data = await battery.get_voltage()
+                                volts = volts_data[0] if isinstance(volts_data, tuple) else volts_data
+                                current_volts = round(volts, 2)
+                                
+                                # get_current returns (amps, is_ac)
+                                amps_data = await battery.get_current()
+                                amps = amps_data[0] if isinstance(amps_data, tuple) else amps_data
+                                current_amps = round(amps, 3)
+                                
+                                # get_power returns watts (float usually)
+                                watts = await battery.get_power()
+                                current_watts = round(watts, 2)
+
+                                # LiPo Estimate: 12.6V = 100%, 11.1V = ~20%, 9.0V = 0% typically for 3S
+                                # Adjust based on actual battery. Assuming 3S LiPo for Rover.
+                                # Simple linear map 9.6 - 12.6
+                                pct = (current_volts - 9.6) / (12.6 - 9.6) * 100
+                                current_pct = int(max(0, min(100, pct)))
+                                
+                                last_battery_time = current_time
+                            except Exception as e:
+                                print(f"Battery read error: {e}")
+
+                        data["battery"] = {
+                            "voltage": current_volts,
+                            "amps": current_amps,
+                            "watts": current_watts,
+                            "percent": current_pct
+                        }
+
+                        # --- Video Logic ---
+                        # Throttle video sending to save bandwidth for controls
+                        if (current_time - last_video_time) < VIDEO_INTERVAL:
+                             # Skip video frame, sleep tiny bit and continue
+                             await asyncio.sleep(0.005)
+                             continue
+                             
+                        last_video_time = current_time
+
                         # Note: newer Viam SDK returns ViamImage object, use .data for bytes
                         viam_img = await camera.get_image(mime_type="image/jpeg")
                         img_bytes = viam_img.data
