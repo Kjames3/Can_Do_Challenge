@@ -333,6 +333,11 @@ async def producer_task():
     current_watts = 0.0
     current_pct = 0.0
     
+    # Auto-Drive Memory
+    last_target = None
+    last_target_time = 0
+    MEMORY_DURATION = 0.5  # Reduced from 1.0s to prevent overshooting spins
+    
     while True:
         current_time = time.time()
         if robot and connected_clients:
@@ -497,55 +502,85 @@ async def producer_task():
 
 
                         # === AUTO-DRIVE LOGIC ===
-                        if is_auto_driving and detection_enabled and data["detections"]:
-                            # Find the closest bottle/can
-                            target = max(data["detections"], key=lambda d: d['confidence'])
+                        # === AUTO-DRIVE LOGIC ===
+                        if is_auto_driving:
+                            # 1. Check for Active Detection (Filter low confidence)
+                            active_target = None
+                            if detection_enabled and data["detections"]:
+                                valid_detections = [d for d in data["detections"] if d['confidence'] > 0.4]
+                                if valid_detections:
+                                    active_target = max(valid_detections, key=lambda d: d['confidence'])
+                                    last_target = active_target
+                                    last_target_time = time.time()
                             
-                            img_center_x = 320 # Assuming 640x480
+                            # 2. Determine if we have a valid target (Active or Memory)
+                            target_to_use = active_target
+                            using_memory = False
                             
-                            # Error calculation
-                            error_x = target['center_x'] - img_center_x
-                            dist = target['distance_cm']
+                            if not target_to_use:
+                                if (time.time() - last_target_time) < MEMORY_DURATION and last_target:
+                                    target_to_use = last_target
+                                    using_memory = True
                             
-                            # Control Logic
-                            linear = 0.0
-                            angular = 0.0
-                            
-                            print(f"Auto-drive: Dist={dist}cm, ErrorX={error_x}")
-                            
-                            if abs(error_x) > center_threshold_px:
-                                # Turn to center
-                                angular = 0.2 if error_x > 0 else -0.2
-                            else:
-                                # Centered, check distance
-                                if dist > (target_distance_cm + dist_threshold_cm):
-                                    linear = 0.3 # Move forward
-                                elif dist < (target_distance_cm - dist_threshold_cm):
-                                    linear = -0.3 # Move backward
-                                else:
-                                    # At target
-                                    linear = 0.0
-                                    angular = 0.0
-                                    print("Target reached!")
-                                    is_auto_driving = False # Stop auto-driving
-                            
-                            # Mixing
-                            l_pow = linear + angular
-                            r_pow = linear - angular
-                            
-                            # Clamp
-                            l_pow = max(min(l_pow, 1.0), -1.0)
-                            r_pow = max(min(r_pow, 1.0), -1.0)
-                            
-                            if left_motor and right_motor:
-                                await left_motor.set_power(l_pow)
-                                await right_motor.set_power(r_pow)
+                            # 3. Control Logic
+                            if target_to_use:
+                                img_center_x = 320 # Assuming 640x480
+                                error_x = target_to_use['center_x'] - img_center_x
+                                dist = target_to_use['distance_cm']
                                 
-                        elif is_auto_driving:
-                             # No detections or loss of tracking
-                             if left_motor and right_motor:
-                                 await left_motor.set_power(0)
-                                 await right_motor.set_power(0)
+                                # Params
+                                target_dist = 6.0      # Stop at 6cm (Target)
+                                dist_threshold = 2.0   # +/- 2cm Tolerance
+                                center_threshold = 30  # Pixels
+                                
+                                linear = 0.0
+                                angular = 0.0
+                                
+                                # STUTTER FIX: Minimum power to overcome friction
+                                MIN_TURN = 0.30   # Reduced from 0.35 to reduce jerkiness
+                                MIN_MOVE = 0.25   # Keep driving power
+                                
+                                # Turn Logic
+                                if abs(error_x) > center_threshold:
+                                    # Need to turn
+                                    direction = 1 if error_x > 0 else -1
+                                    # Proportional turn, but clamped at MIN_TURN
+                                    raw_turn = 0.2
+                                    angular = max(MIN_TURN, raw_turn) * direction
+                                    # If using memory, maybe turn slower or same? Same is fine.
+                                else:
+                                    # Centered, check distance
+                                    if dist > (target_dist + dist_threshold):
+                                        # Forward
+                                        linear = MIN_MOVE
+                                    elif dist < (target_dist - dist_threshold):
+                                        # Backward
+                                        linear = -MIN_MOVE
+                                    else:
+                                        # At target
+                                        linear = 0.0
+                                        angular = 0.0
+                                        if not using_memory: # Only stop if we actually see it
+                                            print("Target reached!")
+                                            is_auto_driving = False 
+
+                                # Apply
+                                l_pow = linear + angular
+                                r_pow = linear - angular
+                                
+                                # Clamp
+                                l_pow = max(min(l_pow, 1.0), -1.0)
+                                r_pow = max(min(r_pow, 1.0), -1.0)
+                                
+                                if left_motor and right_motor:
+                                    await left_motor.set_power(l_pow)
+                                    await right_motor.set_power(r_pow)
+                            
+                            else:
+                                # No target, lost track > 1s
+                                if left_motor and right_motor:
+                                    await left_motor.set_power(0)
+                                    await right_motor.set_power(0)
                             
                     except Exception as e:
                         print(f"Camera/Auto-drive loop error: {e}")
