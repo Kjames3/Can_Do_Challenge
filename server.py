@@ -18,6 +18,7 @@ from viam.robot.client import RobotClient
 from viam.rpc.dial import DialOptions
 from viam.components.motor import Motor
 from viam.components.camera import Camera
+from viam.components.sensor import Sensor
 import base64
 import io
 import struct
@@ -30,15 +31,17 @@ from ultralytics import YOLO
 # =============================================================================
 
 # Robot Connection Details
-ROBOT_ADDRESS = "rover-3-main.ayzp4fw8rj.viam.cloud"
-API_KEY_ID = "164902f7-7737-4675-85d6-151fedb70a82"
-API_KEY = "ab5lhwuctyf0t34wt7mu9gq24kgx8azh"
+ROBOT_ADDRESS = "yeep-main.ayzp4fw8rj.viam.cloud"
+API_KEY_ID = "d55dcbc4-6c31-4d78-97d9-57792293a0b7"
+API_KEY = "3u88u6fsuowp1wv4inpyebnv13k6dkhn"
 
+# Component Names
 # Component Names
 LEFT_MOTOR_NAME = "left"
 RIGHT_MOTOR_NAME = "right"
 CAMERA_NAME = "cam"
-LIDAR_NAME = "rplidar"
+LIDAR_NAME = None  # No lidar on this robot
+BATTERY_NAME = "ina219"
 
 # Detection Configuration
 KNOWN_HEIGHT_BOTTLE = 20.0  # Standard water bottle height in cm
@@ -54,7 +57,15 @@ robot: RobotClient = None
 left_motor: Motor = None
 right_motor: Motor = None
 camera: Camera = None
+camera: Camera = None
 lidar: Camera = None
+battery: Sensor = None
+
+# Auto-drive state
+is_auto_driving: bool = False
+target_distance_cm: float = 12.5  # Target distance (between 10-15cm)
+dist_threshold_cm: float = 2.5    # +/- 2.5cm tolerance
+center_threshold_px: int = 50     # Pixel error tolerance for centering
 
 # Detection state
 detection_model: YOLO = None
@@ -230,19 +241,24 @@ def parse_pcd(data: bytes) -> list:
 
 async def connect_to_robot() -> bool:
     """Establish connection to the Viam robot."""
-    global robot, left_motor, right_motor, camera, lidar
+    global robot, left_motor, right_motor, camera, lidar, battery
     
     print("Connecting to robot...")
     
     try:
-        dial_options = DialOptions.with_api_key(API_KEY, API_KEY_ID)
-        robot = await RobotClient.at_address(ROBOT_ADDRESS, dial_options)
-        print(f"✓ Connected to {robot.name}")
+        options = RobotClient.Options.with_api_key(api_key=API_KEY, api_key_id=API_KEY_ID)
+        robot = await RobotClient.at_address(ROBOT_ADDRESS, options)
+        print(f"✓ Connected to {ROBOT_ADDRESS}")
         
-        # Initialize motors
-        left_motor = Motor.from_robot(robot, LEFT_MOTOR_NAME)
-        right_motor = Motor.from_robot(robot, RIGHT_MOTOR_NAME)
-        print("✓ Motors initialized")
+        # Initialize motors (optional)
+        try:
+            left_motor = Motor.from_robot(robot, LEFT_MOTOR_NAME)
+            right_motor = Motor.from_robot(robot, RIGHT_MOTOR_NAME)
+            print("✓ Motors initialized")
+        except Exception:
+            print("✗ Motors not found")
+            left_motor = None
+            right_motor = None
         
         # Initialize camera (optional)
         try:
@@ -253,10 +269,18 @@ async def connect_to_robot() -> bool:
         
         # Initialize lidar (optional)
         try:
-            lidar = Camera.from_robot(robot, LIDAR_NAME)
             print("✓ Lidar initialized")
         except Exception:
             print("✗ Lidar not found")
+            lidar = None
+            
+        # Initialize battery (optional)
+        try:
+            battery = Sensor.from_robot(robot, BATTERY_NAME)
+            print("✓ Battery initialized")
+        except Exception:
+            print("✗ Battery not found")
+            battery = None
         
         return True
         
@@ -274,8 +298,8 @@ async def producer_task():
     Continuously broadcast sensor data to all connected clients.
     Runs at ~10Hz for smooth video/lidar updates.
     """
-    global robot, left_motor, right_motor, camera, lidar
-    global connected_clients, detection_enabled
+    global robot, left_motor, right_motor, camera, lidar, battery
+    global connected_clients, detection_enabled, is_auto_driving
     
     while True:
         if robot and connected_clients:
@@ -295,8 +319,21 @@ async def producer_task():
                     "left_power": left_power_data[1],
                     "right_pos": right_pos,
                     "right_power": right_power_data[1],
-                    "detection_enabled": detection_enabled
+                    "right_pos": right_pos,
+                    "right_power": right_power_data[1],
+                    "detection_enabled": detection_enabled,
+                    "is_auto_driving": is_auto_driving
                 }
+                
+                # Get battery data
+                if battery:
+                    try:
+                        readings = await battery.get_readings()
+                        # specific to ina219, usually returns "volts", "amps", etc.
+                        # We'll stick to a generic guess or just send all readings
+                        data["battery"] = readings
+                    except Exception:
+                        pass
                 
                 # Process camera feed
                 if camera:
@@ -316,8 +353,60 @@ async def producer_task():
                             # Send raw image without detection
                             data["image"] = base64.b64encode(img_bytes).decode('utf-8')
                             data["detections"] = []
+
+                        # === AUTO-DRIVE LOGIC ===
+                        if is_auto_driving and detection_enabled and data["detections"]:
+                            # Find the closest bottle/can
+                            target = max(data["detections"], key=lambda d: d['confidence'])
+                            
+                            img_center_x = 320 # Assuming 640x480
+                            
+                            # Error calculation
+                            error_x = target['center_x'] - img_center_x
+                            dist = target['distance_cm']
+                            
+                            # Control Logic
+                            linear = 0.0
+                            angular = 0.0
+                            
+                            print(f"Auto-drive: Dist={dist}cm, ErrorX={error_x}")
+                            
+                            if abs(error_x) > center_threshold_px:
+                                # Turn to center
+                                angular = 0.2 if error_x > 0 else -0.2
+                            else:
+                                # Centered, check distance
+                                if dist > (target_distance_cm + dist_threshold_cm):
+                                    linear = 0.3 # Move forward
+                                elif dist < (target_distance_cm - dist_threshold_cm):
+                                    linear = -0.3 # Move backward
+                                else:
+                                    # At target
+                                    linear = 0.0
+                                    angular = 0.0
+                                    print("Target reached!")
+                                    is_auto_driving = False # Stop auto-driving
+                            
+                            # Mixing
+                            l_pow = linear + angular
+                            r_pow = linear - angular
+                            
+                            # Clamp
+                            l_pow = max(min(l_pow, 1.0), -1.0)
+                            r_pow = max(min(r_pow, 1.0), -1.0)
+                            
+                            if left_motor and right_motor:
+                                await left_motor.set_power(l_pow)
+                                await right_motor.set_power(r_pow)
+                                
+                        elif is_auto_driving:
+                             # No detections or loss of tracking
+                             if left_motor and right_motor:
+                                 await left_motor.set_power(0)
+                                 await right_motor.set_power(0)
                             
                     except Exception as e:
+                        print(f"Camera/Auto-drive loop error: {e}")
                         pass
                 
                 # Process lidar data
@@ -344,7 +433,7 @@ async def producer_task():
 
 async def consumer_task(websocket):
     """Handle incoming messages from a WebSocket client."""
-    global robot, left_motor, right_motor, detection_enabled
+    global robot, left_motor, right_motor, detection_enabled, is_auto_driving
     
     async for message in websocket:
         try:
@@ -370,12 +459,23 @@ async def consumer_task(websocket):
             elif msg_type == "toggle_detection":
                 detection_enabled = data.get("enabled", False)
                 print(f"Detection {'enabled' if detection_enabled else 'disabled'}")
+
+            elif msg_type == "start_auto_drive":
+                 print("Starting Auto-Drive...")
+                 is_auto_driving = True
+                 detection_enabled = True # Force detection on
+            
+            elif msg_type == "stop_auto_drive":
+                 print("Stopping Auto-Drive...")
+                 is_auto_driving = False
+                 await left_motor.set_power(0)
+                 await right_motor.set_power(0)
                 
         except Exception as e:
             print(f"Consumer error: {e}")
 
 
-async def handler(websocket, path):
+async def handler(websocket):
     """Handle a new WebSocket connection."""
     global connected_clients
     

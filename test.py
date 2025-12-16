@@ -12,11 +12,11 @@ from viam.components.power_sensor import PowerSensor
 async def connect():
     opts = RobotClient.Options.with_api_key(
          
-        api_key='q2h3tup8scoj1dnhneolqnoa3c5pw8br',
+        api_key='ab5lhwuctyf0t34wt7mu9gq24kgx8azh',
         
-        api_key_id='4ed5a063-a693-49a1-9212-2f04c7a50dd6'
+        api_key_id='164902f7-7737-4675-85d6-151fedb70a82'
     )
-    return await RobotClient.at_address('rover-2-main.ayzp4fw8rj.viam.cloud', opts)
+    return await RobotClient.at_address('rover-3-main.ayzp4fw8rj.viam.cloud', opts)
 
 async def main():
     machine = await connect()
@@ -26,7 +26,7 @@ async def main():
     
     # Note that the pin supplied is a placeholder. Please change this to a valid pin you are using.
     # local
-    local = Board.from_robot(machine, "local")
+    local = Board.from_robot(machine, "local_1")
     local_return_value = await local.gpio_pin_by_name("16")
     print(f"local gpio_pin_by_name return value: {local_return_value}")
 
