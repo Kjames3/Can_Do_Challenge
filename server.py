@@ -18,7 +18,10 @@ from viam.robot.client import RobotClient
 from viam.rpc.dial import DialOptions
 from viam.components.motor import Motor
 from viam.components.camera import Camera
+from viam.components.motor import Motor
+from viam.components.camera import Camera
 from viam.components.sensor import Sensor
+from viam.components.power_sensor import PowerSensor
 import base64
 import io
 import struct
@@ -59,13 +62,21 @@ right_motor: Motor = None
 camera: Camera = None
 camera: Camera = None
 lidar: Camera = None
-battery: Sensor = None
+camera: Camera = None
+lidar: Camera = None
+battery: PowerSensor = None
 
 # Auto-drive state
 is_auto_driving: bool = False
 target_distance_cm: float = 12.5  # Target distance (between 10-15cm)
 dist_threshold_cm: float = 2.5    # +/- 2.5cm tolerance
 center_threshold_px: int = 50     # Pixel error tolerance for centering
+  
+# FPS Optimization
+frame_count: int = 0
+detection_interval: int = 3  # Run detection every N frames
+last_detections: list = []
+
 
 # Detection state
 detection_model: YOLO = None
@@ -248,7 +259,12 @@ async def connect_to_robot() -> bool:
     try:
         options = RobotClient.Options.with_api_key(api_key=API_KEY, api_key_id=API_KEY_ID)
         robot = await RobotClient.at_address(ROBOT_ADDRESS, options)
+        robot = await RobotClient.at_address(ROBOT_ADDRESS, options)
         print(f"✓ Connected to {ROBOT_ADDRESS}")
+        
+        print("Available resources:")
+        for name in robot.resource_names:
+            print(f" - {name.name} ({name.subtype})")
         
         # Initialize motors (optional)
         try:
@@ -268,18 +284,22 @@ async def connect_to_robot() -> bool:
             print("✗ Camera not found")
         
         # Initialize lidar (optional)
-        try:
-            print("✓ Lidar initialized")
-        except Exception:
-            print("✗ Lidar not found")
+        if LIDAR_NAME:
+            try:
+                lidar = Camera.from_robot(robot, LIDAR_NAME)
+                print("✓ Lidar initialized")
+            except Exception:
+                print("✗ Lidar not found")
+                lidar = None
+        else:
             lidar = None
             
         # Initialize battery (optional)
         try:
-            battery = Sensor.from_robot(robot, BATTERY_NAME)
+            battery = PowerSensor.from_robot(robot, BATTERY_NAME)
             print("✓ Battery initialized")
         except Exception:
-            print("✗ Battery not found")
+            print(f"✗ Battery '{BATTERY_NAME}' not found")
             battery = None
         
         return True
@@ -300,6 +320,8 @@ async def producer_task():
     """
     global robot, left_motor, right_motor, camera, lidar, battery
     global connected_clients, detection_enabled, is_auto_driving
+    global frame_count, last_detections
+
     
     while True:
         if robot and connected_clients:
@@ -328,31 +350,94 @@ async def producer_task():
                 # Get battery data
                 if battery:
                     try:
-                        readings = await battery.get_readings()
-                        # specific to ina219, usually returns "volts", "amps", etc.
-                        # We'll stick to a generic guess or just send all readings
-                        data["battery"] = readings
+                        # For PowerSensor, get_voltage() returns (volts, is_ac)
+                        volts, is_ac = await battery.get_voltage()
+                        # Also could get watts, current, etc.
+                        data["battery"] = {"volts": volts}
                     except Exception:
                         pass
                 
-                # Process camera feed
                 if camera:
                     try:
-                        img_bytes = await camera.get_image(mime_type="image/jpeg")
+                        # Note: newer Viam SDK returns ViamImage object, use .data for bytes
+                        viam_img = await camera.get_image(mime_type="image/jpeg")
+                        img_bytes = viam_img.data
+                        
+                        # Resize for performance (optional, but good practice if camera is 1080p)
+                        # We need to decode to resize anyway if we are detecting.
+                        # If NOT detecting, we just pass through.
                         
                         if detection_enabled:
-                            # Run detection and get annotated image
-                            annotated_b64, detections = process_detection(img_bytes)
-                            if annotated_b64:
-                                data["image"] = annotated_b64
-                                data["detections"] = detections
-                            else:
-                                data["image"] = base64.b64encode(img_bytes).decode('utf-8')
-                                data["detections"] = []
+                            frame_count += 1
+                            
+                            # Decode once
+                            nparr = np.frombuffer(img_bytes, np.uint8)
+                            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                            
+                            # Resize if huge
+                            h, w = frame.shape[:2]
+                            if w > 640:
+                                frame = cv2.resize(frame, (640, 480))
+                                
+                            # Run detection only on interval
+                            if frame_count % detection_interval == 0:
+                                # Run detection on this frame
+                                # We need to pass the ARRAY to process_detection now, or refactor process_detection
+                                # Let's optimize process_detection to accept an image array instead of bytes if possible, 
+                                # or just do it inline here to avoid re-encoding/decoding.
+                                
+                                # Refactoring process_detection is cleaner but complex edit.
+                                # Let's just use the logic here.
+                                
+                                if detection_model:
+                                    results = detection_model(frame, verbose=False, stream=True)
+                                    new_detections = []
+                                    for r in results:
+                                        for box in r.boxes:
+                                            cls_id = int(box.cls[0])
+                                            if cls_id not in TARGET_CLASSES: continue
+                                            
+                                            x1, y1, x2, y2 = [int(val) for val in box.xyxy[0]]
+                                            width_px, height_px = x2-x1, y2-y1
+                                            label = detection_model.names[cls_id]
+                                            conf = float(box.conf[0])
+                                            center_x = int(x1 + width_px/2)
+                                            center_y = int(y1 + height_px/2)
+                                            real_h = KNOWN_HEIGHT_BOTTLE if label == 'bottle' else KNOWN_HEIGHT_CAN
+                                            dist_cm = calculate_distance(height_px, real_h)
+                                            
+                                            new_detections.append({
+                                                "label": label, "confidence": round(conf, 2),
+                                                "distance_cm": round(dist_cm, 1),
+                                                "center_x": center_x, "center_y": center_y,
+                                                "bbox": [x1, y1, x2, y2], "area_px": width_px * height_px
+                                            })
+                                    last_detections = new_detections
+                            
+                            # Draw LAST known detections on CURRENT frame (Tracking effect)
+                            for d in last_detections:
+                                x1, y1, x2, y2 = d['bbox']
+                                label = d['label']
+                                conf = d['confidence']
+                                dist = d['distance_cm']
+                                
+                                color = (0, 255, 0)
+                                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                                cv2.circle(frame, (d['center_x'], d['center_y']), 4, (0, 0, 255), -1)
+                                cv2.putText(frame, f"{label} {dist}cm", (x1, y1-10), 
+                                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                            
+                            # Re-encode to send
+                            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                            
+                            data["image"] = base64.b64encode(buffer).decode('utf-8')
+                            data["detections"] = last_detections
+                                
                         else:
                             # Send raw image without detection
                             data["image"] = base64.b64encode(img_bytes).decode('utf-8')
                             data["detections"] = []
+
 
                         # === AUTO-DRIVE LOGIC ===
                         if is_auto_driving and detection_enabled and data["detections"]:
@@ -422,13 +507,14 @@ async def producer_task():
                 message = json.dumps(data)
                 send_tasks = [client.send(message) for client in connected_clients]
                 if send_tasks:
-                    await asyncio.wait(send_tasks)
+                    await asyncio.gather(*send_tasks)
                     
             except Exception as e:
                 print(f"Producer error: {e}")
         
         # Rate limit: 10Hz
-        await asyncio.sleep(0.1)
+        # Rate limit: ~60Hz (limited by camera speed roughly)
+        await asyncio.sleep(0.01)
 
 
 async def consumer_task(websocket):

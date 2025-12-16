@@ -236,6 +236,112 @@
             padding: 1.25rem;
         }
 
+        /* WASD Control Panel */
+        .wasd-panel {
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+            width: 100%;
+            max-width: 220px;
+            border: 1px solid var(--border-color);
+        }
+
+        .control-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .d-pad {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+            gap: 8px;
+            margin: 0.5rem 0;
+        }
+
+        .d-btn {
+            width: 48px;
+            height: 48px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.1s;
+            font-size: 1.2rem;
+            user-select: none;
+        }
+
+        .d-btn:active,
+        .d-btn.active {
+            background: var(--accent-cyan);
+            color: #000;
+            transform: translateY(2px);
+        }
+
+        /* Specific positions */
+        #btn-w {
+            grid-column: 2;
+            grid-row: 1;
+        }
+
+        #btn-a {
+            grid-column: 1;
+            grid-row: 2;
+        }
+
+        #btn-s {
+            grid-column: 2;
+            grid-row: 2;
+        }
+
+        #btn-d {
+            grid-column: 3;
+            grid-row: 2;
+        }
+
+        .power-setting {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .power-val {
+            font-family: monospace;
+            color: var(--accent-green);
+        }
+
+        /* reuse slider styling for horizontal power slider */
+        input[type=range].h-slider {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 6px;
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+        }
+
+        input[type=range].h-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: var(--text-primary);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
         /* =================================================================
            Toggle Switch
            ================================================================= */
@@ -480,22 +586,121 @@
             color: var(--text-secondary);
         }
 
+        /* Custom Vertical Range Input */
         .vertical-slider {
-            writing-mode: bt-lr;
-            -webkit-appearance: slider-vertical;
-            appearance: slider-vertical;
-            width: 24px;
-            height: 160px;
-            background: var(--bg-tertiary);
-            border-radius: 12px;
+            -webkit-appearance: none;
+            width: 80px;
+            /* Wider as requested */
+            height: 300px;
+            /* Taller */
+            background: transparent;
             cursor: pointer;
+            writing-mode: bt-lr;
+            /* IE/Edge */
+            -webkit-appearance: slider-vertical;
+            /* Webkit */
+            appearance: slider-vertical;
+            /* Note: "appearance: slider-vertical" often overrides standard styling. 
+               For a truly custom look matching the image (pill shape, fill), 
+               we often need a wrapper or simpler cross-browser tricks. 
+               However, standard range with rotation or vertical orient is tricky. 
+               Let's try a transform approach for maximum styling control if native vertical fails styling.
+               Actually, standard practice for "pill" sliders is often rotated horizontal sliders 
+               OR just standard vertical inputs with limited styling. 
+               Given "High Quality", I will use a rotated horizontal slider approach via a wrapper 
+               to ensure I can get the "track" and "fill" look exactly right on all browsers. 
+             */
+            display: none;
+            /* We will replace the visible inputs with our custom structure below, 
+                             or strictly style these if possible. */
+        }
+
+        /* 
+           Simulating Vertical Sliders using Rotated Inputs is often more reliable for styling 
+           than 'appearance: slider-vertical'. 
+        */
+
+        .slider-wrapper {
+            position: relative;
+            width: 80px;
+            height: 300px;
+            background: var(--bg-secondary);
+            border-radius: 40px;
+            box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid var(--border-color);
+        }
+
+        .slider-fill {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(to top, var(--accent-green), #4ade80);
+            border-radius: 40px;
+            opacity: 0.8;
+            pointer-events: none;
+            /* Height set by JS */
+            height: 50%;
+            transition: height 0.1s ease, background-color 0.2s;
+        }
+
+        .slider-input {
+            position: absolute;
+            width: 300px;
+            /* Height of the wrapper */
+            height: 80px;
+            /* Width of the wrapper */
+            transform: rotate(-90deg);
+            transform-origin: center;
+            opacity: 0;
+            /* Invisible interaction layer */
+            cursor: pointer;
+            z-index: 2;
+        }
+
+        /* Thumb visualization (optional, if we want a separate thumb element) */
+        .slider-thumb {
+            position: absolute;
+            left: 50%;
+            width: 70px;
+            height: 70px;
+            background: #e2e8f0;
+            border: 2px solid #cbd5e1;
+            border-radius: 20px;
+            transform: translate(-50%, 50%);
+            /* Start centered vertically */
+            bottom: 50%;
+            /* Adjusted by JS */
+            pointer-events: none;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            z-index: 1;
+            transition: bottom 0.1s ease;
         }
 
         .slider-value {
             font-family: 'SF Mono', 'Monaco', monospace;
-            font-size: 0.875rem;
-            font-weight: 600;
-            color: var(--accent-cyan);
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-top: 1rem;
+        }
+
+        #auto-drive-wrapper {
+            width: 100%;
+            transition: all 0.3s ease;
+            overflow: hidden;
+            max-height: 0;
+            /* Hidden by default */
+            opacity: 0;
+        }
+
+        #auto-drive-wrapper.visible {
+            max-height: 200px;
+            opacity: 1;
+            margin-top: 1rem;
         }
 
         .stop-btn {
@@ -685,22 +890,63 @@
                             <div class="sliders-container">
                                 <div class="slider-group">
                                     <span class="slider-label">LEFT</span>
-                                    <input type="range" id="left-slider" class="vertical-slider" min="-100" max="100"
-                                        value="0" step="1">
+                                    <div class="slider-wrapper">
+                                        <div class="slider-fill" id="left-fill" style="bottom: 50%; height: 0%;"></div>
+                                        <div class="slider-thumb" id="left-thumb" style="bottom: 50%;"></div>
+                                        <input type="range" id="left-slider" class="slider-input" min="-100" max="100"
+                                            value="0" step="1">
+                                    </div>
                                     <span id="left-slider-value" class="slider-value">0</span>
                                 </div>
 
-                                <div style="display: flex; flex-direction: column; gap: 1rem; align-items: center;">
+                                <div
+                                    style="display: flex; flex-direction: column; gap: 1rem; align-items: center; z-index: 10;">
                                     <button id="stop-btn" class="stop-btn">STOP</button>
-                                    <button id="auto-drive-btn" class="btn btn-primary" style="width: 100%;">
-                                        Start Auto-Drive
-                                    </button>
+                                    <div id="auto-drive-wrapper">
+                                        <button id="auto-drive-btn" class="btn btn-primary" style="width: 100%;">
+                                            Start Auto-Drive
+                                        </button>
+                                    </div>
+
+                                    <!-- WASD Panel -->
+                                    <div class="wasd-panel">
+                                        <div class="control-header">
+                                            <span>Quick move</span>
+                                            <div style="display:flex; gap:0.5rem; align-items:center;">
+                                                <small style="font-size:0.7rem;">WASD</small>
+                                                <label class="switch">
+                                                    <input type="checkbox" id="keyboard-toggle">
+                                                    <span class="slider round"></span>
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        <div class="d-pad">
+                                            <button class="d-btn" id="btn-w">↑</button>
+                                            <button class="d-btn" id="btn-a">↶</button>
+                                            <button class="d-btn" id="btn-s">↓</button>
+                                            <button class="d-btn" id="btn-d">↷</button>
+                                        </div>
+
+                                        <div class="power-setting">
+                                            <div style="display:flex; justify-content:space-between; font-size:0.8rem;">
+                                                <span>Power</span>
+                                                <span id="key-power-val" class="power-val">0.5</span>
+                                            </div>
+                                            <input type="range" id="key-power" class="h-slider" min="0.1" max="1.0"
+                                                step="0.1" value="0.5">
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div class="slider-group">
                                     <span class="slider-label">RIGHT</span>
-                                    <input type="range" id="right-slider" class="vertical-slider" min="-100" max="100"
-                                        value="0" step="1">
+                                    <div class="slider-wrapper">
+                                        <div class="slider-fill" id="right-fill" style="bottom: 50%; height: 0%;"></div>
+                                        <div class="slider-thumb" id="right-thumb" style="bottom: 50%;"></div>
+                                        <input type="range" id="right-slider" class="slider-input" min="-100" max="100"
+                                            value="0" step="1">
+                                    </div>
                                     <span id="right-slider-value" class="slider-value">0</span>
                                 </div>
                             </div>
@@ -812,10 +1058,28 @@
 
             // Motors
             leftSlider: document.getElementById('left-slider'),
-            rightSlider: document.getElementById('right-slider'),
             leftSliderValue: document.getElementById('left-slider-value'),
+            leftFill: document.getElementById('left-fill'),
+            leftThumb: document.getElementById('left-thumb'),
+
+            rightSlider: document.getElementById('right-slider'),
             rightSliderValue: document.getElementById('right-slider-value'),
+            rightFill: document.getElementById('right-fill'),
+            rightThumb: document.getElementById('right-thumb'),
+
             stopBtn: document.getElementById('stop-btn'),
+
+            autoDriveWrapper: document.getElementById('auto-drive-wrapper'),
+
+            // WSAD / D-Pad
+            btnW: document.getElementById('btn-w'),
+            btnA: document.getElementById('btn-a'),
+            btnS: document.getElementById('btn-s'),
+            btnD: document.getElementById('btn-d'),
+            keyboardToggle: document.getElementById('keyboard-toggle'),
+            keyPower: document.getElementById('key-power'),
+            keyPowerVal: document.getElementById('key-power-val'),
+
             leftPos: document.getElementById('left-pos'),
             leftPower: document.getElementById('left-power'),
             rightPos: document.getElementById('right-pos'),
@@ -1148,6 +1412,40 @@
             }
         }
 
+        function updateVisuals(value, fill, thumb) {
+            // Value is -100 to 100
+            // Normalize to 0-1 range for position
+            const pct = (parseInt(value) + 100) / 200;
+            const pctString = (pct * 100) + "%";
+
+            // Move thumb
+            thumb.style.bottom = pctString;
+
+            // Adjust Fill (Center-Zero logic)
+            // Center is 50%
+            if (value >= 0) {
+                fill.style.bottom = "50%";
+                fill.style.height = (value / 2) + "%";
+                fill.style.backgroundColor = "var(--accent-green)"; // Positive color
+            } else {
+                // Negative
+                // Bottom is current % position, Height is abs(value)/2
+                // e.g. -50% -> val=-50 -> pct=25% -> bottom=25%, height=25% (reaching 50%)
+                // Wait, simpler:
+                // fill.style.bottom = (50 - abs(val)/2) % ? No.
+                // Just set top/bottom based on range.
+                // It's easier to anchor to 50% and grow Down?
+                // But structure is absolute bottom.
+                // Let's use Top/Bottom/Height calc.
+
+                // If negative: Bottom = (pct * 100)%, Height = (Math.abs(value)/2)%
+                const absVal = Math.abs(value);
+                fill.style.bottom = pctString;
+                fill.style.height = (absVal / 2) + "%";
+                fill.style.backgroundColor = "var(--accent-cyan)"; // Negative color
+            }
+        }
+
         // =================================================================
         // Event Listeners
         // =================================================================
@@ -1157,7 +1455,7 @@
             if (state.connected) {
                 state.ws.close();
             } else {
-                connect(); // Renamed from connectWebSocket to connect
+                connect();
             }
         });
 
@@ -1178,8 +1476,10 @@
         }
 
         elements.leftSlider.addEventListener('input', (e) => {
-            elements.leftSliderValue.textContent = e.target.value;
-            updateMotor('left', parseInt(e.target.value));
+            const val = e.target.value;
+            elements.leftSliderValue.textContent = val;
+            updateVisuals(val, elements.leftFill, elements.leftThumb);
+            updateMotor('left', parseInt(val));
         });
 
         elements.leftSlider.addEventListener('change', (e) => {
@@ -1188,9 +1488,15 @@
         });
 
         elements.rightSlider.addEventListener('input', (e) => {
-            elements.rightSliderValue.textContent = e.target.value;
-            updateMotor('right', parseInt(e.target.value));
+            const val = e.target.value;
+            elements.rightSliderValue.textContent = val;
+            updateVisuals(val, elements.rightFill, elements.rightThumb);
+            updateMotor('right', parseInt(val));
         });
+
+        // Initialize visuals
+        updateVisuals(0, elements.leftFill, elements.leftThumb);
+        updateVisuals(0, elements.rightFill, elements.rightThumb);
 
         // Stop Button
         elements.stopBtn.addEventListener('click', () => {
@@ -1207,9 +1513,13 @@
             // Reset UI
             elements.leftSlider.value = 0;
             elements.leftSliderValue.textContent = "0";
+            updateVisuals(0, elements.leftFill, elements.leftThumb);
+
             elements.rightSlider.value = 0;
             elements.rightSliderValue.textContent = "0";
+            updateVisuals(0, elements.rightFill, elements.rightThumb);
         });
+
 
         // Auto Drive Button
         elements.autoDriveBtn.addEventListener('click', () => {
@@ -1227,6 +1537,16 @@
             // Optimistically update
             state.detectionEnabled = newState;
             elements.detectionToggle.classList.toggle('active', newState);
+
+            // Toggle Auto-Drive Button
+            if (newState) {
+                elements.autoDriveWrapper.classList.add('visible');
+            } else {
+                elements.autoDriveWrapper.classList.remove('visible');
+                // Also stop auto-drive if we disabled detection?
+                // Typically yes, but user might want manual control.
+                // Let's leave state alone but hide button.
+            }
 
             state.ws.send(JSON.stringify({
                 type: "toggle_detection",
@@ -1263,7 +1583,7 @@
                 if (gp) {
                     // Right Stick Y-axis (Index 3) for forward/back
                     // Right Stick X-axis (Index 2) for turn
-                    // NOTE: Axis values are -1 to 1. 
+                    // NOTE: Axis values are -1 to 1.
                     // Y: -1 is Up (usually), 1 is Down
 
                     const fwd = -gp.axes[3]; // Invert so Up is positive
@@ -1286,9 +1606,7 @@
 
                     // Emergency Stop (Button 0 = Cross/A)
                     if (gp.buttons[0].pressed) {
-                        // The original stopMotors function was replaced by an anonymous function in the event listener.
-                        // To call the new stop logic, we need to replicate it or ensure the new stopMotors is callable.
-                        // For now, I'll replicate the logic from the new stopMotors event listener.
+                        // Emergency Stop or Cross
                         if (state.connected) {
                             state.ws.send(JSON.stringify({ type: "stop" }));
                             if (state.isAutoDriving) {
@@ -1296,16 +1614,24 @@
                             }
                             elements.leftSlider.value = 0;
                             elements.leftSliderValue.textContent = "0";
+                            updateVisuals(0, elements.leftFill, elements.leftThumb);
                             elements.rightSlider.value = 0;
                             elements.rightSliderValue.textContent = "0";
+                            updateVisuals(0, elements.rightFill, elements.rightThumb);
                         }
                     } else if (!state.isAutoDriving && (Math.abs(left) > 0.05 || Math.abs(right) > 0.05)) {
                         // Only send if stick moved and NOT auto-driving
                         // Update UI sliders too
-                        elements.leftSlider.value = Math.round(left * 100);
-                        elements.leftSliderValue.textContent = Math.round(left * 100);
-                        elements.rightSlider.value = Math.round(right * 100);
-                        elements.rightSliderValue.textContent = Math.round(right * 100);
+                        const lVal = Math.round(left * 100);
+                        const rVal = Math.round(right * 100);
+
+                        elements.leftSlider.value = lVal;
+                        elements.leftSliderValue.textContent = lVal;
+                        updateVisuals(lVal, elements.leftFill, elements.leftThumb);
+
+                        elements.rightSlider.value = rVal;
+                        elements.rightSliderValue.textContent = rVal;
+                        updateVisuals(rVal, elements.rightFill, elements.rightThumb);
 
                         const msg = { type: "set_power", motor: "left", power: left };
                         const msg2 = { type: "set_power", motor: "right", power: right };
@@ -1319,7 +1645,143 @@
                 requestAnimationFrame(gamepadLoop);
             }
         }
+
+        // =================================================================
+        // WASD / D-PAD LOGIC
+        // =================================================================
+
+        // Power Slider
+        elements.keyPower.addEventListener('input', (e) => {
+            elements.keyPowerVal.textContent = e.target.value;
+        });
+
+        // Helper to send move command
+        function sendMove(leftMult, rightMult) {
+            if (!state.connected || state.isAutoDriving) return;
+
+            const basePower = parseFloat(elements.keyPower.value);
+            const lPwr = basePower * leftMult;
+            const rPwr = basePower * rightMult;
+
+            // Update UI sliders to reflect what's happening
+            const lVal = Math.round(lPwr * 100);
+            const rVal = Math.round(rPwr * 100);
+
+            elements.leftSlider.value = lVal;
+            elements.leftSliderValue.textContent = lVal;
+            updateVisuals(lVal, elements.leftFill, elements.leftThumb);
+
+            elements.rightSlider.value = rVal;
+            elements.rightSliderValue.textContent = rVal;
+            updateVisuals(rVal, elements.rightFill, elements.rightThumb);
+
+            // Send
+            const msg1 = { type: "set_power", motor: "left", power: lPwr };
+            const msg2 = { type: "set_power", motor: "right", power: rPwr };
+
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify(msg1));
+                state.ws.send(JSON.stringify(msg2));
+            }
+        }
+
+        function stopMove() {
+            if (!state.connected) return;
+            // Stop
+            state.ws.send(JSON.stringify({ type: "stop" }));
+
+            // Reset UI
+            elements.leftSlider.value = 0;
+            elements.leftSliderValue.textContent = "0";
+            updateVisuals(0, elements.leftFill, elements.leftThumb);
+            elements.rightSlider.value = 0;
+            elements.rightSliderValue.textContent = "0";
+            updateVisuals(0, elements.rightFill, elements.rightThumb);
+        }
+
+        // D-Pad Mouse Events
+        const dPadButtons = [
+            { el: elements.btnW, l: 1, r: 1 },    // Forward
+            { el: elements.btnS, l: -1, r: -1 },  // Backward
+            { el: elements.btnA, l: -1, r: 1 },   // Left (Pivot)
+            { el: elements.btnD, l: 1, r: -1 }    // Right (Pivot)
+        ];
+
+        dPadButtons.forEach(btn => {
+            // Mouse
+            btn.el.addEventListener('mousedown', () => sendMove(btn.l, btn.r));
+            btn.el.addEventListener('mouseup', stopMove);
+            btn.el.addEventListener('mouseleave', stopMove);
+
+            // Touch
+            btn.el.addEventListener('touchstart', (e) => { e.preventDefault(); sendMove(btn.l, btn.r); });
+            btn.el.addEventListener('touchend', (e) => { e.preventDefault(); stopMove(); });
+        });
+
+        // Keyboard Events
+        const keysPressed = {};
+
+        window.addEventListener('keydown', (e) => {
+            if (!state.connected || state.isAutoDriving) return;
+            // Only if toggle is ON
+            if (!elements.keyboardToggle.checked) return;
+
+            const key = e.key.toLowerCase();
+            if (keysPressed[key]) return; // Ignore repeat
+            keysPressed[key] = true;
+
+            // Prioritize: W/S > A/D
+            // Simple mapping for verification
+            if (key === 'w' || key === 'arrowup') {
+                elements.btnW.classList.add('active');
+                sendMove(1, 1);
+            } else if (key === 's' || key === 'arrowdown') {
+                elements.btnS.classList.add('active');
+                sendMove(-1, -1);
+            } else if (key === 'a' || key === 'arrowleft') {
+                elements.btnA.classList.add('active');
+                sendMove(-1, 1); // Pivot Left
+            } else if (key === 'd' || key === 'arrowright') {
+                elements.btnD.classList.add('active');
+                sendMove(1, -1); // Pivot Right
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            const key = e.key.toLowerCase();
+            keysPressed[key] = false;
+
+            // Remove active classes
+            if (key === 'w' || key === 'arrowup') elements.btnW.classList.remove('active');
+            if (key === 's' || key === 'arrowdown') elements.btnS.classList.remove('active');
+            if (key === 'a' || key === 'arrowleft') elements.btnA.classList.remove('active');
+            if (key === 'd' || key === 'arrowright') elements.btnD.classList.remove('active');
+
+            // If toggle is off, ignore
+            if (!elements.keyboardToggle.checked) return;
+
+            // Simple stop on key up logic might be glitchy if multiple keys held.
+            // For robust WASD, usually check state of all keys.
+            // But for simple "Quick move", we usually just stop if the primary key is lifted.
+            // Or check if ANY move keys are still down?
+
+            const moveKeys = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'];
+            const anyPressed = moveKeys.some(k => keysPressed[k]);
+
+            if (!anyPressed) {
+                stopMove();
+            } else {
+                // Re-evaluate?
+                // E.g. Holding W and A, release A -> Should continue W?
+                // For now, Keep it simple. If I release A but W is held, I might want to go back to Forward.
+                if (keysPressed['w'] || keysPressed['arrowup']) sendMove(1, 1);
+                else if (keysPressed['s'] || keysPressed['arrowdown']) sendMove(-1, -1);
+                else if (keysPressed['a'] || keysPressed['arrowleft']) sendMove(-1, 1);
+                else if (keysPressed['d'] || keysPressed['arrowright']) sendMove(1, -1);
+            }
+        });
     </script>
 </body>
 
 </html>
+```
