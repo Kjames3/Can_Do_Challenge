@@ -462,7 +462,8 @@ async def producer_task():
                                     run_yolo = (frame_count % detection_interval == 0) or (tracker is None)
                                     
                                     if run_yolo:
-                                        results = detection_model(frame, verbose=False, stream=True)
+                                        # Use 320 for speed (Pi 4 Optimization)
+                                        results = detection_model(frame, imgsz=320, verbose=False, stream=True)
                                         best_det = None
                                         
                                         # Process YOLO results
@@ -491,7 +492,8 @@ async def producer_task():
 
                                         if best_det:
                                             # Init Tracker
-                                            tracker = cv2.TrackerCSRT_create()
+                                            # Switched to KCF for speed on Pi 4 (Optimization)
+                                            tracker = cv2.TrackerKCF_create()
                                             tracker.init(frame, best_det["bbox_tracker"])
                                             tracker_label = best_det["label"]
                                             # We will use the tracker update block below to set 'last_detections'
@@ -602,12 +604,23 @@ async def producer_task():
                                 MIN_TURN = 0.30   # Reduced from 0.35 to reduce jerkiness
                                 MIN_MOVE = 0.25   # Keep driving power
                                 
-                                # Arc-Pursuit Logic
-                                # 1. Calculate Angular (Turn)
+                                # --- IMPROVED PROPORTIONAL CONTROL ---
+                                # 1. Calculate Angular (Turn) with P-Controller
                                 if abs(error_x) > center_threshold:
-                                    direction = 1 if error_x > 0 else -1
-                                    raw_turn = 0.2
-                                    angular = max(MIN_TURN, raw_turn) * direction
+                                    # Kp is the Proportional Gain. Start with 0.002 and tune.
+                                    Kp = 0.0025
+                                    
+                                    # Calculate proportional turn amount
+                                    turn_output = error_x * Kp
+                                    
+                                    # Clamp output to max speed (e.g. 0.5)
+                                    turn_output = max(min(turn_output, 0.5), -0.5)
+                                    
+                                    # Apply minimum friction threshold (Deadband)
+                                    if abs(turn_output) < MIN_TURN:
+                                        turn_output = MIN_TURN * (1 if turn_output > 0 else -1)
+                                    
+                                    angular = turn_output
                                     
                                     # Dampen turn if using memory
                                     if using_memory:
@@ -630,8 +643,14 @@ async def producer_task():
                                 elif dist < (target_dist - dist_threshold):
                                     # Too close, back up
                                     linear = -MIN_MOVE
-                                    # If backing up, maybe don't turn as aggressively?
-                                    # For now, allow arc backing.
+                                    # Should we dampen turning while backing up?
+                                    if angular != 0:
+                                        angular *= -1 # Invert turn when reversing? Usually good for car-like steering but for differential drive, turn direction is relative to base.
+                                        # Actually for diff drive:
+                                        # To turn Right (CW), Left > Right.
+                                        # If reversing and want to turn Right (tail right, nose left?), it gets confusing.
+                                        # Standard tank controls: Turn inputs shouldn't flip.
+                                        pass
                                 else:
                                     # At target distance
                                     linear = 0.0
@@ -775,7 +794,8 @@ async def main():
     asyncio.create_task(producer_task())
     
     # Start WebSocket server
-    server_address = "localhost"
+    # Listen on 0.0.0.0 to allow access from other machines (e.g. Laptop -> Pi)
+    server_address = "0.0.0.0"
     server_port = 8081
     
     print(f"\n{'=' * 50}")
