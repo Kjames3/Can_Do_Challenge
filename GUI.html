@@ -145,6 +145,44 @@
             background: var(--accent-yellow);
         }
 
+        /* Power Stats */
+        .power-readout {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            background: var(--bg-tertiary);
+            padding: 0.5rem 1rem;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            margin-right: 1rem;
+        }
+
+        .power-item {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            line-height: 1.1;
+        }
+
+        .power-item small {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .power-item span {
+            font-family: 'SF Mono', 'Monaco', monospace;
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--accent-cyan);
+        }
+
+        .separator {
+            width: 1px;
+            height: 20px;
+            background: var(--border-color);
+        }
+
         @keyframes pulse {
 
             0%,
@@ -836,10 +874,23 @@
             </div>
 
             <div class="connection-status">
-                <div class="status-indicator" id="battery-status" style="display: none;">
-                    <span class="icon">🔋</span>
-                    <span id="battery-level">--%</span>
+                <div id="power-stats" class="power-readout" style="display: none;">
+                    <div class="power-item">
+                        <small>Volts</small>
+                        <span id="stat-volts">-- V</span>
+                    </div>
+                    <div class="separator"></div>
+                    <div class="power-item">
+                        <small>Amps</small>
+                        <span id="stat-amps">-- A</span>
+                    </div>
+                    <div class="separator"></div>
+                    <div class="power-item">
+                        <small>Power</small>
+                        <span id="stat-watts">-- W</span>
+                    </div>
                 </div>
+
                 <div class="status-indicator">
                     <span id="status-dot" class="status-dot"></span>
                     <span id="status-text">Disconnected</span>
@@ -1051,6 +1102,7 @@
             batteryStatus: document.getElementById('battery-status'),
             batteryLevel: document.getElementById('battery-level'),
 
+
             // Lidar
             lidarToggle: document.getElementById('lidar-toggle'),
             lidarCanvas: document.getElementById('lidar-canvas'),
@@ -1196,6 +1248,21 @@
             // Update lidar
             if (data.lidar_points && state.lidarEnabled) {
                 drawLidar(data.lidar_points);
+            }
+
+            // Update Battery
+            if (data.battery) {
+                elements.batteryStatus.style.display = 'flex';
+                elements.batteryLevel.textContent = data.battery.percent + '%';
+
+                // Color code
+                if (data.battery.percent < 20) {
+                    elements.batteryLevel.style.color = 'var(--accent-red)';
+                } else if (data.battery.percent < 50) {
+                    elements.batteryLevel.style.color = 'var(--accent-yellow)';
+                } else {
+                    elements.batteryLevel.style.color = 'var(--accent-green)';
+                }
             }
         }
 
