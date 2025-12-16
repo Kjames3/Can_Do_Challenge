@@ -631,6 +631,10 @@
             </div>
 
             <div class="connection-status">
+                <div class="status-indicator" id="battery-status" style="display: none;">
+                    <span class="icon">🔋</span>
+                    <span id="battery-level">--%</span>
+                </div>
                 <div class="status-indicator">
                     <span id="status-dot" class="status-dot"></span>
                     <span id="status-text">Disconnected</span>
@@ -686,7 +690,12 @@
                                     <span id="left-slider-value" class="slider-value">0</span>
                                 </div>
 
-                                <button id="stop-btn" class="stop-btn">STOP</button>
+                                <div style="display: flex; flex-direction: column; gap: 1rem; align-items: center;">
+                                    <button id="stop-btn" class="stop-btn">STOP</button>
+                                    <button id="auto-drive-btn" class="btn btn-primary" style="width: 100%;">
+                                        Start Auto-Drive
+                                    </button>
+                                </div>
 
                                 <div class="slider-group">
                                     <span class="slider-label">RIGHT</span>
@@ -769,7 +778,8 @@
             lidarEnabled: false,
             gamepadIndex: null,
             lastLeftPower: 0,
-            lastRightPower: 0
+            lastRightPower: 0,
+            isAutoDriving: false
         };
 
         const SERVER_ADDRESS = "ws://localhost:8081";
@@ -791,6 +801,9 @@
             detectionPanel: document.getElementById('detection-panel'),
             detectionCount: document.getElementById('detection-count'),
             detectionList: document.getElementById('detection-list'),
+            autoDriveBtn: document.getElementById('auto-drive-btn'),
+            batteryStatus: document.getElementById('battery-status'),
+            batteryLevel: document.getElementById('battery-level'),
 
             // Lidar
             lidarToggle: document.getElementById('lidar-toggle'),
@@ -998,6 +1011,18 @@
             ctx.fill();
         }
 
+        function updateAutoDriveButton() {
+            if (state.isAutoDriving) {
+                elements.autoDriveBtn.textContent = "Stop Auto-Drive";
+                elements.autoDriveBtn.classList.add("btn-danger");
+                elements.autoDriveBtn.classList.remove("btn-primary");
+            } else {
+                elements.autoDriveBtn.textContent = "Start Auto-Drive";
+                elements.autoDriveBtn.classList.remove("btn-danger");
+                elements.autoDriveBtn.classList.add("btn-primary");
+            }
+        }
+
         // =================================================================
         // Motor Control
         // =================================================================
@@ -1126,15 +1151,174 @@
         // =================================================================
         // Event Listeners
         // =================================================================
-        elements.connectBtn.addEventListener('click', connect);
-        elements.stopBtn.addEventListener('click', stopMotors);
-        elements.leftSlider.addEventListener('input', handleSliderInput);
-        elements.rightSlider.addEventListener('input', handleSliderInput);
-        elements.detectionToggle.addEventListener('click', toggleDetection);
-        elements.lidarToggle.addEventListener('click', toggleLidar);
 
-        // Initialize disabled state
-        elements.controlArea.classList.add('disabled-overlay');
+        // Connect
+        elements.connectBtn.addEventListener('click', () => {
+            if (state.connected) {
+                state.ws.close();
+            } else {
+                connect(); // Renamed from connectWebSocket to connect
+            }
+        });
+
+        // Motor Control (Sliders)
+        function updateMotor(motor, value) {
+            if (!state.connected || state.isAutoDriving) return;
+
+            const power = value / 100.0;
+            const msg = {
+                type: "set_power",
+                motor: motor,
+                power: power
+            };
+
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify(msg));
+            }
+        }
+
+        elements.leftSlider.addEventListener('input', (e) => {
+            elements.leftSliderValue.textContent = e.target.value;
+            updateMotor('left', parseInt(e.target.value));
+        });
+
+        elements.leftSlider.addEventListener('change', (e) => {
+            // Optional: Return to 0 on release? User preference.
+            // For now, it stays where you put it.
+        });
+
+        elements.rightSlider.addEventListener('input', (e) => {
+            elements.rightSliderValue.textContent = e.target.value;
+            updateMotor('right', parseInt(e.target.value));
+        });
+
+        // Stop Button
+        elements.stopBtn.addEventListener('click', () => {
+            if (!state.connected) return;
+
+            // Send stop command
+            state.ws.send(JSON.stringify({ type: "stop" }));
+
+            // Also stop auto-drive if active
+            if (state.isAutoDriving) {
+                state.ws.send(JSON.stringify({ type: "stop_auto_drive" }));
+            }
+
+            // Reset UI
+            elements.leftSlider.value = 0;
+            elements.leftSliderValue.textContent = "0";
+            elements.rightSlider.value = 0;
+            elements.rightSliderValue.textContent = "0";
+        });
+
+        // Auto Drive Button
+        elements.autoDriveBtn.addEventListener('click', () => {
+            if (!state.connected) return;
+
+            const msgType = state.isAutoDriving ? "stop_auto_drive" : "start_auto_drive";
+            state.ws.send(JSON.stringify({ type: msgType }));
+        });
+
+        // Toggles
+        elements.detectionToggle.addEventListener('click', () => {
+            if (!state.connected) return;
+
+            const newState = !state.detectionEnabled;
+            // Optimistically update
+            state.detectionEnabled = newState;
+            elements.detectionToggle.classList.toggle('active', newState);
+
+            state.ws.send(JSON.stringify({
+                type: "toggle_detection",
+                enabled: newState
+            }));
+        });
+
+        elements.lidarToggle.addEventListener('click', () => {
+            state.lidarEnabled = !state.lidarEnabled;
+            elements.lidarToggle.classList.toggle('active', state.lidarEnabled);
+        });
+
+        // =================================================================
+        // Initialization
+        // =================================================================
+        // Check for gamepad connection
+        window.addEventListener("gamepadconnected", (e) => {
+            state.gamepadIndex = e.gamepad.index;
+            document.getElementById('controller-name').textContent = e.gamepad.id; // Corrected ID
+            document.getElementById('controller-status').style.background = "var(--bg-secondary)";
+            // Start polling
+            requestAnimationFrame(gamepadLoop);
+        });
+
+        window.addEventListener("gamepaddisconnected", (e) => {
+            state.gamepadIndex = null;
+            document.getElementById('controller-name').textContent = "No controller detected";
+            document.getElementById('controller-status').style.background = "var(--bg-tertiary)";
+        });
+
+        function gamepadLoop() {
+            if (state.gamepadIndex !== null) {
+                const gp = navigator.getGamepads()[state.gamepadIndex];
+                if (gp) {
+                    // Right Stick Y-axis (Index 3) for forward/back
+                    // Right Stick X-axis (Index 2) for turn
+                    // NOTE: Axis values are -1 to 1. 
+                    // Y: -1 is Up (usually), 1 is Down
+
+                    const fwd = -gp.axes[3]; // Invert so Up is positive
+                    const turn = gp.axes[2];
+
+                    // Deadzone
+                    const deadzone = 0.1;
+                    const cleanFwd = Math.abs(fwd) < deadzone ? 0 : fwd;
+                    const cleanTurn = Math.abs(turn) < deadzone ? 0 : turn;
+
+                    // Mixing (Arcade Drive)
+                    // Left = Fwd + Turn
+                    // Right = Fwd - Turn
+                    let left = cleanFwd + cleanTurn;
+                    let right = cleanFwd - cleanTurn;
+
+                    // Clamp
+                    left = Math.max(Math.min(left, 1), -1);
+                    right = Math.max(Math.min(right, 1), -1);
+
+                    // Emergency Stop (Button 0 = Cross/A)
+                    if (gp.buttons[0].pressed) {
+                        // The original stopMotors function was replaced by an anonymous function in the event listener.
+                        // To call the new stop logic, we need to replicate it or ensure the new stopMotors is callable.
+                        // For now, I'll replicate the logic from the new stopMotors event listener.
+                        if (state.connected) {
+                            state.ws.send(JSON.stringify({ type: "stop" }));
+                            if (state.isAutoDriving) {
+                                state.ws.send(JSON.stringify({ type: "stop_auto_drive" }));
+                            }
+                            elements.leftSlider.value = 0;
+                            elements.leftSliderValue.textContent = "0";
+                            elements.rightSlider.value = 0;
+                            elements.rightSliderValue.textContent = "0";
+                        }
+                    } else if (!state.isAutoDriving && (Math.abs(left) > 0.05 || Math.abs(right) > 0.05)) {
+                        // Only send if stick moved and NOT auto-driving
+                        // Update UI sliders too
+                        elements.leftSlider.value = Math.round(left * 100);
+                        elements.leftSliderValue.textContent = Math.round(left * 100);
+                        elements.rightSlider.value = Math.round(right * 100);
+                        elements.rightSliderValue.textContent = Math.round(right * 100);
+
+                        const msg = { type: "set_power", motor: "left", power: left };
+                        const msg2 = { type: "set_power", motor: "right", power: right };
+
+                        if (state.connected && state.ws && state.ws.readyState === WebSocket.OPEN) {
+                            state.ws.send(JSON.stringify(msg));
+                            state.ws.send(JSON.stringify(msg2));
+                        }
+                    }
+                }
+                requestAnimationFrame(gamepadLoop);
+            }
+        }
     </script>
 </body>
 
