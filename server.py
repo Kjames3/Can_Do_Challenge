@@ -403,6 +403,9 @@ async def producer_task():
                             "watts": current_watts,
                             "percent": current_pct
                         }
+                        
+                        # Include auto-drive state
+                        data["is_auto_driving"] = is_auto_driving
 
                         # --- Video Logic ---
                         # Throttle video sending to save bandwidth for controls
