@@ -895,6 +895,9 @@
                     <span id="status-dot" class="status-dot"></span>
                     <span id="status-text">Disconnected</span>
                 </div>
+                <!-- IP Input -->
+                <input type="text" id="robot-ip" placeholder="Robot IP" value="192.168.1.X"
+                    style="padding: 0.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-primary); margin-right: 0.5rem; width: 140px;">
                 <button id="connect-btn" class="btn btn-primary">Connect</button>
             </div>
         </header>
@@ -1153,7 +1156,9 @@
             if (state.ws && state.ws.readyState === WebSocket.OPEN) return;
 
             updateConnectionStatus('connecting');
-            state.ws = new WebSocket(SERVER_ADDRESS);
+            const ip = document.getElementById('robot-ip').value || 'localhost';
+            console.log(`Connecting to ws://${ip}:8081`);
+            state.ws = new WebSocket(`ws://${ip}:8081`);
 
             state.ws.onopen = () => {
                 state.connected = true;
