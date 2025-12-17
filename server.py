@@ -89,6 +89,11 @@ detection_enabled: bool = False
 # Connected WebSocket clients
 connected_clients = set()
 
+# Trajectory tracking for GUI visualization
+trajectory_history = []  # List of (x, y) positions
+auto_drive_start_pos = None  # Starting position when auto-drive began
+MAX_TRAJECTORY_POINTS = 200  # Limit points to avoid memory issues
+
 # =============================================================================
 # STATE TRACKING CLASSES (Odometry + Target Memory)
 # =============================================================================
@@ -102,10 +107,19 @@ class RobotState:
         self.theta = 0.0  # Robot heading (radians)
         self.last_left_pos = 0.0
         self.last_right_pos = 0.0
+        self.initialized = False  # Flag to capture initial encoder values
     
     def update_odometry(self, left_pos, right_pos, 
                         wheel_base_cm=15.0, wheel_diameter_cm=6.5):
         """Update robot pose from wheel encoders."""
+        # On first call, capture initial encoder values (don't compute delta)
+        if not self.initialized:
+            self.last_left_pos = left_pos
+            self.last_right_pos = right_pos
+            self.initialized = True
+            print(f"Odometry initialized: L={left_pos:.2f}, R={right_pos:.2f}")
+            return 0.0, 0.0
+        
         # Calculate wheel displacement (encoder returns rotations)
         left_delta = left_pos - self.last_left_pos
         right_delta = right_pos - self.last_right_pos
@@ -122,6 +136,9 @@ class RobotState:
         self.x += linear_dist * np.cos(self.theta)
         self.y += linear_dist * np.sin(self.theta)
         self.theta += angular_change
+        
+        # Normalize theta to [-pi, pi] to prevent explosion
+        self.theta = np.arctan2(np.sin(self.theta), np.cos(self.theta))
         
         self.last_left_pos = left_pos
         self.last_right_pos = right_pos
@@ -179,9 +196,21 @@ class TargetState:
         return distance, bearing_error
 
 
+class ControlState:
+    """Track control history for derivative term."""
+    
+    def __init__(self):
+        self.last_bearing_error = 0.0
+        self.last_distance_error = 0.0
+        self.last_time = time.time()
+        self.smoothed_angular = 0.0
+        self.smoothed_linear = 0.0
+
+
 # Initialize state tracking objects
 robot_state = RobotState()
 target_state = TargetState()
+control_state = ControlState()  # Add to global state
 
 # =============================================================================
 # DETECTION FUNCTIONS
@@ -472,7 +501,19 @@ async def producer_task():
                     "right_pos": right_pos,
                     "right_power": right_power_data[1],
                     "detection_enabled": detection_enabled,
-                    "is_auto_driving": is_auto_driving
+                    "is_auto_driving": is_auto_driving,
+                    # Trajectory data for GUI visualization
+                    "robot_pose": {
+                        "x": robot_state.x,
+                        "y": robot_state.y,
+                        "theta": robot_state.theta
+                    },
+                    "target_pose": {
+                        "x": target_state.world_x,
+                        "y": target_state.world_y
+                    } if target_state.world_x is not None else None,
+                    "trajectory": trajectory_history[-MAX_TRAJECTORY_POINTS:],
+                    "auto_drive_start": auto_drive_start_pos
                 }
                 
                 # Update odometry from wheel encoders (if available)
@@ -481,8 +522,13 @@ async def producer_task():
                         left_enc_pos, _ = await left_encoder.get_position()
                         right_enc_pos, _ = await right_encoder.get_position()
                         robot_state.update_odometry(left_enc_pos, right_enc_pos)
+                        
+                        # DEBUG: Print every 50 frames to verify encoders are working
+                        if frame_count % 50 == 0:
+                            print(f"Odom: x={robot_state.x:.1f}, y={robot_state.y:.1f}, θ={np.degrees(robot_state.theta):.1f}°")
+                            print(f"Encoders: L={left_enc_pos:.2f}, R={right_enc_pos:.2f}")
                     except Exception as e:
-                        pass  # Encoders might fail, continue without odometry
+                        print(f"Encoder error: {e}")
                 
                 # Get battery data
                 if battery:
@@ -678,70 +724,153 @@ async def producer_task():
                             data["detections"] = []
 
 
-                        # === AUTO-DRIVE LOGIC (2.5D Visual Servoing) ===
+                        # === AUTO-DRIVE LOGIC (Improved PD Control) ===
 
                         if is_auto_driving:
-                            # 1. Check for active detection and update target state
+                            # 1. Update target state from detections
                             if detection_enabled and data["detections"]:
                                 valid_detections = [d for d in data["detections"] if d['confidence'] > 0.4]
                                 if valid_detections:
                                     best_detection = max(valid_detections, key=lambda d: d['confidence'])
-                                    # Update target position in world frame
                                     target_state.update_from_detection(robot_state, best_detection)
                             
-                            # 2. Get target relative to current robot pose (works with memory)
+                            # 2. Get target relative position (uses memory if no fresh detection)
                             distance, bearing_error = target_state.get_robot_relative_position(robot_state)
                             
                             if distance is not None:
-                                # Memory timeout check
                                 time_since_update = time.time() - target_state.last_update_time
                                 
+                                # Only use state for 2 seconds max
                                 if time_since_update < MEMORY_DURATION:
-                                    # Control parameters
-                                    target_dist = 6.0      # Stop at 6cm
-                                    dist_threshold = 2.0   # +/- 2cm tolerance
-                                    MIN_TURN = 0.30        # Minimum turn power (friction)
-                                    MIN_MOVE = 0.25        # Minimum drive power
+                                    current_time = time.time()
+                                    dt = current_time - control_state.last_time
                                     
-                                    linear = 0.0
+                                    # === PD CONTROLLER ===
+                                    # Control parameters (TUNED for stability)
+                                    target_dist = 6.0           # Target stopping distance
+                                    dist_threshold = 2.0        # Distance tolerance
                                     
-                                    # P-controller on bearing error
-                                    angular = np.clip(bearing_error * 1.5, -0.5, 0.5)
+                                    # Distance thresholds for behavior modes
+                                    CLOSE_RANGE_CM = 45.0       # 1.5 feet - reduce gains
+                                    FINAL_APPROACH_CM = 30.0    # 1 foot - drive straight only
+                                    MIN_MOVE = 0.18             # Minimum drive to overcome friction
                                     
-                                    # Check if we need to turn significantly (~8.5 degrees)
-                                    if abs(bearing_error) > 0.15:
-                                        # Turn in place
-                                        linear = 0.0
-                                        if abs(angular) < MIN_TURN:
-                                            angular = MIN_TURN * np.sign(angular)
-                                    elif distance > (target_dist + dist_threshold):
-                                        # Drive forward when aligned
-                                        linear = MIN_MOVE
-                                    elif distance < (target_dist - dist_threshold):
-                                        # Back up if too close
-                                        linear = -MIN_MOVE
-                                    else:
-                                        # At target - stop if we have fresh detection
-                                        linear = 0.0
+                                    # FINAL APPROACH MODE: When very close, disable angular correction
+                                    # This prevents veering off when the bottle takes up most of the frame
+                                    if distance < FINAL_APPROACH_CM and abs(bearing_error) < 0.3:
+                                        # Just drive straight toward target
                                         angular = 0.0
-                                        if time_since_update < 0.5:  # Recently saw target
-                                            print("Target reached!")
-                                            is_auto_driving = False
+                                        linear = MIN_MOVE if distance > target_dist else 0.0
+                                        
+                                        # Check if target reached
+                                        if distance <= target_dist + dist_threshold:
+                                            if time_since_update < 0.5:
+                                                print(f"✓ Target reached! Distance: {distance:.1f}cm")
+                                                is_auto_driving = False
+                                                linear = 0.0
+                                        
+                                        # Apply motor commands directly
+                                        if left_motor and right_motor:
+                                            await left_motor.set_power(linear)
+                                            await right_motor.set_power(linear)
+                                        
+                                        # Update control state
+                                        control_state.last_time = current_time
+                                    else:
+                                        # NORMAL PD CONTROL MODE
+                                        # Distance-based gain scheduling (reduce gains when close)
+                                        if distance < CLOSE_RANGE_CM:
+                                            gain_scale = 0.3 + 0.7 * ((distance - target_dist) / (CLOSE_RANGE_CM - target_dist))
+                                            gain_scale = np.clip(gain_scale, 0.3, 1.0)
+                                        else:
+                                            gain_scale = 1.0
+                                        
+                                        # P gains (scaled by distance)
+                                        Kp_angular = 0.8 * gain_scale
+                                        Kp_linear = 0.06 * gain_scale
+                                        
+                                        # D gains (adds damping, scaled by distance)
+                                        Kd_angular = 0.4 * gain_scale
+                                        Kd_linear = 0.02 * gain_scale
+                                        
+                                        # Velocity limits (also reduce at close range)
+                                        MAX_ANGULAR = 0.40 * gain_scale
+                                        MAX_LINEAR = 0.30 * gain_scale
+                                        MIN_TURN = 0.20
+                                        
+                                        # Calculate error derivatives (damping)
+                                        if dt > 0:
+                                            bearing_rate = (bearing_error - control_state.last_bearing_error) / dt
+                                            distance_error = distance - target_dist
+                                            distance_rate = (distance_error - control_state.last_distance_error) / dt
+                                        else:
+                                            bearing_rate = 0.0
+                                            distance_rate = 0.0
+                                        
+                                        # PD control for angular (turn)
+                                        angular_raw = (Kp_angular * bearing_error) + (Kd_angular * bearing_rate)
+                                        angular_raw = np.clip(angular_raw, -MAX_ANGULAR, MAX_ANGULAR)
+                                        
+                                        # PD control for linear (distance)
+                                        distance_error = distance - target_dist
+                                        linear_raw = (Kp_linear * distance_error) + (Kd_linear * distance_rate)
+                                        linear_raw = np.clip(linear_raw, -MAX_LINEAR, MAX_LINEAR)
+                                        
+                                        # Apply smoothing (low-pass filter)
+                                        ALPHA = 0.2 if distance < CLOSE_RANGE_CM else 0.3
+                                        control_state.smoothed_angular = (ALPHA * angular_raw + 
+                                                                          (1-ALPHA) * control_state.smoothed_angular)
+                                        control_state.smoothed_linear = (ALPHA * linear_raw + 
+                                                                         (1-ALPHA) * control_state.smoothed_linear)
+                                        
+                                        angular = control_state.smoothed_angular
+                                        linear = control_state.smoothed_linear
+                                        
+                                        # Apply minimum thresholds (deadband compensation)
+                                        if abs(angular) > 0.05 and abs(angular) < MIN_TURN:
+                                            angular = MIN_TURN * np.sign(angular)
+                                        elif abs(angular) <= 0.05:
+                                            angular = 0.0
+                                            
+                                        if abs(linear) > 0.05 and abs(linear) < MIN_MOVE:
+                                            linear = MIN_MOVE * np.sign(linear)
+                                        elif abs(linear) <= 0.05:
+                                            linear = 0.0
+                                        
+                                        # Check if target reached (normal mode)
+                                        if abs(distance - target_dist) < dist_threshold and abs(bearing_error) < 0.1:
+                                            if time_since_update < 0.5:  # Fresh detection confirms arrival
+                                                print(f"✓ Target reached! Distance: {distance:.1f}cm")
+                                                is_auto_driving = False
+                                                linear = 0.0
+                                                angular = 0.0
+                                        
+                                        # Apply differential drive mixing
+                                        l_pow = np.clip(linear + angular, -1.0, 1.0)
+                                        r_pow = np.clip(linear - angular, -1.0, 1.0)
+                                        
+                                        if left_motor and right_motor:
+                                            await left_motor.set_power(l_pow)
+                                            await right_motor.set_power(r_pow)
+                                        
+                                        # Update control state for next iteration
+                                        control_state.last_bearing_error = bearing_error
+                                        control_state.last_distance_error = distance_error
+                                        control_state.last_time = current_time
+                                        
+                                        # Record trajectory point (every 5th frame to reduce data)
+                                        if frame_count % 5 == 0:
+                                            trajectory_history.append((robot_state.x, robot_state.y))
                                     
-                                    # Apply motor commands
-                                    l_pow = np.clip(linear + angular, -1.0, 1.0)
-                                    r_pow = np.clip(linear - angular, -1.0, 1.0)
-                                    
-                                    if left_motor and right_motor:
-                                        await left_motor.set_power(l_pow)
-                                        await right_motor.set_power(r_pow)
                                 else:
-                                    # Memory expired - stop
+                                    # Memory expired - stop and disable auto-drive
+                                    print("Lost target - memory expired")
+                                    is_auto_driving = False
                                     if left_motor and right_motor:
                                         await left_motor.set_power(0)
                                         await right_motor.set_power(0)
                             else:
-                                # No target ever seen - stop
+                                # No target state - stop
                                 if left_motor and right_motor:
                                     await left_motor.set_power(0)
                                     await right_motor.set_power(0)
@@ -820,12 +949,24 @@ async def consumer_task(websocket):
                  print("Starting Auto-Drive...")
                  is_auto_driving = True
                  detection_enabled = True # Force detection on
+                 # Reset trajectory and record start position
+                 trajectory_history.clear()
+                 auto_drive_start_pos = {"x": robot_state.x, "y": robot_state.y}
+                 trajectory_history.append((robot_state.x, robot_state.y))
             
             elif msg_type == "stop_auto_drive":
                  print("Stopping Auto-Drive...")
                  is_auto_driving = False
                  await left_motor.set_power(0)
                  await right_motor.set_power(0)
+            
+            elif msg_type == "disconnect":
+                 print("Client requested disconnect - stopping motors")
+                 is_auto_driving = False
+                 detection_enabled = False
+                 await left_motor.set_power(0)
+                 await right_motor.set_power(0)
+                 await websocket.close()
                 
         except Exception as e:
             print(f"Consumer error: {e}")
