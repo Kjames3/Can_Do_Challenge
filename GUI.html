@@ -899,6 +899,8 @@
                 <input type="text" id="robot-ip" placeholder="Robot IP" value="192.168.1.X"
                     style="padding: 0.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-primary); margin-right: 0.5rem; width: 140px;">
                 <button id="connect-btn" class="btn btn-primary">Connect</button>
+                <button id="disconnect-btn" class="btn btn-danger"
+                    style="display: none; margin-left: 0.5rem;">Disconnect</button>
             </div>
         </header>
 
@@ -1063,6 +1065,29 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Trajectory Visualization -->
+                <div id="trajectory-card" class="card" style="display: none;">
+                    <div class="card-header">
+                        <h2><span class="icon">🛤️</span> Trajectory</h2>
+                    </div>
+                    <div class="card-body" style="position: relative;">
+                        <div id="trajectory-container" class="lidar-container">
+                            <canvas id="trajectory-canvas" class="lidar-canvas" width="300" height="300"></canvas>
+                            <div
+                                style="display: flex; gap: 1rem; margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-muted);">
+                                <span>⚪ Start</span>
+                                <span style="color: #22c55e;">🟢 Path</span>
+                                <span style="color: #ef4444;">🔴 Robot</span>
+                                <span style="color: #eab308;">🟡 Target</span>
+                            </div>
+                        </div>
+                        <div id="trajectory-overlay"
+                            style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; border-radius: var(--radius-md);">
+                            <span style="color: var(--text-muted);">Start Auto-Drive to track trajectory</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -1146,7 +1171,17 @@
             rightPower: document.getElementById('right-power'),
 
             // Controller
-            controllerName: document.getElementById('controller-name')
+            controllerName: document.getElementById('controller-name'),
+
+            // Disconnect button
+            disconnectBtn: document.getElementById('disconnect-btn'),
+
+            // Trajectory
+            trajectoryCard: document.getElementById('trajectory-card'),
+            trajectoryCanvas: document.getElementById('trajectory-canvas'),
+            trajectoryCtx: document.getElementById('trajectory-canvas').getContext('2d'),
+            trajectoryOverlay: document.getElementById('trajectory-overlay'),
+            trajectoryContainer: document.getElementById('trajectory-container')
         };
 
         // =================================================================
@@ -1201,6 +1236,7 @@
                     elements.statusText.textContent = 'Connected';
                     elements.connectBtn.textContent = 'Connected';
                     elements.connectBtn.disabled = true;
+                    elements.disconnectBtn.style.display = 'inline-flex';
                     break;
                 case 'connecting':
                     elements.statusDot.classList.add('connecting');
@@ -1217,6 +1253,7 @@
                     elements.statusText.textContent = 'Disconnected';
                     elements.connectBtn.textContent = 'Connect';
                     elements.connectBtn.disabled = false;
+                    elements.disconnectBtn.style.display = 'none';
             }
         }
 
@@ -1272,6 +1309,19 @@
                 elements.statVolts.textContent = data.battery.voltage.toFixed(2) + ' V';
                 elements.statAmps.textContent = data.battery.amps.toFixed(3) + ' A';
                 elements.statWatts.textContent = data.battery.watts.toFixed(2) + ' W';
+            }
+
+            // Update Trajectory Visualization
+            // Show card when detection is enabled, show overlay when not auto-driving
+            if (data.detection_enabled !== undefined) {
+                elements.trajectoryCard.style.display = data.detection_enabled ? 'block' : 'none';
+            }
+            if (data.is_auto_driving !== undefined) {
+                elements.trajectoryOverlay.style.display = data.is_auto_driving ? 'none' : 'flex';
+            }
+            // Draw trajectory when auto-driving
+            if (state.isAutoDriving && data.trajectory) {
+                drawTrajectory(data);
             }
         }
 
@@ -1349,6 +1399,124 @@
             ctx.beginPath();
             ctx.arc(cx, cy, 4, 0, Math.PI * 2);
             ctx.fill();
+        }
+
+        // =================================================================
+        // Trajectory Rendering
+        // =================================================================
+        function drawTrajectory(data) {
+            const canvas = elements.trajectoryCanvas;
+            const ctx = elements.trajectoryCtx;
+            const width = canvas.width;
+            const height = canvas.height;
+            const cx = width / 2;
+            const cy = height / 2;
+
+            // Scale: 1 pixel = 1 cm, auto-scale based on trajectory bounds
+            let scale = 2.0; // pixels per cm (default)
+
+            // Calculate bounds to auto-scale
+            const trajectory = data.trajectory || [];
+            const robotPose = data.robot_pose;
+            const targetPose = data.target_pose;
+            const startPos = data.auto_drive_start;
+
+            if (trajectory.length > 0) {
+                let maxDist = 50; // minimum 50cm view
+                trajectory.forEach(p => {
+                    const dist = Math.sqrt(p[0] * p[0] + p[1] * p[1]);
+                    if (dist > maxDist) maxDist = dist;
+                });
+                if (targetPose && targetPose.x !== null) {
+                    const targetDist = Math.sqrt(targetPose.x * targetPose.x + targetPose.y * targetPose.y);
+                    if (targetDist > maxDist) maxDist = targetDist;
+                }
+                scale = (width / 2 - 20) / maxDist; // Leave 20px margin
+            }
+
+            // Clear canvas
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw grid
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+
+            // Concentric circles (50cm, 100cm)
+            [50, 100, 150].forEach(r => {
+                ctx.beginPath();
+                ctx.arc(cx, cy, r * scale, 0, Math.PI * 2);
+                ctx.stroke();
+            });
+
+            // Cross lines
+            ctx.beginPath();
+            ctx.moveTo(0, cy);
+            ctx.lineTo(width, cy);
+            ctx.moveTo(cx, 0);
+            ctx.lineTo(cx, height);
+            ctx.stroke();
+
+            // Draw trajectory path (green line)
+            if (trajectory.length > 1) {
+                ctx.strokeStyle = '#22c55e';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                const first = trajectory[0];
+                ctx.moveTo(cx + first[0] * scale, cy - first[1] * scale);
+                trajectory.forEach(p => {
+                    ctx.lineTo(cx + p[0] * scale, cy - p[1] * scale);
+                });
+                ctx.stroke();
+            }
+
+            // Draw planned path to target (blue dashed line)
+            if (robotPose && targetPose && targetPose.x !== null) {
+                ctx.strokeStyle = '#06b6d4';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.moveTo(cx + robotPose.x * scale, cy - robotPose.y * scale);
+                ctx.lineTo(cx + targetPose.x * scale, cy - targetPose.y * scale);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // Draw start position (white circle)
+            if (startPos) {
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(cx + startPos.x * scale, cy - startPos.y * scale, 6, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Draw target position (yellow star/circle)
+            if (targetPose && targetPose.x !== null) {
+                ctx.fillStyle = '#eab308';
+                ctx.beginPath();
+                ctx.arc(cx + targetPose.x * scale, cy - targetPose.y * scale, 8, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Draw robot current position (red circle with heading indicator)
+            if (robotPose) {
+                const rx = cx + robotPose.x * scale;
+                const ry = cy - robotPose.y * scale;
+
+                // Heading line
+                ctx.strokeStyle = '#ef4444';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(rx, ry);
+                ctx.lineTo(rx + Math.cos(robotPose.theta) * 15, ry - Math.sin(robotPose.theta) * 15);
+                ctx.stroke();
+
+                // Robot body
+                ctx.fillStyle = '#ef4444';
+                ctx.beginPath();
+                ctx.arc(rx, ry, 5, 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
 
         function updateAutoDriveButton() {
@@ -1603,6 +1771,24 @@
 
             const msgType = state.isAutoDriving ? "stop_auto_drive" : "start_auto_drive";
             state.ws.send(JSON.stringify({ type: msgType }));
+        });
+
+        // Disconnect Button
+        elements.disconnectBtn.addEventListener('click', () => {
+            if (!state.connected || !state.ws) return;
+
+            // Send disconnect command to server
+            state.ws.send(JSON.stringify({ type: "disconnect" }));
+
+            // Close WebSocket from client side
+            state.ws.close();
+            state.connected = false;
+            state.ws = null;
+
+            // Update UI
+            updateConnectionStatus('disconnected');
+            elements.disconnectBtn.style.display = 'none';
+            elements.controlArea.classList.add('disabled-overlay');
         });
 
         // Toggles
