@@ -21,6 +21,7 @@ from viam.components.motor import Motor
 from viam.components.camera import Camera
 from viam.components.sensor import Sensor
 from viam.components.power_sensor import PowerSensor
+from viam.components.encoder import Encoder
 import base64
 import io
 import struct
@@ -62,6 +63,8 @@ camera: Camera = None
 lidar: Camera = None
 battery: PowerSensor = None
 imu: Sensor = None
+left_encoder: Encoder = None
+right_encoder: Encoder = None
 
 # Auto-drive state
 is_auto_driving: bool = False
@@ -85,6 +88,100 @@ detection_enabled: bool = False
 
 # Connected WebSocket clients
 connected_clients = set()
+
+# =============================================================================
+# STATE TRACKING CLASSES (Odometry + Target Memory)
+# =============================================================================
+
+class RobotState:
+    """Track robot pose using wheel encoder odometry."""
+    
+    def __init__(self):
+        self.x = 0.0  # Robot X position (cm)
+        self.y = 0.0  # Robot Y position (cm)
+        self.theta = 0.0  # Robot heading (radians)
+        self.last_left_pos = 0.0
+        self.last_right_pos = 0.0
+    
+    def update_odometry(self, left_pos, right_pos, 
+                        wheel_base_cm=15.0, wheel_diameter_cm=6.5):
+        """Update robot pose from wheel encoders."""
+        # Calculate wheel displacement (encoder returns rotations)
+        left_delta = left_pos - self.last_left_pos
+        right_delta = right_pos - self.last_right_pos
+        
+        # Convert rotations to linear distance
+        left_dist = left_delta * np.pi * wheel_diameter_cm
+        right_dist = right_delta * np.pi * wheel_diameter_cm
+        
+        # Calculate robot motion
+        linear_dist = (left_dist + right_dist) / 2.0
+        angular_change = (right_dist - left_dist) / wheel_base_cm
+        
+        # Update pose
+        self.x += linear_dist * np.cos(self.theta)
+        self.y += linear_dist * np.sin(self.theta)
+        self.theta += angular_change
+        
+        self.last_left_pos = left_pos
+        self.last_right_pos = right_pos
+        
+        return linear_dist, angular_change
+
+
+class TargetState:
+    """Track target position in world frame for memory during detection gaps."""
+    
+    def __init__(self):
+        self.world_x = None  # Target X in world frame
+        self.world_y = None  # Target Y in world frame
+        self.last_update_time = 0
+        self.confidence = 0.0
+    
+    def update_from_detection(self, robot_state, detection):
+        """Convert camera detection to world coordinates."""
+        # Get distance and bearing to target
+        distance_cm = detection['distance_cm']
+        
+        # Calculate horizontal angle from image center
+        img_center_x = 320  # Assuming 640x480
+        pixel_error = detection['center_x'] - img_center_x
+        # Approximate: 60 degree FOV across 640 pixels
+        bearing_offset = pixel_error * (60.0 / 640.0) * (np.pi / 180.0)
+        
+        # Calculate target position in world frame
+        target_bearing = robot_state.theta + bearing_offset
+        self.world_x = robot_state.x + distance_cm * np.cos(target_bearing)
+        self.world_y = robot_state.y + distance_cm * np.sin(target_bearing)
+        
+        self.last_update_time = time.time()
+        self.confidence = detection['confidence']
+    
+    def get_robot_relative_position(self, robot_state):
+        """Get target position relative to current robot pose."""
+        if self.world_x is None:
+            return None, None
+        
+        # Calculate vector from robot to target
+        dx = self.world_x - robot_state.x
+        dy = self.world_y - robot_state.y
+        
+        # Distance
+        distance = np.sqrt(dx**2 + dy**2)
+        
+        # Bearing angle relative to robot heading
+        target_angle = np.arctan2(dy, dx)
+        bearing_error = target_angle - robot_state.theta
+        
+        # Normalize to [-pi, pi]
+        bearing_error = np.arctan2(np.sin(bearing_error), np.cos(bearing_error))
+        
+        return distance, bearing_error
+
+
+# Initialize state tracking objects
+robot_state = RobotState()
+target_state = TargetState()
 
 # =============================================================================
 # DETECTION FUNCTIONS
@@ -254,6 +351,7 @@ def parse_pcd(data: bytes) -> list:
 async def connect_to_robot() -> bool:
     """Establish connection to the Viam robot."""
     global robot, left_motor, right_motor, camera, lidar, battery, imu
+    global left_encoder, right_encoder
     
     print("Connecting to robot...")
     
@@ -303,13 +401,22 @@ async def connect_to_robot() -> bool:
             print(f"✗ Battery '{BATTERY_NAME}' not found")
             battery = None
             
-        # Initialize IMU (Confirmation)
         try:
             imu = Sensor.from_robot(robot, IMU_NAME)
             print("✓ IMU initialized")
         except Exception:
             print(f"✗ IMU '{IMU_NAME}' not found")
             imu = None
+        
+        # Initialize encoders for odometry
+        try:
+            left_encoder = Encoder.from_robot(robot, "Lenc")
+            right_encoder = Encoder.from_robot(robot, "Renc")
+            print("✓ Encoders initialized (odometry enabled)")
+        except Exception:
+            print("✗ Encoders not found (odometry disabled)")
+            left_encoder = None
+            right_encoder = None
         
         return True
         
@@ -328,6 +435,7 @@ async def producer_task():
     Runs at ~10Hz for smooth video/lidar updates.
     """
     global robot, left_motor, right_motor, camera, lidar, battery, imu
+    global left_encoder, right_encoder, robot_state, target_state
     global connected_clients, detection_enabled, is_auto_driving
     global frame_count, last_detections, tracker, tracker_label, tracker_init_time
     
@@ -341,10 +449,8 @@ async def producer_task():
     current_watts = 0.0
     current_pct = 0.0
     
-    # Auto-Drive Memory
-    last_target = None
-    last_target_time = 0
-    MEMORY_DURATION = 0.5  # Reduced from 1.0s to prevent overshooting spins
+    # Odometry-based memory (2.5D visual servoing)
+    MEMORY_DURATION = 2.0  # Use target memory for 2 seconds max
     
     while True:
         current_time = time.time()
@@ -365,11 +471,18 @@ async def producer_task():
                     "left_power": left_power_data[1],
                     "right_pos": right_pos,
                     "right_power": right_power_data[1],
-                    "right_pos": right_pos,
-                    "right_power": right_power_data[1],
                     "detection_enabled": detection_enabled,
                     "is_auto_driving": is_auto_driving
                 }
+                
+                # Update odometry from wheel encoders (if available)
+                if left_encoder and right_encoder:
+                    try:
+                        left_enc_pos, _ = await left_encoder.get_position()
+                        right_enc_pos, _ = await right_encoder.get_position()
+                        robot_state.update_odometry(left_enc_pos, right_enc_pos)
+                    except Exception as e:
+                        pass  # Encoders might fail, continue without odometry
                 
                 # Get battery data
                 if battery:
@@ -565,115 +678,70 @@ async def producer_task():
                             data["detections"] = []
 
 
-                        # === AUTO-DRIVE LOGIC ===
+                        # === AUTO-DRIVE LOGIC (2.5D Visual Servoing) ===
 
                         if is_auto_driving:
-                            # 1. Check for Active Detection (Filter low confidence)
-                            active_target = None
+                            # 1. Check for active detection and update target state
                             if detection_enabled and data["detections"]:
                                 valid_detections = [d for d in data["detections"] if d['confidence'] > 0.4]
                                 if valid_detections:
-                                    active_target = max(valid_detections, key=lambda d: d['confidence'])
-                                    last_target = active_target
-                                    last_target_time = time.time()
+                                    best_detection = max(valid_detections, key=lambda d: d['confidence'])
+                                    # Update target position in world frame
+                                    target_state.update_from_detection(robot_state, best_detection)
                             
-                            # 2. Determine if we have a valid target (Active or Memory)
-                            target_to_use = active_target
-                            using_memory = False
+                            # 2. Get target relative to current robot pose (works with memory)
+                            distance, bearing_error = target_state.get_robot_relative_position(robot_state)
                             
-                            if not target_to_use:
-                                if (time.time() - last_target_time) < MEMORY_DURATION and last_target:
-                                    target_to_use = last_target
-                                    using_memory = True
-                            
-                            # 3. Control Logic
-                            if target_to_use:
-                                img_center_x = 320 # Assuming 640x480
-                                error_x = target_to_use['center_x'] - img_center_x
-                                dist = target_to_use['distance_cm']
+                            if distance is not None:
+                                # Memory timeout check
+                                time_since_update = time.time() - target_state.last_update_time
                                 
-                                # Params
-                                target_dist = 6.0      # Stop at 6cm (Target)
-                                dist_threshold = 2.0   # +/- 2cm Tolerance
-                                center_threshold = 30  # Pixels
-                                
-                                linear = 0.0
-                                angular = 0.0
-                                
-                                # STUTTER FIX: Minimum power to overcome friction
-                                MIN_TURN = 0.30   # Reduced from 0.35 to reduce jerkiness
-                                MIN_MOVE = 0.25   # Keep driving power
-                                
-                                # --- IMPROVED PROPORTIONAL CONTROL ---
-                                # 1. Calculate Angular (Turn) with P-Controller
-                                if abs(error_x) > center_threshold:
-                                    # Kp is the Proportional Gain. Start with 0.002 and tune.
-                                    Kp = 0.0025
+                                if time_since_update < MEMORY_DURATION:
+                                    # Control parameters
+                                    target_dist = 6.0      # Stop at 6cm
+                                    dist_threshold = 2.0   # +/- 2cm tolerance
+                                    MIN_TURN = 0.30        # Minimum turn power (friction)
+                                    MIN_MOVE = 0.25        # Minimum drive power
                                     
-                                    # Calculate proportional turn amount
-                                    turn_output = error_x * Kp
-                                    
-                                    # Clamp output to max speed (e.g. 0.5)
-                                    turn_output = max(min(turn_output, 0.5), -0.5)
-                                    
-                                    # Apply minimum friction threshold (Deadband)
-                                    if abs(turn_output) < MIN_TURN:
-                                        turn_output = MIN_TURN * (1 if turn_output > 0 else -1)
-                                    
-                                    angular = turn_output
-                                    
-                                    # Dampen turn if using memory
-                                    if using_memory:
-                                        angular *= 0.5
-                                else:
-                                    angular = 0.0
-
-                                # 2. Calculate Linear (Distance)
-                                # Default to stopping
-                                linear = 0.0
-                                
-                                if dist > (target_dist + dist_threshold):
-                                    # Need to move forward
-                                    # If turning, we still want to move forward to "Arc"
-                                    linear = MIN_MOVE
-                                    
-                                    # If we are effectively "blind" (using memory), keep moving forward 
-                                    # to follow the "theoretical line".
-                                    
-                                elif dist < (target_dist - dist_threshold):
-                                    # Too close, back up
-                                    linear = -MIN_MOVE
-                                    # Should we dampen turning while backing up?
-                                    if angular != 0:
-                                        angular *= -1 # Invert turn when reversing? Usually good for car-like steering but for differential drive, turn direction is relative to base.
-                                        # Actually for diff drive:
-                                        # To turn Right (CW), Left > Right.
-                                        # If reversing and want to turn Right (tail right, nose left?), it gets confusing.
-                                        # Standard tank controls: Turn inputs shouldn't flip.
-                                        pass
-                                else:
-                                    # At target distance
                                     linear = 0.0
-                                    if abs(error_x) < center_threshold:
-                                        # Only stop completely if aligned AND at distance
-                                        if not using_memory:
+                                    
+                                    # P-controller on bearing error
+                                    angular = np.clip(bearing_error * 1.5, -0.5, 0.5)
+                                    
+                                    # Check if we need to turn significantly (~8.5 degrees)
+                                    if abs(bearing_error) > 0.15:
+                                        # Turn in place
+                                        linear = 0.0
+                                        if abs(angular) < MIN_TURN:
+                                            angular = MIN_TURN * np.sign(angular)
+                                    elif distance > (target_dist + dist_threshold):
+                                        # Drive forward when aligned
+                                        linear = MIN_MOVE
+                                    elif distance < (target_dist - dist_threshold):
+                                        # Back up if too close
+                                        linear = -MIN_MOVE
+                                    else:
+                                        # At target - stop if we have fresh detection
+                                        linear = 0.0
+                                        angular = 0.0
+                                        if time_since_update < 0.5:  # Recently saw target
                                             print("Target reached!")
                                             is_auto_driving = False
-
-                                # Apply
-                                l_pow = linear + angular
-                                r_pow = linear - angular
-                                
-                                # Clamp
-                                l_pow = max(min(l_pow, 1.0), -1.0)
-                                r_pow = max(min(r_pow, 1.0), -1.0)
-                                
-                                if left_motor and right_motor:
-                                    await left_motor.set_power(l_pow)
-                                    await right_motor.set_power(r_pow)
-                            
+                                    
+                                    # Apply motor commands
+                                    l_pow = np.clip(linear + angular, -1.0, 1.0)
+                                    r_pow = np.clip(linear - angular, -1.0, 1.0)
+                                    
+                                    if left_motor and right_motor:
+                                        await left_motor.set_power(l_pow)
+                                        await right_motor.set_power(r_pow)
+                                else:
+                                    # Memory expired - stop
+                                    if left_motor and right_motor:
+                                        await left_motor.set_power(0)
+                                        await right_motor.set_power(0)
                             else:
-                                # No target, lost track > 0.5s
+                                # No target ever seen - stop
                                 if left_motor and right_motor:
                                     await left_motor.set_power(0)
                                     await right_motor.set_power(0)
