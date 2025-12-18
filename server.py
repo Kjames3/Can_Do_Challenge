@@ -52,6 +52,16 @@ KNOWN_HEIGHT_CAN = 12.0     # Standard soda can height in cm
 FOCAL_LENGTH = 600          # Webcam focal length (calibrate for accuracy)
 TARGET_CLASSES = [39, 41]   # COCO classes: 39=bottle, 41=cup (often detects cans)
 
+# Camera Calibration (HYPER hypercam HD 1080 = 76.5° HFOV)
+CAMERA_HFOV_DEG = 76.5      # Horizontal field of view in degrees
+IMAGE_WIDTH = 640           # Camera resolution width
+IMAGE_HEIGHT = 480          # Camera resolution height
+
+# Wheel Parameters (CALIBRATE THESE! - Measured for your rover)
+WHEEL_DIAMETER_CM = 5.5     # Wheel diameter in cm
+WHEEL_BASE_CM = 19.55       # Distance between wheel contact points in cm
+                            # NOTE: User said 195.5cm - assuming 19.55cm (check if this is correct!)
+
 # =============================================================================
 # GLOBAL STATE
 # =============================================================================
@@ -132,9 +142,11 @@ class RobotState:
         linear_dist = (left_dist + right_dist) / 2.0
         angular_change = (right_dist - left_dist) / wheel_base_cm
         
-        # Update pose
-        self.x += linear_dist * np.cos(self.theta)
-        self.y += linear_dist * np.sin(self.theta)
+        # Update pose using robotics convention:
+        # theta=0 means facing +Y (forward), X is lateral (right)
+        # Motion in world frame: X += sin(theta), Y += cos(theta)
+        self.x += linear_dist * np.sin(self.theta)  # Lateral motion
+        self.y += linear_dist * np.cos(self.theta)  # Forward motion
         self.theta += angular_change
         
         # Normalize theta to [-pi, pi] to prevent explosion
@@ -160,19 +172,21 @@ class TargetState:
         # Get distance and bearing to target
         distance_cm = detection['distance_cm']
         
-        # Calculate horizontal angle from image center
-        img_center_x = 320  # Assuming 640x480
-        pixel_error = detection['center_x'] - img_center_x
-        # Approximate: 60 degree FOV across 640 pixels
-        bearing_offset = pixel_error * (60.0 / 640.0) * (np.pi / 180.0)
+        # Calculate bearing using proper tangent projection
+        # This accounts for lens distortion better than linear approximation
+        pixel_error_x = detection['center_x'] - (IMAGE_WIDTH / 2)
+        fov_rad = np.deg2rad(CAMERA_HFOV_DEG)
+        bearing_offset = np.arctan(2 * pixel_error_x * np.tan(fov_rad / 2) / IMAGE_WIDTH)
         
         # Calculate target position in world frame
+        # Using same convention as odometry: X = sin(theta), Y = cos(theta)
         target_bearing = robot_state.theta + bearing_offset
-        self.world_x = robot_state.x + distance_cm * np.cos(target_bearing)
-        self.world_y = robot_state.y + distance_cm * np.sin(target_bearing)
+        self.world_x = robot_state.x + distance_cm * np.sin(target_bearing)
+        self.world_y = robot_state.y + distance_cm * np.cos(target_bearing)
         
         self.last_update_time = time.time()
         self.confidence = detection['confidence']
+
     
     def get_robot_relative_position(self, robot_state):
         """Get target position relative to current robot pose."""
@@ -211,6 +225,38 @@ class ControlState:
 robot_state = RobotState()
 target_state = TargetState()
 control_state = ControlState()  # Add to global state
+
+
+async def update_robot_state_with_imu():
+    """Fuse IMU heading with encoder odometry using complementary filter."""
+    global robot_state, imu
+    
+    if not imu:
+        return
+    
+    try:
+        readings = await imu.get_readings()
+        
+        # IMU may provide orientation as Euler angles or quaternion
+        if 'orientation' in readings:
+            orientation = readings['orientation']
+            
+            # Extract yaw/heading (adjust based on your IMU's output format)
+            # Common formats: dict with 'z' key, or object with euler.yaw
+            imu_heading = None
+            if isinstance(orientation, dict) and 'z' in orientation:
+                imu_heading = np.deg2rad(orientation['z'])
+            elif hasattr(orientation, 'euler'):
+                imu_heading = np.deg2rad(orientation.euler.yaw)
+            
+            if imu_heading is not None:
+                # Complementary filter: Trust encoders for short-term, IMU for drift correction
+                ALPHA = 0.98  # 98% encoder, 2% IMU
+                robot_state.theta = (ALPHA * robot_state.theta + 
+                                     (1 - ALPHA) * imu_heading)
+    except Exception as e:
+        pass  # Continue without IMU if read fails
+
 
 # =============================================================================
 # DETECTION FUNCTIONS
@@ -521,7 +567,12 @@ async def producer_task():
                     try:
                         left_enc_pos, _ = await left_encoder.get_position()
                         right_enc_pos, _ = await right_encoder.get_position()
-                        robot_state.update_odometry(left_enc_pos, right_enc_pos)
+                        robot_state.update_odometry(left_enc_pos, right_enc_pos,
+                                                    wheel_base_cm=WHEEL_BASE_CM,
+                                                    wheel_diameter_cm=WHEEL_DIAMETER_CM)
+                        
+                        # Fuse IMU heading to correct encoder drift
+                        await update_robot_state_with_imu()
                         
                         # DEBUG: Print every 50 frames to verify encoders are working
                         if frame_count % 50 == 0:
@@ -734,8 +785,22 @@ async def producer_task():
                                     best_detection = max(valid_detections, key=lambda d: d['confidence'])
                                     target_state.update_from_detection(robot_state, best_detection)
                             
+                            # Debug output every ~1 second (30 frames at ~30fps)
+                            if frame_count % 30 == 0:
+                                print(f"=== Debug State ===")
+                                print(f"Robot pose: ({robot_state.x:.1f}, {robot_state.y:.1f}) @ {np.degrees(robot_state.theta):.1f}°")
+                                if target_state.world_x is not None:
+                                    print(f"Target pose: ({target_state.world_x:.1f}, {target_state.world_y:.1f})")
+                                    dist, bearing = target_state.get_robot_relative_position(robot_state)
+                                    if dist is not None:
+                                        print(f"Relative: dist={dist:.1f}cm, bearing={np.degrees(bearing):.1f}°")
+                                if data.get("detections"):
+                                    det = data["detections"][0]
+                                    print(f"Detection: center_x={det['center_x']}px, dist={det['distance_cm']}cm")
+                            
                             # 2. Get target relative position (uses memory if no fresh detection)
                             distance, bearing_error = target_state.get_robot_relative_position(robot_state)
+
                             
                             if distance is not None:
                                 time_since_update = time.time() - target_state.last_update_time

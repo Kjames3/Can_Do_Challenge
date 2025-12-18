@@ -1049,6 +1049,31 @@
                     </div>
                 </div>
 
+                <!-- Position Display -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2><span class="icon"></span> Position</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="motor-grid">
+                            <div class="motor-card">
+                                <h3>Robot</h3>
+                                <div id="robot-x" class="motor-value" style="font-size: 1rem;">X: 0.0</div>
+                                <div id="robot-y" class="motor-value" style="font-size: 1rem;">Y: 0.0</div>
+                                <div id="robot-theta" class="motor-value"
+                                    style="font-size: 0.85rem; color: var(--text-secondary);">θ: 0.0°</div>
+                            </div>
+                            <div class="motor-card">
+                                <h3>Target</h3>
+                                <div id="target-x" class="motor-value" style="font-size: 1rem;">X: --</div>
+                                <div id="target-y" class="motor-value" style="font-size: 1rem;">Y: --</div>
+                                <div id="target-dist" class="motor-value"
+                                    style="font-size: 0.85rem; color: var(--accent-green);">Dist: --</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Lidar -->
                 <div class="card">
                     <div class="card-header">
@@ -1181,7 +1206,15 @@
             trajectoryCanvas: document.getElementById('trajectory-canvas'),
             trajectoryCtx: document.getElementById('trajectory-canvas').getContext('2d'),
             trajectoryOverlay: document.getElementById('trajectory-overlay'),
-            trajectoryContainer: document.getElementById('trajectory-container')
+            trajectoryContainer: document.getElementById('trajectory-container'),
+
+            // Position Display
+            robotX: document.getElementById('robot-x'),
+            robotY: document.getElementById('robot-y'),
+            robotTheta: document.getElementById('robot-theta'),
+            targetX: document.getElementById('target-x'),
+            targetY: document.getElementById('target-y'),
+            targetDist: document.getElementById('target-dist')
         };
 
         // =================================================================
@@ -1323,6 +1356,32 @@
             if (state.isAutoDriving && data.trajectory) {
                 drawTrajectory(data);
             }
+
+            // Update Position Display
+            if (data.robot_pose) {
+                const rp = data.robot_pose;
+                elements.robotX.textContent = `X: ${rp.x.toFixed(1)}`;
+                elements.robotY.textContent = `Y: ${rp.y.toFixed(1)}`;
+                const thetaDeg = (rp.theta * 180 / Math.PI).toFixed(1);
+                elements.robotTheta.textContent = `θ: ${thetaDeg}°`;
+            }
+            if (data.target_pose && data.target_pose.x !== null) {
+                const tp = data.target_pose;
+                elements.targetX.textContent = `X: ${tp.x.toFixed(1)}`;
+                elements.targetY.textContent = `Y: ${tp.y.toFixed(1)}`;
+                // Calculate distance from robot to target
+                if (data.robot_pose) {
+                    const dx = tp.x - data.robot_pose.x;
+                    const dy = tp.y - data.robot_pose.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    const distIn = (dist / 2.54).toFixed(1);
+                    elements.targetDist.textContent = `Dist: ${dist.toFixed(0)}cm (${distIn}in)`;
+                }
+            } else {
+                elements.targetX.textContent = 'X: --';
+                elements.targetY.textContent = 'Y: --';
+                elements.targetDist.textContent = 'Dist: --';
+            }
         }
 
         function updateDetections(detections) {
@@ -1333,20 +1392,23 @@
                 return;
             }
 
-            const html = detections.map(d => `
+            const html = detections.map(d => {
+                const distInches = (d.distance_cm / 2.54).toFixed(1);
+                return `
                 <div class="detection-item">
                     <div class="detection-item-label">
                         <span class="detection-badge">${d.label}</span>
                     </div>
                     <div class="detection-item-stats">
-                        <span title="Distance">${d.distance_cm.toFixed(0)}cm</span>
+                        <span title="Distance">${d.distance_cm.toFixed(0)}cm (${distInches}in)</span>
                         <span title="Confidence">${(d.confidence * 100).toFixed(0)}%</span>
                         <div class="confidence-bar" title="Confidence">
                             <div class="confidence-fill" style="width: ${d.confidence * 100}%"></div>
                         </div>
                     </div>
                 </div>
-            `).join('');
+            `;
+            }).join('');
 
             elements.detectionList.innerHTML = html;
         }
