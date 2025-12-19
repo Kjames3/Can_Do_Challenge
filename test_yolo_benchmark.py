@@ -48,33 +48,78 @@ FOCAL_LENGTH = 600
 
 
 # =============================================================================
-# SYSTEM INFO
+# SYSTEM INFO & GPU DIAGNOSTICS
 # =============================================================================
 
 def print_system_info():
-    """Print GPU and system information."""
+    """Print GPU and system information with detailed diagnostics."""
     print("\n" + "=" * 60)
-    print("SYSTEM INFORMATION")
+    print("SYSTEM INFORMATION & GPU DIAGNOSTICS")
     print("=" * 60)
     
     if TORCH_AVAILABLE:
         print(f"PyTorch Version: {torch.__version__}")
         print(f"CUDA Available: {torch.cuda.is_available()}")
+        
         if torch.cuda.is_available():
             print(f"CUDA Version: {torch.version.cuda}")
-            print(f"GPU: {torch.cuda.get_device_name(0)}")
+            print(f"cuDNN Version: {torch.backends.cudnn.version()}")
+            print(f"GPU Count: {torch.cuda.device_count()}")
+            print(f"GPU 0: {torch.cuda.get_device_name(0)}")
             print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
-            device = "GPU (CUDA)"
+            
+            # Test GPU with a simple tensor operation
+            try:
+                test_tensor = torch.zeros(1).cuda()
+                print(f"GPU Test: ✓ Tensor successfully moved to CUDA")
+                device = "GPU (CUDA)"
+            except Exception as e:
+                print(f"GPU Test: ✗ Failed - {e}")
+                device = "CPU (CUDA available but failed)"
         else:
-            device = "CPU"
+            print("\n⚠️  CUDA NOT AVAILABLE!")
+            print("   This means PyTorch was NOT installed with GPU support.")
+            print("   You need to install the Jetson-specific PyTorch wheel.")
+            print("\n   Fix: Run these commands:")
+            print("   pip uninstall torch")
+            print("   pip install https://developer.download.nvidia.com/compute/redist/jp/v61/pytorch/torch-2.5.0a0+872d972e41.nv24.08.17622132-cp310-cp310-linux_aarch64.whl")
+            device = "CPU (CUDA not available)"
     else:
         print("PyTorch: Not installed")
         device = "CPU (PyTorch not available)"
     
-    print(f"OpenCV Version: {cv2.__version__}")
+    print(f"\nOpenCV Version: {cv2.__version__}")
     print(f"Inference Device: {device}")
     print("=" * 60 + "\n")
     return device
+
+
+def load_model_with_gpu(model_name):
+    """
+    Load YOLO model and explicitly move to GPU if available.
+    Returns (model, device_name)
+    """
+    print(f"Loading {model_name}...")
+    model = YOLO(model_name)
+    
+    if TORCH_AVAILABLE and torch.cuda.is_available():
+        # Force model to GPU
+        model.to('cuda')
+        
+        # Verify model is on GPU
+        try:
+            device = next(model.model.parameters()).device
+            print(f"✓ Model loaded on: {device}")
+            if 'cuda' in str(device):
+                return model, "GPU"
+            else:
+                print("⚠️  Model is NOT on GPU!")
+        except Exception as e:
+            print(f"Could not verify device: {e}")
+    else:
+        print("⚠️  Running on CPU - this will be slow!")
+    
+    return model, "CPU"
 
 
 # =============================================================================
@@ -137,7 +182,9 @@ def run_live_demo(model_name='yolov8s.pt', resolution=640):
     print("Press 'q' to quit, 'n' for yolov8n, 's' for yolov8s")
     print("Press '1' for 320px, '2' for 480px, '3' for 640px\n")
     
-    model = YOLO(model_name)
+    # Load model with GPU if available
+    model, device_type = load_model_with_gpu(model_name)
+    
     cap = cv2.VideoCapture(0)
     
     if not cap.isOpened():
@@ -191,13 +238,16 @@ def run_live_demo(model_name='yolov8s.pt', resolution=640):
                     cv2.putText(frame, f"{distance_cm:.0f}cm ({distance_in:.1f}in)", (x1, y1-5),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         
-        # Draw FPS and model info
-        info_text = f"Model: {current_model_name} | Res: {current_res}px"
+        # Draw FPS and model info (with device type)
+        info_text = f"{current_model_name} @ {current_res}px | Device: {device_type}"
         fps_text = f"FPS: {avg_fps:.1f} | Inference: {inference_time:.1f}ms"
         
-        cv2.rectangle(frame, (5, 5), (400, 60), (0, 0, 0), -1)
+        # Color code based on device (green for GPU, red for CPU)
+        fps_color = (0, 255, 0) if device_type == "GPU" else (0, 0, 255)
+        
+        cv2.rectangle(frame, (5, 5), (450, 60), (0, 0, 0), -1)
         cv2.putText(frame, info_text, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-        cv2.putText(frame, fps_text, (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        cv2.putText(frame, fps_text, (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, fps_color, 2)
         
         cv2.imshow('YOLO Benchmark - Press Q to quit', frame)
         
@@ -205,11 +255,11 @@ def run_live_demo(model_name='yolov8s.pt', resolution=640):
         if key == ord('q'):
             break
         elif key == ord('n'):
-            model = YOLO('yolov8n.pt')
+            model, device_type = load_model_with_gpu('yolov8n.pt')
             current_model_name = 'yolov8n.pt'
             fps_history.clear()
         elif key == ord('s'):
-            model = YOLO('yolov8s.pt')
+            model, device_type = load_model_with_gpu('yolov8s.pt')
             current_model_name = 'yolov8s.pt'
             fps_history.clear()
         elif key == ord('1'):
