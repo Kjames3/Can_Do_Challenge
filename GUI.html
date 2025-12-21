@@ -922,6 +922,17 @@
                             Waiting for camera feed...
                         </div>
 
+                        <!-- FPS Display Overlay -->
+                        <div id="fps-display" class="fps-display"
+                            style="display: none; margin-top: 0.5rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: var(--radius-sm); font-family: monospace;">
+                            <span style="color: var(--success);">📷 Camera: <strong id="fps-camera">0</strong>
+                                FPS</span>
+                            <span id="fps-detection-wrapper" style="margin-left: 1rem; display: none;">
+                                <span style="color: var(--warning);">🔍 YOLO: <strong id="fps-detection">0</strong>
+                                    FPS</span>
+                            </span>
+                        </div>
+
                         <!-- Detection Results -->
                         <div id="detection-panel" class="detection-panel" style="display: none;">
                             <div class="detection-header">
@@ -1311,6 +1322,25 @@
                 elements.cameraFeed.src = "data:image/jpeg;base64," + data.image;
                 elements.cameraFeed.style.display = 'block';
                 elements.cameraPlaceholder.style.display = 'none';
+            }
+
+            // Update FPS display
+            const fpsDisplay = document.getElementById('fps-display');
+            const fpsCameraEl = document.getElementById('fps-camera');
+            const fpsDetectionEl = document.getElementById('fps-detection');
+            const fpsDetectionWrapper = document.getElementById('fps-detection-wrapper');
+
+            if (data.fps_camera !== undefined && fpsDisplay) {
+                fpsDisplay.style.display = 'block';
+                fpsCameraEl.textContent = data.fps_camera.toFixed(1);
+
+                // Show YOLO FPS only when detection is enabled
+                if (data.detection_enabled && data.fps_detection !== undefined) {
+                    fpsDetectionWrapper.style.display = 'inline';
+                    fpsDetectionEl.textContent = data.fps_detection.toFixed(1);
+                } else {
+                    fpsDetectionWrapper.style.display = 'none';
+                }
             }
 
             // Update detections

@@ -17,12 +17,14 @@ Usage:
 import asyncio
 import time
 import json
+import signal
 import websockets
 from viam.robot.client import RobotClient
 from viam.rpc.dial import DialOptions
 from viam.components.motor import Motor
 from viam.components.camera import Camera
 from viam.components.sensor import Sensor
+from viam.components.movement_sensor import MovementSensor  # For IMU
 from viam.components.power_sensor import PowerSensor
 from viam.components.encoder import Encoder
 import base64
@@ -36,18 +38,20 @@ from ultralytics import YOLO
 # CONFIGURATION
 # =============================================================================
 
-# Robot Connection Details
-ROBOT_ADDRESS = "yeep-main.ayzp4fw8rj.viam.cloud"
-API_KEY_ID = "d55dcbc4-6c31-4d78-97d9-57792293a0b7"
-API_KEY = "3u88u6fsuowp1wv4inpyebnv13k6dkhn"
+# Robot Connection Details (Pi 5)
+ROBOT_ADDRESS = "pi5-main.ayzp4fw8rj.viam.cloud"
+API_KEY_ID = "bd131b00-768a-4147-839a-4dae24169224"
+API_KEY = "0eg1lzk5jg3x2c3cjh3i17aoljf76989"
 
-# Component Names
+# Component Names (Pi 5 configuration)
 LEFT_MOTOR_NAME = "left"
 RIGHT_MOTOR_NAME = "right"
 CAMERA_NAME = "cam"
 LIDAR_NAME = None  # No lidar on this robot
 BATTERY_NAME = "ina219"
-IMU_NAME = "imu" # Assuming an IMU named "imu"
+IMU_NAME = "imu"
+LEFT_ENCODER_NAME = "left-enc"   # Pi 5 encoder name
+RIGHT_ENCODER_NAME = "right-enc" # Pi 5 encoder name
 
 # Detection Configuration
 KNOWN_HEIGHT_BOTTLE = 20.0  # Standard water bottle height in cm
@@ -100,14 +104,41 @@ right_encoder: Encoder = None
 
 # Auto-drive state
 is_auto_driving: bool = False
-target_distance_cm: float = 12.5  # Target distance (between 10-15cm)
-dist_threshold_cm: float = 2.5    # +/- 2.5cm tolerance
-center_threshold_px: int = 50     # Pixel error tolerance for centering
+target_distance_cm: float = 15.0  # Target stopping distance from object
+dist_threshold_cm: float = 3.0    # Distance tolerance for "arrived"
+
+# Navigation State Machine for Path Planning
+class NavPhase:
+    IDLE = "IDLE"
+    ACQUIRE = "ACQUIRE"    # Stop and detect target multiple times
+    ROTATE = "ROTATE"      # Turn toward target bearing
+    DRIVE = "DRIVE"        # Drive straight to target
+    ARRIVED = "ARRIVED"    # At target
+
+nav_phase: str = NavPhase.IDLE
+nav_target_distance: float = 0.0      # Acquired target distance (cm)
+nav_target_bearing: float = 0.0       # Acquired target bearing (radians from center)
+nav_acquire_samples: list = []        # List of (distance, bearing) samples
+NAV_ACQUIRE_COUNT = 3                 # Number of samples to average
+NAV_BEARING_THRESHOLD = 0.12          # ~7 degrees - aligned enough to drive
+NAV_BEARING_HYSTERESIS = 0.08         # ~4.5 degrees - hysteresis to prevent oscillation
+NAV_LARGE_TURN_THRESHOLD = 0.35       # ~20 degrees - use tank turn above this
+NAV_ROTATE_SPEED = 0.22               # Motor power for tank rotation (both wheels)
+NAV_PIVOT_SPEED = 0.20                # Motor power for pivot turn (one wheel only)
+NAV_DRIVE_SPEED = 0.22                # Motor power for driving
+nav_last_turn_dir: int = 0            # Remember last turn direction to prevent oscillation
   
 # FPS Optimization
 frame_count: int = 0
 detection_interval: int = DETECTION_INTERVAL  # Use config constant
 last_detections: list = []
+
+# FPS Tracking for performance monitoring
+fps_camera: float = 0.0           # Camera frame rate
+fps_detection: float = 0.0        # YOLO detection rate
+last_fps_update_time: float = 0.0 # Last time FPS was calculated
+fps_frame_count: int = 0          # Frames since last FPS calc
+fps_detection_count: int = 0      # Detections since last FPS calc
 
 # Trackers
 tracker = None
@@ -499,17 +530,17 @@ async def connect_to_robot() -> bool:
             battery = None
             
         try:
-            imu = Sensor.from_robot(robot, IMU_NAME)
-            print("✓ IMU initialized")
-        except Exception:
-            print(f"✗ IMU '{IMU_NAME}' not found")
+            imu = MovementSensor.from_robot(robot, IMU_NAME)
+            print("✓ IMU initialized (MovementSensor)")
+        except Exception as e:
+            print(f"✗ IMU '{IMU_NAME}' not found: {e}")
             imu = None
         
         # Initialize encoders for odometry
         try:
-            left_encoder = Encoder.from_robot(robot, "Lenc")
-            right_encoder = Encoder.from_robot(robot, "Renc")
-            print("✓ Encoders initialized (odometry enabled)")
+            left_encoder = Encoder.from_robot(robot, LEFT_ENCODER_NAME)
+            right_encoder = Encoder.from_robot(robot, RIGHT_ENCODER_NAME)
+            print(f"✓ Encoders initialized ({LEFT_ENCODER_NAME}, {RIGHT_ENCODER_NAME})")
         except Exception:
             print("✗ Encoders not found (odometry disabled)")
             left_encoder = None
@@ -535,16 +566,28 @@ async def producer_task():
     global left_encoder, right_encoder, robot_state, target_state
     global connected_clients, detection_enabled, is_auto_driving
     global frame_count, last_detections, tracker, tracker_label, tracker_init_time
+    global fps_camera, fps_detection, last_fps_update_time, fps_frame_count, fps_detection_count
+    global nav_phase, nav_acquire_samples, nav_target_distance, nav_target_bearing, nav_last_turn_dir
     
     last_video_time = 0
     VIDEO_INTERVAL = 1.0 / VIDEO_FPS_CAP  # Use config constant for Pi 5 optimization
     last_battery_time = 0
     BATTERY_INTERVAL = 5.0       # Update battery every 5s
+    last_encoder_time = 0
+    ENCODER_INTERVAL = 0.1       # Update encoders at 10Hz
+    
+    API_TIMEOUT = 2.0  # Timeout for Viam API calls to prevent freezes
     
     current_volts = 0.0
     current_amps = 0.0
     current_watts = 0.0
     current_pct = 0.0
+    
+    # Cached motor data (updated less frequently to reduce API load)
+    cached_left_pos = 0.0
+    cached_left_power = 0.0
+    cached_right_pos = 0.0
+    cached_right_power = 0.0
     
     # Odometry-based memory (2.5D visual servoing)
     MEMORY_DURATION = 2.0  # Use target memory for 2 seconds max
@@ -553,23 +596,39 @@ async def producer_task():
         current_time = time.time()
         if robot and connected_clients:
             try:
-                # Gather motor data
-                left_pos, left_power_data, right_pos, right_power_data = await asyncio.gather(
-                    left_motor.get_position(),
-                    left_motor.is_powered(),
-                    right_motor.get_position(),
-                    right_motor.is_powered()
-                )
+                # Gather motor data with timeout (reduce frequency of API calls)
+                try:
+                    left_pos, left_power_data, right_pos, right_power_data = await asyncio.wait_for(
+                        asyncio.gather(
+                            left_motor.get_position(),
+                            left_motor.is_powered(),
+                            right_motor.get_position(),
+                            right_motor.is_powered()
+                        ),
+                        timeout=API_TIMEOUT
+                    )
+                    cached_left_pos = left_pos
+                    cached_left_power = left_power_data[1]
+                    cached_right_pos = right_pos
+                    cached_right_power = right_power_data[1]
+                except asyncio.TimeoutError:
+                    print("⚠ Motor API timeout - using cached data")
+                except Exception as e:
+                    print(f"Motor read error: {e}")
                 
-                # Build response data
+                # Build response data (using cached values for reliability)
                 data = {
                     "type": "readout",
-                    "left_pos": left_pos,
-                    "left_power": left_power_data[1],
-                    "right_pos": right_pos,
-                    "right_power": right_power_data[1],
+                    "left_pos": cached_left_pos,
+                    "left_power": cached_left_power,
+                    "right_pos": cached_right_pos,
+                    "right_power": cached_right_power,
                     "detection_enabled": detection_enabled,
                     "is_auto_driving": is_auto_driving,
+                    "nav_phase": nav_phase,  # Navigation state for GUI
+                    # FPS data for GUI display
+                    "fps_camera": round(fps_camera, 1),
+                    "fps_detection": round(fps_detection, 1) if detection_enabled else 0,
                     # Trajectory data for GUI visualization
                     "robot_pose": {
                         "x": robot_state.x,
@@ -671,6 +730,15 @@ async def producer_task():
                         
                         if detection_enabled:
                             frame_count += 1
+                            fps_frame_count += 1
+                            
+                            # Calculate FPS every second
+                            if current_time - last_fps_update_time >= 1.0:
+                                fps_camera = fps_frame_count / (current_time - last_fps_update_time)
+                                fps_detection = fps_detection_count / (current_time - last_fps_update_time)
+                                fps_frame_count = 0
+                                fps_detection_count = 0
+                                last_fps_update_time = current_time
                             
                             # Decode once
                             nparr = np.frombuffer(img_bytes, np.uint8)
@@ -697,6 +765,7 @@ async def producer_task():
                                         # Use INFERENCE_SIZE for Pi 5 performance
                                         results = detection_model(frame, imgsz=INFERENCE_SIZE, verbose=False, stream=True)
                                         best_det = None
+                                        fps_detection_count += 1  # Count YOLO inference for FPS
                                         
                                         # Process YOLO results
                                         for r in results:
@@ -723,41 +792,44 @@ async def producer_task():
                                                     }
 
                                         if best_det:
-                                            # Init Tracker
-                                            # Switched to KCF for speed on Pi 4 (Optimization)
-                                            tracker = cv2.TrackerKCF_create()
-                                            tracker.init(frame, best_det["bbox_tracker"])
-                                            tracker_label = best_det["label"]
+                                            # Init Tracker - try multiple methods for opencv compatibility
+                                            try:
+                                                # Try legacy module (opencv-contrib-python)
+                                                if hasattr(cv2, 'legacy') and hasattr(cv2.legacy, 'TrackerKCF_create'):
+                                                    tracker = cv2.legacy.TrackerKCF_create()
+                                                elif hasattr(cv2, 'TrackerKCF_create'):
+                                                    tracker = cv2.TrackerKCF_create()
+                                                else:
+                                                    # No tracker available - use YOLO-only mode
+                                                    tracker = None
+                                                    
+                                                if tracker:
+                                                    tracker.init(frame, best_det["bbox_tracker"])
+                                                    tracker_label = best_det["label"]
+                                            except Exception as e:
+                                                print(f"Tracker init failed (using YOLO-only): {e}")
+                                                tracker = None
                                             # We will use the tracker update block below to set 'last_detections'
                                             # to ensure consistency
                                         else:
                                             # No object found by YOLO
-                                            # Keep tracker if it was working? No, if YOLO says nothing, 
-                                            # and we are in a 'check' frame, maybe we should trust YOLO?
-                                            # Actually, YOLO might miss frames. 
-                                            # Strategy: Only reset tracker if it explicitly FAILED previous updates
-                                            # OR if we want to re-lock. 
-                                            # For simplicity: If YOLO finds nothing, we rely on tracker 
-                                            # UNLESS tracker also fails.
                                             pass
 
-                                    # 2. Run Tracker (Every Frame where we have a tracker)
+                                    # 2. Run Tracker (Every Frame where we have a tracker) OR use YOLO results directly
                                     current_detections = []
                                     if tracker:
                                         success, box = tracker.update(frame)
                                         if success:
                                             x, y, w, h = [int(v) for v in box]
-                                            # center
                                             center_x = int(x + w/2)
                                             center_y = int(y + h/2)
                                             
-                                            # Re-calc distance
                                             real_h = KNOWN_HEIGHT_BOTTLE if tracker_label == 'bottle' else KNOWN_HEIGHT_CAN
                                             dist_cm = calculate_distance(h, real_h)
                                             
                                             current_detections.append({
                                                 "label": tracker_label,
-                                                "confidence": 1.0, # Tracker confidence is binary usually
+                                                "confidence": 1.0,
                                                 "distance_cm": round(dist_cm, 1),
                                                 "center_x": center_x, 
                                                 "center_y": center_y,
@@ -765,9 +837,26 @@ async def producer_task():
                                                 "area_px": w * h
                                             })
                                         else:
-                                            # Tracking lost
                                             tracker = None
                                             tracker_label = ""
+                                    elif best_det:
+                                        # No tracker available - use YOLO detection directly
+                                        x1, y1, w_px, h_px = best_det["bbox_tracker"]
+                                        center_x = int(x1 + w_px/2)
+                                        center_y = int(y1 + h_px/2)
+                                        
+                                        real_h = KNOWN_HEIGHT_BOTTLE if best_det["label"] == 'bottle' else KNOWN_HEIGHT_CAN
+                                        dist_cm = calculate_distance(h_px, real_h)
+                                        
+                                        current_detections.append({
+                                            "label": best_det["label"],
+                                            "confidence": best_det["confidence"],
+                                            "distance_cm": round(dist_cm, 1),
+                                            "center_x": center_x,
+                                            "center_y": center_y,
+                                            "bbox": best_det["bbox_viz"],
+                                            "area_px": w_px * h_px
+                                        })
                                     
                                     last_detections = current_detections
                                         
@@ -797,170 +886,146 @@ async def producer_task():
                             data["detections"] = []
 
 
-                        # === AUTO-DRIVE LOGIC (Improved PD Control) ===
+                        # === AUTO-DRIVE LOGIC (Path Planning State Machine) ===
 
-                        if is_auto_driving:
-                            # 1. Update target state from detections
-                            if detection_enabled and data["detections"]:
-                                valid_detections = [d for d in data["detections"] if d['confidence'] > 0.4]
-                                if valid_detections:
-                                    best_detection = max(valid_detections, key=lambda d: d['confidence'])
-                                    target_state.update_from_detection(robot_state, best_detection)
+                        if is_auto_driving and data.get("detections"):
+                            det = data["detections"][0] if data["detections"] else None
                             
-                            # Debug output every ~1 second (30 frames at ~30fps)
+                            # Get detection info (use detection distance directly, not world coords!)
+                            det_distance = det["distance_cm"] if det else None
+                            det_center_x = det["center_x"] if det else None
+                            frame_center_x = 320  # Assuming 640px width after resize
+                            
+                            # Calculate bearing from center (pixels to radians)
+                            # Positive = target is to the right
+                            if det_center_x is not None:
+                                pixel_offset = det_center_x - frame_center_x
+                                det_bearing = pixel_offset * (CAMERA_HFOV_DEG / 640.0) * (np.pi / 180.0)
+                            else:
+                                det_bearing = None
+                            
+                            # Debug output every ~1 second
                             if frame_count % 30 == 0:
-                                print(f"=== Debug State ===")
-                                print(f"Robot pose: ({robot_state.x:.1f}, {robot_state.y:.1f}) @ {np.degrees(robot_state.theta):.1f}°")
-                                if target_state.world_x is not None:
-                                    print(f"Target pose: ({target_state.world_x:.1f}, {target_state.world_y:.1f})")
-                                    dist, bearing = target_state.get_robot_relative_position(robot_state)
-                                    if dist is not None:
-                                        print(f"Relative: dist={dist:.1f}cm, bearing={np.degrees(bearing):.1f}°")
-                                if data.get("detections"):
-                                    det = data["detections"][0]
-                                    print(f"Detection: center_x={det['center_x']}px, dist={det['distance_cm']}cm")
+                                print(f"=== Nav Phase: {nav_phase} ===")
+                                if det:
+                                    print(f"  Detection: dist={det_distance:.1f}cm, bearing={np.degrees(det_bearing):.1f}°")
+                                    print(f"  Acquired target: dist={nav_target_distance:.1f}cm, bearing={np.degrees(nav_target_bearing):.1f}°")
                             
-                            # 2. Get target relative position (uses memory if no fresh detection)
-                            distance, bearing_error = target_state.get_robot_relative_position(robot_state)
-
+                            # === PHASE: ACQUIRE ===
+                            if nav_phase == NavPhase.ACQUIRE:
+                                if det and det_distance is not None:
+                                    nav_acquire_samples.append((det_distance, det_bearing))
+                                    print(f"  Sample {len(nav_acquire_samples)}/{NAV_ACQUIRE_COUNT}: dist={det_distance:.1f}cm")
+                                    
+                                    if len(nav_acquire_samples) >= NAV_ACQUIRE_COUNT:
+                                        # Average the samples
+                                        avg_dist = sum(s[0] for s in nav_acquire_samples) / len(nav_acquire_samples)
+                                        avg_bearing = sum(s[1] for s in nav_acquire_samples) / len(nav_acquire_samples)
+                                        nav_target_distance = avg_dist
+                                        nav_target_bearing = avg_bearing
+                                        
+                                        print(f"✓ Target acquired: dist={nav_target_distance:.1f}cm, bearing={np.degrees(nav_target_bearing):.1f}°")
+                                        
+                                        # Decide next phase
+                                        if abs(nav_target_bearing) > NAV_BEARING_THRESHOLD:
+                                            nav_phase = NavPhase.ROTATE
+                                            print(f"  → Phase: ROTATE (need to turn {np.degrees(nav_target_bearing):.1f}°)")
+                                        else:
+                                            nav_phase = NavPhase.DRIVE
+                                            print(f"  → Phase: DRIVE")
                             
-                            if distance is not None:
-                                time_since_update = time.time() - target_state.last_update_time
-                                
-                                # Only use state for 2 seconds max
-                                if time_since_update < MEMORY_DURATION:
-                                    current_time = time.time()
-                                    dt = current_time - control_state.last_time
-                                    
-                                    # === PD CONTROLLER ===
-                                    # Control parameters (TUNED for stability)
-                                    target_dist = 6.0           # Target stopping distance
-                                    dist_threshold = 2.0        # Distance tolerance
-                                    
-                                    # Distance thresholds for behavior modes
-                                    CLOSE_RANGE_CM = 45.0       # 1.5 feet - reduce gains
-                                    FINAL_APPROACH_CM = 30.0    # 1 foot - drive straight only
-                                    MIN_MOVE = 0.18             # Minimum drive to overcome friction
-                                    
-                                    # FINAL APPROACH MODE: When very close, disable angular correction
-                                    # This prevents veering off when the bottle takes up most of the frame
-                                    if distance < FINAL_APPROACH_CM and abs(bearing_error) < 0.3:
-                                        # Just drive straight toward target
-                                        angular = 0.0
-                                        linear = MIN_MOVE if distance > target_dist else 0.0
-                                        
-                                        # Check if target reached
-                                        if distance <= target_dist + dist_threshold:
-                                            if time_since_update < 0.5:
-                                                print(f"✓ Target reached! Distance: {distance:.1f}cm")
-                                                is_auto_driving = False
-                                                linear = 0.0
-                                        
-                                        # Apply motor commands directly
+                            # === PHASE: ROTATE ===
+                            elif nav_phase == NavPhase.ROTATE:
+                                # Turn toward target using live detection
+                                # Use pivot turn (one wheel only) for small corrections
+                                # Use tank turn (both wheels) for large corrections
+                                if det_bearing is not None:
+                                    # Check if we're close enough (with hysteresis to prevent oscillation)
+                                    if abs(det_bearing) <= NAV_BEARING_HYSTERESIS:
+                                        # Very close to aligned - stop and switch to DRIVE
                                         if left_motor and right_motor:
-                                            await left_motor.set_power(linear)
-                                            await right_motor.set_power(linear)
+                                            await left_motor.set_power(0)
+                                            await right_motor.set_power(0)
+                                        nav_phase = NavPhase.DRIVE
+                                        nav_last_turn_dir = 0
+                                        print(f"✓ Aligned! → Phase: DRIVE")
+                                    elif abs(det_bearing) > NAV_BEARING_THRESHOLD:
+                                        # Still need to turn
+                                        turn_dir = 1 if det_bearing > 0 else -1
                                         
-                                        # Update control state
-                                        control_state.last_time = current_time
-                                    else:
-                                        # NORMAL PD CONTROL MODE
-                                        # Distance-based gain scheduling (reduce gains when close)
-                                        if distance < CLOSE_RANGE_CM:
-                                            gain_scale = 0.3 + 0.7 * ((distance - target_dist) / (CLOSE_RANGE_CM - target_dist))
-                                            gain_scale = np.clip(gain_scale, 0.3, 1.0)
+                                        # Check for oscillation - if we keep changing direction, slow down
+                                        if nav_last_turn_dir != 0 and turn_dir != nav_last_turn_dir:
+                                            # Direction changed - possible oscillation, use slower speed
+                                            speed_mult = 0.7
                                         else:
-                                            gain_scale = 1.0
+                                            speed_mult = 1.0
+                                        nav_last_turn_dir = turn_dir
                                         
-                                        # P gains (scaled by distance)
-                                        Kp_angular = 0.8 * gain_scale
-                                        Kp_linear = 0.06 * gain_scale
-                                        
-                                        # D gains (adds damping, scaled by distance)
-                                        Kd_angular = 0.4 * gain_scale
-                                        Kd_linear = 0.02 * gain_scale
-                                        
-                                        # Velocity limits (also reduce at close range)
-                                        MAX_ANGULAR = 0.40 * gain_scale
-                                        MAX_LINEAR = 0.30 * gain_scale
-                                        MIN_TURN = 0.20
-                                        
-                                        # Calculate error derivatives (damping)
-                                        if dt > 0:
-                                            bearing_rate = (bearing_error - control_state.last_bearing_error) / dt
-                                            distance_error = distance - target_dist
-                                            distance_rate = (distance_error - control_state.last_distance_error) / dt
+                                        if abs(det_bearing) > NAV_LARGE_TURN_THRESHOLD:
+                                            # Large turn - use tank turn (both wheels opposite)
+                                            l_pow = NAV_ROTATE_SPEED * turn_dir * speed_mult
+                                            r_pow = -NAV_ROTATE_SPEED * turn_dir * speed_mult
                                         else:
-                                            bearing_rate = 0.0
-                                            distance_rate = 0.0
-                                        
-                                        # PD control for angular (turn)
-                                        angular_raw = (Kp_angular * bearing_error) + (Kd_angular * bearing_rate)
-                                        angular_raw = np.clip(angular_raw, -MAX_ANGULAR, MAX_ANGULAR)
-                                        
-                                        # PD control for linear (distance)
-                                        distance_error = distance - target_dist
-                                        linear_raw = (Kp_linear * distance_error) + (Kd_linear * distance_rate)
-                                        linear_raw = np.clip(linear_raw, -MAX_LINEAR, MAX_LINEAR)
-                                        
-                                        # Apply smoothing (low-pass filter)
-                                        ALPHA = 0.2 if distance < CLOSE_RANGE_CM else 0.3
-                                        control_state.smoothed_angular = (ALPHA * angular_raw + 
-                                                                          (1-ALPHA) * control_state.smoothed_angular)
-                                        control_state.smoothed_linear = (ALPHA * linear_raw + 
-                                                                         (1-ALPHA) * control_state.smoothed_linear)
-                                        
-                                        angular = control_state.smoothed_angular
-                                        linear = control_state.smoothed_linear
-                                        
-                                        # Apply minimum thresholds (deadband compensation)
-                                        if abs(angular) > 0.05 and abs(angular) < MIN_TURN:
-                                            angular = MIN_TURN * np.sign(angular)
-                                        elif abs(angular) <= 0.05:
-                                            angular = 0.0
-                                            
-                                        if abs(linear) > 0.05 and abs(linear) < MIN_MOVE:
-                                            linear = MIN_MOVE * np.sign(linear)
-                                        elif abs(linear) <= 0.05:
-                                            linear = 0.0
-                                        
-                                        # Check if target reached (normal mode)
-                                        if abs(distance - target_dist) < dist_threshold and abs(bearing_error) < 0.1:
-                                            if time_since_update < 0.5:  # Fresh detection confirms arrival
-                                                print(f"✓ Target reached! Distance: {distance:.1f}cm")
-                                                is_auto_driving = False
-                                                linear = 0.0
-                                                angular = 0.0
-                                        
-                                        # Apply differential drive mixing
-                                        l_pow = np.clip(linear + angular, -1.0, 1.0)
-                                        r_pow = np.clip(linear - angular, -1.0, 1.0)
+                                            # Small turn - use PIVOT turn (one wheel only)
+                                            # This is gentler and less likely to overshoot
+                                            if turn_dir > 0:
+                                                # Turn right: left wheel forward, right wheel stopped
+                                                l_pow = NAV_PIVOT_SPEED * speed_mult
+                                                r_pow = 0.0
+                                            else:
+                                                # Turn left: right wheel forward, left wheel stopped
+                                                l_pow = 0.0
+                                                r_pow = NAV_PIVOT_SPEED * speed_mult
                                         
                                         if left_motor and right_motor:
                                             await left_motor.set_power(l_pow)
                                             await right_motor.set_power(r_pow)
-                                        
-                                        # Update control state for next iteration
-                                        control_state.last_bearing_error = bearing_error
-                                        control_state.last_distance_error = distance_error
-                                        control_state.last_time = current_time
-                                        
-                                        # Record trajectory point (every 5th frame to reduce data)
-                                        if frame_count % 5 == 0:
-                                            trajectory_history.append((robot_state.x, robot_state.y))
-                                    
+                                    else:
+                                        # In hysteresis zone - keep turning same direction gently
+                                        pass
                                 else:
-                                    # Memory expired - stop and disable auto-drive
-                                    print("Lost target - memory expired")
-                                    is_auto_driving = False
+                                    # Lost target during rotation - stop
                                     if left_motor and right_motor:
                                         await left_motor.set_power(0)
                                         await right_motor.set_power(0)
-                            else:
-                                # No target state - stop
-                                if left_motor and right_motor:
-                                    await left_motor.set_power(0)
-                                    await right_motor.set_power(0)
+                            
+                            # === PHASE: DRIVE ===
+                            elif nav_phase == NavPhase.DRIVE:
+                                # Drive straight toward target using live distance
+                                if det_distance is not None:
+                                    # Check if we need to correct bearing
+                                    if det_bearing is not None and abs(det_bearing) > NAV_BEARING_THRESHOLD * 2:
+                                        # Target drifted too far - re-acquire
+                                        print(f"⚠ Target drifted ({np.degrees(det_bearing):.1f}°) - re-rotating")
+                                        nav_phase = NavPhase.ROTATE
+                                        if left_motor and right_motor:
+                                            await left_motor.set_power(0)
+                                            await right_motor.set_power(0)
+                                    elif det_distance > target_distance_cm + dist_threshold_cm:
+                                        # Still need to drive forward
+                                        if left_motor and right_motor:
+                                            await left_motor.set_power(NAV_DRIVE_SPEED)
+                                            await right_motor.set_power(NAV_DRIVE_SPEED)
+                                    else:
+                                        # Arrived!
+                                        print(f"✓ TARGET REACHED! Distance: {det_distance:.1f}cm")
+                                        nav_phase = NavPhase.ARRIVED
+                                        is_auto_driving = False
+                                        if left_motor and right_motor:
+                                            await left_motor.set_power(0)
+                                            await right_motor.set_power(0)
+                                else:
+                                    # Lost target during drive - stop
+                                    print("⚠ Lost target while driving - stopping")
+                                    if left_motor and right_motor:
+                                        await left_motor.set_power(0)
+                                        await right_motor.set_power(0)
+                                        
+                        elif is_auto_driving and not data.get("detections"):
+                            # No detections but auto-driving - stop motors (safety)
+                            if left_motor and right_motor:
+                                await left_motor.set_power(0)
+                                await right_motor.set_power(0)
                             
                     except Exception as e:
                         print(f"Camera/Auto-drive loop error: {e}")
@@ -1006,6 +1071,9 @@ async def producer_task():
 async def consumer_task(websocket):
     """Handle incoming messages from a WebSocket client."""
     global robot, left_motor, right_motor, detection_enabled, is_auto_driving
+    global nav_phase, nav_acquire_samples, nav_target_distance, nav_target_bearing
+    
+    MOTOR_CMD_TIMEOUT = 1.0  # Timeout for motor commands
     
     async for message in websocket:
         try:
@@ -1019,33 +1087,77 @@ async def consumer_task(websocket):
                 motor = data.get("motor")
                 power = float(data.get("power", 0.0))
                 
-                if motor == "left":
-                    await left_motor.set_power(power)
-                elif motor == "right":
-                    await right_motor.set_power(power)
+                try:
+                    if motor == "left":
+                        await asyncio.wait_for(left_motor.set_power(power), timeout=MOTOR_CMD_TIMEOUT)
+                    elif motor == "right":
+                        await asyncio.wait_for(right_motor.set_power(power), timeout=MOTOR_CMD_TIMEOUT)
+                except asyncio.TimeoutError:
+                    print(f"⚠ Motor command timeout for {motor}")
             
             elif msg_type == "stop":
-                await left_motor.set_power(0)
-                await right_motor.set_power(0)
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(
+                            left_motor.set_power(0),
+                            right_motor.set_power(0)
+                        ),
+                        timeout=MOTOR_CMD_TIMEOUT
+                    )
+                except asyncio.TimeoutError:
+                    print("⚠ Stop command timeout - forcing stop via stop()")
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.gather(
+                                left_motor.stop(),
+                                right_motor.stop()
+                            ),
+                            timeout=MOTOR_CMD_TIMEOUT
+                        )
+                    except:
+                        print("✗ Motor stop failed!")
             
             elif msg_type == "toggle_detection":
                 detection_enabled = data.get("enabled", False)
                 print(f"Detection {'enabled' if detection_enabled else 'disabled'}")
 
             elif msg_type == "start_auto_drive":
-                 print("Starting Auto-Drive...")
+                 print("Starting Auto-Drive (Path Planning Mode)...")
+                 
+                 # Reset odometry to (0,0) to avoid drift issues
+                 robot_state.x = 0.0
+                 robot_state.y = 0.0
+                 robot_state.theta = 0.0
+                 robot_state.initialized = False  # Re-initialize on next encoder read
+                 
+                 # Reset navigation state
+                 nav_phase = NavPhase.ACQUIRE
+                 nav_acquire_samples.clear()
+                 nav_target_distance = 0.0
+                 nav_target_bearing = 0.0
+                 
                  is_auto_driving = True
-                 detection_enabled = True # Force detection on
+                 detection_enabled = True  # Force detection on
+                 
                  # Reset trajectory and record start position
                  trajectory_history.clear()
-                 auto_drive_start_pos = {"x": robot_state.x, "y": robot_state.y}
-                 trajectory_history.append((robot_state.x, robot_state.y))
+                 auto_drive_start_pos = {"x": 0.0, "y": 0.0}
+                 print(f"  Phase: {nav_phase} - Acquiring target...")
             
             elif msg_type == "stop_auto_drive":
                  print("Stopping Auto-Drive...")
                  is_auto_driving = False
-                 await left_motor.set_power(0)
-                 await right_motor.set_power(0)
+                 nav_phase = NavPhase.IDLE
+                 try:
+                     await asyncio.wait_for(
+                         asyncio.gather(
+                             left_motor.set_power(0),
+                             right_motor.set_power(0)
+                         ),
+                         timeout=1.0
+                     )
+                 except:
+                     pass
             
             elif msg_type == "disconnect":
                  print("Client requested disconnect - stopping motors")
@@ -1076,6 +1188,30 @@ async def handler(websocket):
 # MAIN ENTRY POINT
 # =============================================================================
 
+async def stop_motors():
+    """Emergency stop - call when server exits to ensure motors stop."""
+    global left_motor, right_motor
+    print("\n⚠ Stopping motors...")
+    try:
+        if left_motor:
+            await left_motor.stop()
+        if right_motor:
+            await right_motor.stop()
+        print("✓ Motors stopped safely")
+    except Exception as e:
+        print(f"✗ Error stopping motors: {e}")
+
+
+async def cleanup():
+    """Cleanup on shutdown."""
+    global robot, is_auto_driving
+    is_auto_driving = False
+    await stop_motors()
+    if robot:
+        await robot.close()
+        print("✓ Robot connection closed")
+
+
 async def main():
     """Initialize and run the server."""
     
@@ -1096,11 +1232,21 @@ async def main():
     
     print(f"\n{'=' * 50}")
     print(f"WebSocket server running on ws://{server_address}:{server_port}")
+    print(f"Press Ctrl+C to stop (motors will be stopped safely)")
     print(f"{'=' * 50}\n")
     
-    async with websockets.serve(handler, server_address, server_port):
-        await asyncio.Future()
+    try:
+        async with websockets.serve(handler, server_address, server_port):
+            await asyncio.Future()
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await cleanup()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nShutdown requested...")
+        # Note: cleanup() is called in main()'s finally block
