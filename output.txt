@@ -1,0 +1,343 @@
+﻿
+================================================================================
+WEEKLY CLASS SCHEDULE
+================================================================================
+
+****************************************
+  MONDAY
+****************************************
+  8:00 AM - 9:15 AM: CS/EE 265A: Foundations of Robotics: Planning and Control (Core)
+  9:00 AM - 9:45 AM: EE 250: Information Theory (Embodied AI)
+  9:30 AM - 10:45 AM: CS/EE 228: Deep Learning (Embodied AI)
+  11:00 AM - 11:45 AM: CS 141: Intermediate Data Structures and Algorithms (Math)
+  12:00 PM - 1:45 PM: ME 221: Kinematics and Dynamics of Robots (Autonomous Driving)
+  12:30 PM - 1:45 PM: CS/EE 131: Edge Computing (Robot Design)
+  1:00 PM - 1:45 PM: EE 255: Real-Time Embedded System (Robot Design)
+  2:00 PM - 3:15 PM: EE 236: State and Parameter Estimation Theory (Autonomous Driving)
+  2:00 PM - 3:15 PM: EE 236: State and Parameter Estimation Theory (Embodied AI)
+  3:30 PM - 4:45 PM: ME 224: Computational Methods for Robotics (Core)
+  4:00 PM - 4:45 PM: CS 145: Combinatorial Optimization Algorithms (Math)
+  5:00 PM - 6:45 PM: ME 175B: Mechanical Engineering Design (Robot Design)
+  6:00 PM - 6:45 PM: CS 224/EE 242A: Foundations of Machine Learning (Core)
+
+****************************************
+  TUESDAY
+****************************************
+  8:00 AM - 9:15 AM: EE 246: Inteligent Transportation Systems (Autonomous Driving)
+  8:00 AM - 9:15 AM: EE 246: Intelligent Transportation Systems (Robot Design)
+  8:00 AM - 8:45 AM: CS 141: Intermediate Data Structures and Algorithms (Math)
+  9:30 AM - 10:45 AM: CS 170: Introduction to Artificial Intelligence (Embodied AI)
+  9:30 AM - 10:45 AM: CS 277: Data Centric Computer Architecture (Embodied AI)
+  11:00 AM - 11:45 AM: EE 236: State and Parameter Estimation Theory (Autonomous Driving)
+  11:00 AM - 4:45 PM: EE 146: Computer Vision (Embodied AI)
+  11:00 AM - 11:45 AM: EE 236: State and Parameter Estimation Theory (Embodied AI)
+  11:00 AM - 2:45 PM: CS/EE 131: Edge Computing (Robot Design)
+  12:30 PM - 1:45 PM: EE 235: Linear System Theory (Autonomous Driving)
+  12:30 PM - 1:45 PM: CS 218: Design and Analysis of Algorithms (Math)
+  1:00 PM - 1:45 PM: CS 145: Combinatorial Optimization Algorithms (Math)
+  2:00 PM - 3:15 PM: CS 171/EE 142: Introduction to Machine Learning and Data Mining (Embodied AI)
+  2:00 PM - 3:15 PM: CS 205: Artifical Intelligence (Embodied AI)
+  3:30 PM - 4:45 PM: EE 255: Real-Time Embedded System (Robot Design)
+  5:00 PM - 6:15 PM: EE 268: Trustworthy AI for Autonomy (Autonomous Driving)
+  5:00 PM - 6:15 PM: EE 268: Trustworthy AI for Autonomy (Embodied AI)
+  6:00 PM - 6:45 PM: CS 224/EE 242A: Foundations of Machine Learning (Core)
+  6:30 PM - 7:45 PM: ME 224: Computational Methods for Robotics (Core)
+
+****************************************
+  WEDNESDAY
+****************************************
+  8:00 AM - 9:15 AM: CS/EE 265A: Foundations of Robotics: Planning and Control (Core)
+  9:00 AM - 9:45 AM: EE 250: Information Theory (Embodied AI)
+  9:30 AM - 10:45 AM: CS/EE 228: Deep Learning (Embodied AI)
+  11:00 AM - 11:45 AM: CS 141: Intermediate Data Structures and Algorithms (Math)
+  12:00 PM - 12:45 PM: EE 235: Linear System Theory (Autonomous Driving)
+  12:00 PM - 1:45 PM: ME 221: Kinematics and Dynamics of Robots (Autonomous Driving)
+  12:30 PM - 1:45 PM: CS/EE 131: Edge Computing (Robot Design)
+  2:00 PM - 3:15 PM: EE 236: State and Parameter Estimation Theory (Autonomous Driving)
+  2:00 PM - 3:15 PM: EE 236: State and Parameter Estimation Theory (Embodied AI)
+  3:30 PM - 4:45 PM: ME 224: Computational Methods for Robotics (Core)
+  4:00 PM - 7:45 PM: Me 175C: Mechanical Engineering Design (Robot Design)
+  4:00 PM - 4:45 PM: CS 145: Combinatorial Optimization Algorithms (Math)
+  5:00 PM - 7:45 PM: EE 146: Computer Vision (Embodied AI)
+  6:00 PM - 6:45 PM: CS 224/EE 242A: Foundations of Machine Learning (Core)
+
+****************************************
+  THURSDAY
+****************************************
+  8:00 AM - 9:15 AM: EE 246: Inteligent Transportation Systems (Autonomous Driving)
+  8:00 AM - 9:15 AM: EE 246: Intelligent Transportation Systems (Robot Design)
+  9:30 AM - 10:45 AM: CS 170: Introduction to Artificial Intelligence (Embodied AI)
+  9:30 AM - 10:45 AM: CS 277: Data Centric Computer Architecture (Embodied AI)
+  11:00 AM - 12:15 PM: EE 146: Computer Vision (Embodied AI)
+  12:30 PM - 1:45 PM: EE 235: Linear System Theory (Autonomous Driving)
+  12:30 PM - 1:45 PM: CS 218: Design and Analysis of Algorithms (Math)
+  2:00 PM - 3:15 PM: CS 171/EE 142: Introduction to Machine Learning and Data Mining (Embodied AI)
+  2:00 PM - 3:15 PM: CS 205: Artifical Intelligence (Embodied AI)
+  3:30 PM - 4:45 PM: EE 255: Real-Time Embedded System (Robot Design)
+  5:00 PM - 6:15 PM: EE 268: Trustworthy AI for Autonomy (Autonomous Driving)
+  5:00 PM - 6:15 PM: EE 268: Trustworthy AI for Autonomy (Embodied AI)
+  6:30 PM - 7:45 PM: ME 224: Computational Methods for Robotics (Core)
+
+****************************************
+  FRIDAY
+****************************************
+  9:00 AM - 9:45 AM: EE 250: Information Theory (Embodied AI)
+  9:00 AM - 11:45 AM: CS 141: Intermediate Data Structures and Algorithms (Math)
+  4:00 PM - 4:45 PM: CS 145: Combinatorial Optimization Algorithms (Math)
+
+****************************************
+
+Schedule saved to 'Weekly_Class_Schedule.csv'
+
+================================================================================
+CLASS CONFLICTS
+================================================================================
+
+Found 39 conflicting class pair(s):
+
+CONFLICT #1:
+  Class 1: EE 246: Inteligent Transportation Systems (Autonomous Driving)
+  Class 2: EE 246: Intelligent Transportation Systems (Robot Design)
+  Conflicts on:
+    Tuesday: 8:00 AM - 9:15 AM
+    Thursday: 8:00 AM - 9:15 AM
+
+CONFLICT #2:
+  Class 1: CS 141: Intermediate Data Structures and Algorithms (Math)
+  Class 2: EE 246: Inteligent Transportation Systems (Autonomous Driving)
+  Conflicts on:
+    Tuesday: 8:00 AM - 8:45 AM
+
+CONFLICT #3:
+  Class 1: CS 141: Intermediate Data Structures and Algorithms (Math)
+  Class 2: EE 246: Intelligent Transportation Systems (Robot Design)
+  Conflicts on:
+    Tuesday: 8:00 AM - 8:45 AM
+
+CONFLICT #4:
+  Class 1: CS/EE 265A: Foundations of Robotics: Planning and Control (Core)
+  Class 2: EE 250: Information Theory (Embodied AI)
+  Conflicts on:
+    Monday: 9:00 AM - 9:15 AM
+    Wednesday: 9:00 AM - 9:15 AM
+
+CONFLICT #5:
+  Class 1: CS 141: Intermediate Data Structures and Algorithms (Math)
+  Class 2: EE 250: Information Theory (Embodied AI)
+  Conflicts on:
+    Friday: 9:00 AM - 9:45 AM
+
+CONFLICT #6:
+  Class 1: CS/EE 228: Deep Learning (Embodied AI)
+  Class 2: EE 250: Information Theory (Embodied AI)
+  Conflicts on:
+    Monday: 9:30 AM - 9:45 AM
+    Wednesday: 9:30 AM - 9:45 AM
+
+CONFLICT #7:
+  Class 1: CS 170: Introduction to Artificial Intelligence (Embodied AI)
+  Class 2: CS 277: Data Centric Computer Architecture (Embodied AI)
+  Conflicts on:
+    Tuesday: 9:30 AM - 10:45 AM
+    Thursday: 9:30 AM - 10:45 AM
+
+CONFLICT #8:
+  Class 1: EE 146: Computer Vision (Embodied AI)
+  Class 2: EE 236: State and Parameter Estimation Theory (Autonomous Driving)
+  Conflicts on:
+    Tuesday: 11:00 AM - 11:45 AM
+
+CONFLICT #9:
+  Class 1: EE 236: State and Parameter Estimation Theory (Autonomous Driving)
+  Class 2: EE 236: State and Parameter Estimation Theory (Embodied AI)
+  Conflicts on:
+    Monday: 2:00 PM - 3:15 PM
+    Tuesday: 11:00 AM - 11:45 AM
+    Wednesday: 2:00 PM - 3:15 PM
+
+CONFLICT #10:
+  Class 1: CS/EE 131: Edge Computing (Robot Design)
+  Class 2: EE 236: State and Parameter Estimation Theory (Autonomous Driving)
+  Conflicts on:
+    Tuesday: 11:00 AM - 11:45 AM
+
+CONFLICT #11:
+  Class 1: EE 146: Computer Vision (Embodied AI)
+  Class 2: EE 236: State and Parameter Estimation Theory (Embodied AI)
+  Conflicts on:
+    Tuesday: 11:00 AM - 11:45 AM
+
+CONFLICT #12:
+  Class 1: CS/EE 131: Edge Computing (Robot Design)
+  Class 2: EE 146: Computer Vision (Embodied AI)
+  Conflicts on:
+    Tuesday: 11:00 AM - 2:45 PM
+
+CONFLICT #13:
+  Class 1: CS/EE 131: Edge Computing (Robot Design)
+  Class 2: EE 236: State and Parameter Estimation Theory (Embodied AI)
+  Conflicts on:
+    Tuesday: 11:00 AM - 11:45 AM
+
+CONFLICT #14:
+  Class 1: EE 235: Linear System Theory (Autonomous Driving)
+  Class 2: ME 221: Kinematics and Dynamics of Robots (Autonomous Driving)
+  Conflicts on:
+    Wednesday: 12:00 PM - 12:45 PM
+
+CONFLICT #15:
+  Class 1: CS/EE 131: Edge Computing (Robot Design)
+  Class 2: ME 221: Kinematics and Dynamics of Robots (Autonomous Driving)
+  Conflicts on:
+    Monday: 12:30 PM - 1:45 PM
+    Wednesday: 12:30 PM - 1:45 PM
+
+CONFLICT #16:
+  Class 1: CS/EE 131: Edge Computing (Robot Design)
+  Class 2: EE 235: Linear System Theory (Autonomous Driving)
+  Conflicts on:
+    Tuesday: 12:30 PM - 1:45 PM
+    Wednesday: 12:30 PM - 12:45 PM
+
+CONFLICT #17:
+  Class 1: CS 218: Design and Analysis of Algorithms (Math)
+  Class 2: EE 235: Linear System Theory (Autonomous Driving)
+  Conflicts on:
+    Tuesday: 12:30 PM - 1:45 PM
+    Thursday: 12:30 PM - 1:45 PM
+
+CONFLICT #18:
+  Class 1: CS 218: Design and Analysis of Algorithms (Math)
+  Class 2: CS/EE 131: Edge Computing (Robot Design)
+  Conflicts on:
+    Tuesday: 12:30 PM - 1:45 PM
+
+CONFLICT #19:
+  Class 1: EE 255: Real-Time Embedded System (Robot Design)
+  Class 2: ME 221: Kinematics and Dynamics of Robots (Autonomous Driving)
+  Conflicts on:
+    Monday: 1:00 PM - 1:45 PM
+
+CONFLICT #20:
+  Class 1: CS/EE 131: Edge Computing (Robot Design)
+  Class 2: EE 255: Real-Time Embedded System (Robot Design)
+  Conflicts on:
+    Monday: 1:00 PM - 1:45 PM
+
+CONFLICT #21:
+  Class 1: CS 145: Combinatorial Optimization Algorithms (Math)
+  Class 2: EE 235: Linear System Theory (Autonomous Driving)
+  Conflicts on:
+    Tuesday: 1:00 PM - 1:45 PM
+
+CONFLICT #22:
+  Class 1: CS 145: Combinatorial Optimization Algorithms (Math)
+  Class 2: CS/EE 131: Edge Computing (Robot Design)
+  Conflicts on:
+    Tuesday: 1:00 PM - 1:45 PM
+
+CONFLICT #23:
+  Class 1: CS 145: Combinatorial Optimization Algorithms (Math)
+  Class 2: CS 218: Design and Analysis of Algorithms (Math)
+  Conflicts on:
+    Tuesday: 1:00 PM - 1:45 PM
+
+CONFLICT #24:
+  Class 1: CS 171/EE 142: Introduction to Machine Learning and Data Mining (Embodied AI)
+  Class 2: CS 205: Artifical Intelligence (Embodied AI)
+  Conflicts on:
+    Tuesday: 2:00 PM - 3:15 PM
+    Thursday: 2:00 PM - 3:15 PM
+
+CONFLICT #25:
+  Class 1: CS 171/EE 142: Introduction to Machine Learning and Data Mining (Embodied AI)
+  Class 2: EE 146: Computer Vision (Embodied AI)
+  Conflicts on:
+    Tuesday: 2:00 PM - 3:15 PM
+
+CONFLICT #26:
+  Class 1: CS 171/EE 142: Introduction to Machine Learning and Data Mining (Embodied AI)
+  Class 2: CS/EE 131: Edge Computing (Robot Design)
+  Conflicts on:
+    Tuesday: 2:00 PM - 2:45 PM
+
+CONFLICT #27:
+  Class 1: CS 205: Artifical Intelligence (Embodied AI)
+  Class 2: EE 146: Computer Vision (Embodied AI)
+  Conflicts on:
+    Tuesday: 2:00 PM - 3:15 PM
+
+CONFLICT #28:
+  Class 1: CS 205: Artifical Intelligence (Embodied AI)
+  Class 2: CS/EE 131: Edge Computing (Robot Design)
+  Conflicts on:
+    Tuesday: 2:00 PM - 2:45 PM
+
+CONFLICT #29:
+  Class 1: EE 146: Computer Vision (Embodied AI)
+  Class 2: EE 255: Real-Time Embedded System (Robot Design)
+  Conflicts on:
+    Tuesday: 3:30 PM - 4:45 PM
+
+CONFLICT #30:
+  Class 1: CS 145: Combinatorial Optimization Algorithms (Math)
+  Class 2: ME 224: Computational Methods for Robotics (Core)
+  Conflicts on:
+    Monday: 4:00 PM - 4:45 PM
+    Wednesday: 4:00 PM - 4:45 PM
+
+CONFLICT #31:
+  Class 1: ME 224: Computational Methods for Robotics (Core)
+  Class 2: Me 175C: Mechanical Engineering Design (Robot Design)
+  Conflicts on:
+    Wednesday: 4:00 PM - 4:45 PM
+
+CONFLICT #32:
+  Class 1: CS 145: Combinatorial Optimization Algorithms (Math)
+  Class 2: Me 175C: Mechanical Engineering Design (Robot Design)
+  Conflicts on:
+    Wednesday: 4:00 PM - 4:45 PM
+
+CONFLICT #33:
+  Class 1: EE 268: Trustworthy AI for Autonomy (Autonomous Driving)
+  Class 2: EE 268: Trustworthy AI for Autonomy (Embodied AI)
+  Conflicts on:
+    Tuesday: 5:00 PM - 6:15 PM
+    Thursday: 5:00 PM - 6:15 PM
+
+CONFLICT #34:
+  Class 1: CS 224/EE 242A: Foundations of Machine Learning (Core)
+  Class 2: ME 175B: Mechanical Engineering Design (Robot Design)
+  Conflicts on:
+    Monday: 6:00 PM - 6:45 PM
+
+CONFLICT #35:
+  Class 1: CS 224/EE 242A: Foundations of Machine Learning (Core)
+  Class 2: EE 268: Trustworthy AI for Autonomy (Autonomous Driving)
+  Conflicts on:
+    Tuesday: 6:00 PM - 6:15 PM
+
+CONFLICT #36:
+  Class 1: CS 224/EE 242A: Foundations of Machine Learning (Core)
+  Class 2: EE 268: Trustworthy AI for Autonomy (Embodied AI)
+  Conflicts on:
+    Tuesday: 6:00 PM - 6:15 PM
+
+CONFLICT #37:
+  Class 1: CS 224/EE 242A: Foundations of Machine Learning (Core)
+  Class 2: EE 146: Computer Vision (Embodied AI)
+  Conflicts on:
+    Wednesday: 6:00 PM - 6:45 PM
+
+CONFLICT #38:
+  Class 1: CS 224/EE 242A: Foundations of Machine Learning (Core)
+  Class 2: ME 224: Computational Methods for Robotics (Core)
+  Conflicts on:
+    Tuesday: 6:30 PM - 6:45 PM
+
+CONFLICT #39:
+  Class 1: EE 146: Computer Vision (Embodied AI)
+  Class 2: Me 175C: Mechanical Engineering Design (Robot Design)
+  Conflicts on:
+    Wednesday: 7:00 PM - 7:45 PM
+

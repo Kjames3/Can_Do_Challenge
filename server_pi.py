@@ -1,5 +1,5 @@
 """
-Viam Rover Control Server with Bottle Detection
+Viam Rover Control Server - RASPBERRY PI 5 OPTIMIZED
 
 This WebSocket server connects to a Viam-powered rover and provides:
 - Motor control (left/right)
@@ -7,8 +7,11 @@ This WebSocket server connects to a Viam-powered rover and provides:
 - Lidar data streaming
 - Real-time bottle/can detection using YOLOv8
 
+Optimized for Raspberry Pi 5 (CPU-only inference).
+For Jetson Orin (GPU), use server_jetson.py instead.
+
 Usage:
-    python server.py
+    python server_pi.py
 """
 
 import asyncio
@@ -60,7 +63,26 @@ IMAGE_HEIGHT = 480          # Camera resolution height
 # Wheel Parameters (CALIBRATE THESE! - Measured for your rover)
 WHEEL_DIAMETER_CM = 5.5     # Wheel diameter in cm
 WHEEL_BASE_CM = 19.55       # Distance between wheel contact points in cm
-                            # NOTE: User said 195.5cm - assuming 19.55cm (check if this is correct!)
+
+# =============================================================================
+# RASPBERRY PI 5 OPTIMIZATION SETTINGS
+# =============================================================================
+# These settings are tuned for CPU-only inference on Pi 5
+
+# YOLO Model - use nano for CPU performance
+YOLO_MODEL = 'yolov8n.pt'   # Nano model (fastest for CPU)
+
+# Inference resolution - lower = faster
+INFERENCE_SIZE = 320        # 320px for Pi 5 (GPU: 640)
+
+# Detection interval - run YOLO every N frames (reduces CPU load)
+DETECTION_INTERVAL = 3      # Every 3rd frame (GPU: 1)
+
+# Video frame rate cap (reduces bandwidth and CPU)
+VIDEO_FPS_CAP = 15          # 15 FPS for Pi 5 (GPU: 24-30)
+
+# JPEG quality (lower = smaller files, faster transfer)
+JPEG_QUALITY = 65           # 65% for Pi 5 (GPU: 70-85)
 
 # =============================================================================
 # GLOBAL STATE
@@ -84,7 +106,7 @@ center_threshold_px: int = 50     # Pixel error tolerance for centering
   
 # FPS Optimization
 frame_count: int = 0
-detection_interval: int = 3  # Run detection every N frames
+detection_interval: int = DETECTION_INTERVAL  # Use config constant
 last_detections: list = []
 
 # Trackers
@@ -266,8 +288,8 @@ def initialize_detection_model():
     """Load the YOLO model for object detection."""
     global detection_model
     try:
-        detection_model = YOLO('yolov8n.pt')
-        print("✓ YOLO detection model loaded successfully.")
+        detection_model = YOLO(YOLO_MODEL)  # Use config constant
+        print(f"✓ YOLO detection model ({YOLO_MODEL}) loaded successfully.")
         return True
     except Exception as e:
         print(f"✗ Failed to load YOLO model: {e}")
@@ -515,7 +537,7 @@ async def producer_task():
     global frame_count, last_detections, tracker, tracker_label, tracker_init_time
     
     last_video_time = 0
-    VIDEO_INTERVAL = 1.0 / 24.0  # Cap video at ~24 FPS to prevent flooding
+    VIDEO_INTERVAL = 1.0 / VIDEO_FPS_CAP  # Use config constant for Pi 5 optimization
     last_battery_time = 0
     BATTERY_INTERVAL = 5.0       # Update battery every 5s
     
@@ -672,8 +694,8 @@ async def producer_task():
                                     run_yolo = (frame_count % detection_interval == 0) or (tracker is None)
                                     
                                     if run_yolo:
-                                        # Use 320 for speed (Pi 4 Optimization)
-                                        results = detection_model(frame, imgsz=320, verbose=False, stream=True)
+                                        # Use INFERENCE_SIZE for Pi 5 performance
+                                        results = detection_model(frame, imgsz=INFERENCE_SIZE, verbose=False, stream=True)
                                         best_det = None
                                         
                                         # Process YOLO results
@@ -763,8 +785,8 @@ async def producer_task():
                                 cv2.putText(frame, f"{label} {dist}cm", (x1, y1-10), 
                                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
                             
-                            # Re-encode to send
-                            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                            # Re-encode to send with Pi 5 optimized quality
+                            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
                             
                             data["image"] = base64.b64encode(buffer).decode('utf-8')
                             data["detections"] = last_detections
