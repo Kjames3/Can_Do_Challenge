@@ -33,6 +33,7 @@ import struct
 import numpy as np
 import cv2
 from ultralytics import YOLO
+from navigation_fsm import NavigationFSM, NavigationConfig, NavigationState
 
 # =============================================================================
 # CONFIGURATION
@@ -156,6 +157,9 @@ connected_clients = set()
 trajectory_history = []  # List of (x, y) positions
 auto_drive_start_pos = None  # Starting position when auto-drive began
 MAX_TRAJECTORY_POINTS = 200  # Limit points to avoid memory issues
+
+# Navigation FSM instance (initialized after robot connects)
+nav_fsm: NavigationFSM = None
 
 # =============================================================================
 # STATE TRACKING CLASSES (Odometry + Target Memory)
@@ -625,7 +629,7 @@ async def producer_task():
                     "right_power": cached_right_power,
                     "detection_enabled": detection_enabled,
                     "is_auto_driving": is_auto_driving,
-                    "nav_phase": nav_phase,  # Navigation state for GUI
+                    "nav_phase": nav_fsm.state_summary if nav_fsm else nav_phase,  # Navigation state for GUI
                     # FPS data for GUI display
                     "fps_camera": round(fps_camera, 1),
                     "fps_detection": round(fps_detection, 1) if detection_enabled else 0,
@@ -886,146 +890,24 @@ async def producer_task():
                             data["detections"] = []
 
 
-                        # === AUTO-DRIVE LOGIC (Path Planning State Machine) ===
-
-                        if is_auto_driving and data.get("detections"):
-                            det = data["detections"][0] if data["detections"] else None
-                            
-                            # Get detection info (use detection distance directly, not world coords!)
-                            det_distance = det["distance_cm"] if det else None
-                            det_center_x = det["center_x"] if det else None
-                            frame_center_x = 320  # Assuming 640px width after resize
-                            
-                            # Calculate bearing from center (pixels to radians)
-                            # Positive = target is to the right
-                            if det_center_x is not None:
-                                pixel_offset = det_center_x - frame_center_x
-                                det_bearing = pixel_offset * (CAMERA_HFOV_DEG / 640.0) * (np.pi / 180.0)
-                            else:
-                                det_bearing = None
+                        # === AUTO-DRIVE LOGIC (using Navigation FSM) ===
+                        if is_auto_driving and nav_fsm:
+                            # Get detection for FSM
+                            det = data["detections"][0] if data.get("detections") else None
                             
                             # Debug output every ~1 second
                             if frame_count % 30 == 0:
-                                print(f"=== Nav Phase: {nav_phase} ===")
+                                print(f"=== Nav State: {nav_fsm.state_summary} ===")
                                 if det:
-                                    print(f"  Detection: dist={det_distance:.1f}cm, bearing={np.degrees(det_bearing):.1f}°")
-                                    print(f"  Acquired target: dist={nav_target_distance:.1f}cm, bearing={np.degrees(nav_target_bearing):.1f}°")
+                                    print(f"  Detection: dist={det['distance_cm']:.1f}cm, center_x={det['center_x']}px")
                             
-                            # === PHASE: ACQUIRE ===
-                            if nav_phase == NavPhase.ACQUIRE:
-                                if det and det_distance is not None:
-                                    nav_acquire_samples.append((det_distance, det_bearing))
-                                    print(f"  Sample {len(nav_acquire_samples)}/{NAV_ACQUIRE_COUNT}: dist={det_distance:.1f}cm")
-                                    
-                                    if len(nav_acquire_samples) >= NAV_ACQUIRE_COUNT:
-                                        # Average the samples
-                                        avg_dist = sum(s[0] for s in nav_acquire_samples) / len(nav_acquire_samples)
-                                        avg_bearing = sum(s[1] for s in nav_acquire_samples) / len(nav_acquire_samples)
-                                        nav_target_distance = avg_dist
-                                        nav_target_bearing = avg_bearing
-                                        
-                                        print(f"✓ Target acquired: dist={nav_target_distance:.1f}cm, bearing={np.degrees(nav_target_bearing):.1f}°")
-                                        
-                                        # Decide next phase
-                                        if abs(nav_target_bearing) > NAV_BEARING_THRESHOLD:
-                                            nav_phase = NavPhase.ROTATE
-                                            print(f"  → Phase: ROTATE (need to turn {np.degrees(nav_target_bearing):.1f}°)")
-                                        else:
-                                            nav_phase = NavPhase.DRIVE
-                                            print(f"  → Phase: DRIVE")
+                            # Update Navigation FSM (handles all navigation logic)
+                            await nav_fsm.update(detection=det)
                             
-                            # === PHASE: ROTATE ===
-                            elif nav_phase == NavPhase.ROTATE:
-                                # Turn toward target using live detection
-                                # Use pivot turn (one wheel only) for small corrections
-                                # Use tank turn (both wheels) for large corrections
-                                if det_bearing is not None:
-                                    # Check if we're close enough (with hysteresis to prevent oscillation)
-                                    if abs(det_bearing) <= NAV_BEARING_HYSTERESIS:
-                                        # Very close to aligned - stop and switch to DRIVE
-                                        if left_motor and right_motor:
-                                            await left_motor.set_power(0)
-                                            await right_motor.set_power(0)
-                                        nav_phase = NavPhase.DRIVE
-                                        nav_last_turn_dir = 0
-                                        print(f"✓ Aligned! → Phase: DRIVE")
-                                    elif abs(det_bearing) > NAV_BEARING_THRESHOLD:
-                                        # Still need to turn
-                                        turn_dir = 1 if det_bearing > 0 else -1
-                                        
-                                        # Check for oscillation - if we keep changing direction, slow down
-                                        if nav_last_turn_dir != 0 and turn_dir != nav_last_turn_dir:
-                                            # Direction changed - possible oscillation, use slower speed
-                                            speed_mult = 0.7
-                                        else:
-                                            speed_mult = 1.0
-                                        nav_last_turn_dir = turn_dir
-                                        
-                                        if abs(det_bearing) > NAV_LARGE_TURN_THRESHOLD:
-                                            # Large turn - use tank turn (both wheels opposite)
-                                            l_pow = NAV_ROTATE_SPEED * turn_dir * speed_mult
-                                            r_pow = -NAV_ROTATE_SPEED * turn_dir * speed_mult
-                                        else:
-                                            # Small turn - use PIVOT turn (one wheel only)
-                                            # This is gentler and less likely to overshoot
-                                            if turn_dir > 0:
-                                                # Turn right: left wheel forward, right wheel stopped
-                                                l_pow = NAV_PIVOT_SPEED * speed_mult
-                                                r_pow = 0.0
-                                            else:
-                                                # Turn left: right wheel forward, left wheel stopped
-                                                l_pow = 0.0
-                                                r_pow = NAV_PIVOT_SPEED * speed_mult
-                                        
-                                        if left_motor and right_motor:
-                                            await left_motor.set_power(l_pow)
-                                            await right_motor.set_power(r_pow)
-                                    else:
-                                        # In hysteresis zone - keep turning same direction gently
-                                        pass
-                                else:
-                                    # Lost target during rotation - stop
-                                    if left_motor and right_motor:
-                                        await left_motor.set_power(0)
-                                        await right_motor.set_power(0)
-                            
-                            # === PHASE: DRIVE ===
-                            elif nav_phase == NavPhase.DRIVE:
-                                # Drive straight toward target using live distance
-                                if det_distance is not None:
-                                    # Check if we need to correct bearing
-                                    if det_bearing is not None and abs(det_bearing) > NAV_BEARING_THRESHOLD * 2:
-                                        # Target drifted too far - re-acquire
-                                        print(f"⚠ Target drifted ({np.degrees(det_bearing):.1f}°) - re-rotating")
-                                        nav_phase = NavPhase.ROTATE
-                                        if left_motor and right_motor:
-                                            await left_motor.set_power(0)
-                                            await right_motor.set_power(0)
-                                    elif det_distance > target_distance_cm + dist_threshold_cm:
-                                        # Still need to drive forward
-                                        if left_motor and right_motor:
-                                            await left_motor.set_power(NAV_DRIVE_SPEED)
-                                            await right_motor.set_power(NAV_DRIVE_SPEED)
-                                    else:
-                                        # Arrived!
-                                        print(f"✓ TARGET REACHED! Distance: {det_distance:.1f}cm")
-                                        nav_phase = NavPhase.ARRIVED
-                                        is_auto_driving = False
-                                        if left_motor and right_motor:
-                                            await left_motor.set_power(0)
-                                            await right_motor.set_power(0)
-                                else:
-                                    # Lost target during drive - stop
-                                    print("⚠ Lost target while driving - stopping")
-                                    if left_motor and right_motor:
-                                        await left_motor.set_power(0)
-                                        await right_motor.set_power(0)
-                                        
-                        elif is_auto_driving and not data.get("detections"):
-                            # No detections but auto-driving - stop motors (safety)
-                            if left_motor and right_motor:
-                                await left_motor.set_power(0)
-                                await right_motor.set_power(0)
+                            # Check if FSM reached ARRIVED state
+                            if nav_fsm.state == NavigationState.ARRIVED:
+                                is_auto_driving = False
+                                print("🏁 Navigation complete!")
                             
                     except Exception as e:
                         print(f"Camera/Auto-drive loop error: {e}")
@@ -1122,42 +1004,32 @@ async def consumer_task(websocket):
                 print(f"Detection {'enabled' if detection_enabled else 'disabled'}")
 
             elif msg_type == "start_auto_drive":
-                 print("Starting Auto-Drive (Path Planning Mode)...")
+                 print("Starting Auto-Drive (Navigation FSM)...")
                  
                  # Reset odometry to (0,0) to avoid drift issues
                  robot_state.x = 0.0
                  robot_state.y = 0.0
                  robot_state.theta = 0.0
-                 robot_state.initialized = False  # Re-initialize on next encoder read
-                 
-                 # Reset navigation state
-                 nav_phase = NavPhase.ACQUIRE
-                 nav_acquire_samples.clear()
-                 nav_target_distance = 0.0
-                 nav_target_bearing = 0.0
+                 robot_state.initialized = False
                  
                  is_auto_driving = True
                  detection_enabled = True  # Force detection on
                  
-                 # Reset trajectory and record start position
+                 # Start Navigation FSM (uses APPROACHING mode directly since target visible)
+                 if nav_fsm:
+                     await nav_fsm.start_approach()
+                 
+                 # Reset trajectory
                  trajectory_history.clear()
                  auto_drive_start_pos = {"x": 0.0, "y": 0.0}
-                 print(f"  Phase: {nav_phase} - Acquiring target...")
             
             elif msg_type == "stop_auto_drive":
                  print("Stopping Auto-Drive...")
                  is_auto_driving = False
-                 nav_phase = NavPhase.IDLE
-                 try:
-                     await asyncio.wait_for(
-                         asyncio.gather(
-                             left_motor.set_power(0),
-                             right_motor.set_power(0)
-                         ),
-                         timeout=1.0
-                     )
-                 except:
-                     pass
+                 
+                 # Stop Navigation FSM
+                 if nav_fsm:
+                     await nav_fsm.stop()
             
             elif msg_type == "disconnect":
                  print("Client requested disconnect - stopping motors")
@@ -1214,6 +1086,7 @@ async def cleanup():
 
 async def main():
     """Initialize and run the server."""
+    global nav_fsm
     
     # Load detection model
     initialize_detection_model()
@@ -1221,6 +1094,15 @@ async def main():
     # Connect to robot
     if not await connect_to_robot():
         return
+    
+    # Initialize Navigation FSM with calibrated config
+    nav_config = NavigationConfig()
+    nav_config.camera_hfov_deg = CAMERA_HFOV_DEG
+    nav_config.frame_width = IMAGE_WIDTH
+    nav_config.target_distance_cm = target_distance_cm
+    nav_config.dist_threshold_cm = dist_threshold_cm
+    nav_fsm = NavigationFSM(left_motor, right_motor, nav_config)
+    print("✓ Navigation FSM initialized")
     
     # Start producer task
     asyncio.create_task(producer_task())
