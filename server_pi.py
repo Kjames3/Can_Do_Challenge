@@ -34,8 +34,10 @@ from ultralytics import YOLO
 # =============================================================================
 parser = argparse.ArgumentParser(description='Viam Rover Control Server')
 parser.add_argument('--sim', action='store_true', help='Run in simulation mode (no hardware)')
+parser.add_argument('--profile', action='store_true', help='Enable performance profiling (sends metrics to GUI)')
 args = parser.parse_args()
 SIM_MODE = args.sim
+PROFILE_MODE = args.profile
 
 # Conditional Viam imports (not needed in sim mode)
 if not SIM_MODE:
@@ -121,6 +123,88 @@ API_TIMEOUT = 3.0           # Timeout for encoder/camera API calls (seconds)
 # Auto-reconnection settings
 MAX_CONSECUTIVE_TIMEOUTS = 5    # Reconnect after this many consecutive timeouts
 RECONNECT_DELAY = 2.0           # Delay before reconnection attempt (seconds)
+
+# =============================================================================
+# PERFORMANCE PROFILING
+# =============================================================================
+
+class PerformanceMetrics:
+    """
+    Tracks API call latencies and performance metrics.
+    Enabled with --profile flag, sends data over WebSocket to GUI.
+    """
+    
+    def __init__(self):
+        self.enabled = PROFILE_MODE
+        self.start_time = time.time()
+        
+        # Timing collections (last N samples)
+        self.max_samples = 100
+        self.timings = {
+            "motor_read": [],
+            "encoder_read": [],
+            "camera_read": [],
+            "lidar_read": [],
+            "detection": [],
+            "websocket_send": [],
+            "frame_total": []
+        }
+        
+        # Counters
+        self.timeout_count = 0
+        self.frame_count = 0
+        self.api_call_count = 0
+        
+        # Summary stats (updated every N frames)
+        self.summary_interval = 50
+        self.last_summary = {}
+    
+    def record(self, category: str, duration_sec: float):
+        """Record a timing sample."""
+        if not self.enabled:
+            return
+        
+        samples = self.timings.get(category, [])
+        samples.append(duration_sec * 1000)  # Store in milliseconds
+        if len(samples) > self.max_samples:
+            samples.pop(0)
+        self.timings[category] = samples
+        self.api_call_count += 1
+    
+    def record_timeout(self):
+        """Record a timeout event."""
+        self.timeout_count += 1
+    
+    def get_summary(self) -> dict:
+        """Get summary statistics for all metrics."""
+        summary = {
+            "uptime_sec": round(time.time() - self.start_time, 1),
+            "frame_count": self.frame_count,
+            "api_call_count": self.api_call_count,
+            "timeout_count": self.timeout_count,
+            "categories": {}
+        }
+        
+        for category, samples in self.timings.items():
+            if samples:
+                summary["categories"][category] = {
+                    "avg_ms": round(sum(samples) / len(samples), 2),
+                    "max_ms": round(max(samples), 2),
+                    "min_ms": round(min(samples), 2),
+                    "count": len(samples)
+                }
+        
+        self.last_summary = summary
+        return summary
+    
+    def should_send_summary(self) -> bool:
+        """Check if it's time to send a summary."""
+        return self.enabled and (self.frame_count % self.summary_interval == 0)
+
+
+# Global profiler instance
+perf = PerformanceMetrics()
+
 
 # =============================================================================
 # SIMULATION MODE - Mock Classes and Ghost Target
@@ -1132,6 +1216,7 @@ async def producer_task():
                 # Gather motor data with timeout (less frequently to reduce API load)
                 if current_time - last_motor_read_time > MOTOR_READ_INTERVAL:
                     try:
+                        _t0 = time.time()
                         left_pos, left_power_data, right_pos, right_power_data = await asyncio.wait_for(
                             asyncio.gather(
                                 left_motor.get_position(),
@@ -1141,6 +1226,7 @@ async def producer_task():
                             ),
                             timeout=API_TIMEOUT
                         )
+                        perf.record("motor_read", time.time() - _t0)
                         cached_left_pos = left_pos
                         cached_left_power = left_power_data[1]
                         cached_right_pos = right_pos
@@ -1183,8 +1269,10 @@ async def producer_task():
                 # Manual control doesn't need odometry - user drives by sight
                 if is_auto_driving and left_encoder and right_encoder:
                     try:
+                        _t0 = time.time()
                         left_enc_pos, _ = await left_encoder.get_position()
                         right_enc_pos, _ = await right_encoder.get_position()
+                        perf.record("encoder_read", time.time() - _t0)
                         robot_state.update_odometry(left_enc_pos, right_enc_pos,
                                                     wheel_base_cm=WHEEL_BASE_CM,
                                                     wheel_diameter_cm=WHEEL_DIAMETER_CM)
@@ -1476,10 +1564,18 @@ async def producer_task():
                         pass
 
                 # Broadcast to all clients
+                perf.frame_count += 1
+                
+                # Add profile metrics to data if profiling enabled
+                if perf.should_send_summary():
+                    data["profile_metrics"] = perf.get_summary()
+                
+                _t0 = time.time()
                 message = json.dumps(data)
                 send_tasks = [client.send(message) for client in connected_clients]
                 if send_tasks:
                     await asyncio.gather(*send_tasks)
+                    perf.record("websocket_send", time.time() - _t0)
                     
             except Exception as e:
                 print(f"Producer error: {e}")
@@ -1670,6 +1766,8 @@ async def main():
     
     print(f"\n{'=' * 50}")
     print(f"WebSocket server running on ws://{server_address}:{server_port}")
+    if PROFILE_MODE:
+        print(f"📊 PROFILING ENABLED - metrics sent to GUI every 50 frames")
     print(f"Press Ctrl+C to stop (motors will be stopped safely)")
     print(f"{'=' * 50}\n")
     
