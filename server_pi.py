@@ -11,29 +11,42 @@ Optimized for Raspberry Pi 5 (CPU-only inference).
 For Jetson Orin (GPU), use server_jetson.py instead.
 
 Usage:
-    python server_pi.py
+    python server_pi.py          # Normal mode (connects to robot)
+    python server_pi.py --sim    # Simulation mode (no hardware needed)
 """
 
 import asyncio
 import time
 import json
 import signal
+import argparse
 import websockets
-from viam.robot.client import RobotClient
-from viam.rpc.dial import DialOptions
-from viam.components.motor import Motor
-from viam.components.camera import Camera
-from viam.components.sensor import Sensor
-from viam.components.movement_sensor import MovementSensor  # For IMU
-from viam.components.power_sensor import PowerSensor
-from viam.components.encoder import Encoder
+from navigation_fsm import NavigationFSM, NavigationConfig, NavigationState
 import base64
 import io
 import struct
 import numpy as np
 import cv2
 from ultralytics import YOLO
-from navigation_fsm import NavigationFSM, NavigationConfig, NavigationState
+
+# =============================================================================
+# COMMAND LINE ARGUMENTS
+# =============================================================================
+parser = argparse.ArgumentParser(description='Viam Rover Control Server')
+parser.add_argument('--sim', action='store_true', help='Run in simulation mode (no hardware)')
+args = parser.parse_args()
+SIM_MODE = args.sim
+
+# Conditional Viam imports (not needed in sim mode)
+if not SIM_MODE:
+    from viam.robot.client import RobotClient
+    from viam.rpc.dial import DialOptions
+    from viam.components.motor import Motor
+    from viam.components.camera import Camera
+    from viam.components.sensor import Sensor
+    from viam.components.movement_sensor import MovementSensor
+    from viam.components.power_sensor import PowerSensor
+    from viam.components.encoder import Encoder
 
 # =============================================================================
 # CONFIGURATION
@@ -69,6 +82,10 @@ IMAGE_HEIGHT = 480          # Camera resolution height
 WHEEL_DIAMETER_CM = 5.5     # Wheel diameter in cm
 WHEEL_BASE_CM = 19.55       # Distance between wheel contact points in cm
 
+# Camera Mount Parameters (for Homography distance estimation)
+CAMERA_HEIGHT_CM = 12.0     # Height of camera lens above ground (cm)
+CAMERA_TILT_DEG = 15.0      # Camera tilt angle (degrees, positive = looking down)
+
 # =============================================================================
 # RASPBERRY PI 5 OPTIMIZATION SETTINGS
 # =============================================================================
@@ -90,18 +107,181 @@ VIDEO_FPS_CAP = 15          # 15 FPS for Pi 5 (GPU: 24-30)
 JPEG_QUALITY = 65           # 65% for Pi 5 (GPU: 70-85)
 
 # =============================================================================
+# SIMULATION MODE - Mock Classes and Ghost Target
+# =============================================================================
+
+# Ghost Target for testing navigation in simulation
+GHOST_TARGET = {
+    "x": 100.0,      # cm from start
+    "y": 50.0,       # cm from start
+    "label": "bottle",
+    "height_cm": KNOWN_HEIGHT_BOTTLE
+}
+
+
+class MockMotor:
+    """Simulated motor for testing without hardware."""
+    def __init__(self, name: str):
+        self.name = name
+        self.power = 0.0
+        self._position = 0.0  # Encoder ticks (simulated)
+    
+    async def set_power(self, power: float):
+        self.power = max(-1.0, min(1.0, power))
+    
+    async def get_position(self):
+        return self._position
+    
+    async def is_powered(self):
+        return (True, self.power)
+    
+    async def stop(self):
+        self.power = 0.0
+    
+    def update_position(self, dt: float, ticks_per_second: float = 100.0):
+        """Called by physics loop to update encoder position."""
+        self._position += self.power * ticks_per_second * dt
+
+
+class MockEncoder:
+    """Simulated encoder for testing without hardware."""
+    def __init__(self, motor: MockMotor):
+        self.motor = motor
+    
+    async def get_position(self):
+        return self.motor._position
+
+
+class MockCamera:
+    """Simulated camera that generates test frames."""
+    def __init__(self):
+        self.frame_count = 0
+    
+    async def get_image(self):
+        """Return a test pattern image."""
+        # Create a simple test frame with grid pattern
+        frame = np.zeros((IMAGE_HEIGHT, IMAGE_WIDTH, 3), dtype=np.uint8)
+        
+        # Draw grid
+        for i in range(0, IMAGE_WIDTH, 40):
+            cv2.line(frame, (i, 0), (i, IMAGE_HEIGHT), (50, 50, 50), 1)
+        for i in range(0, IMAGE_HEIGHT, 40):
+            cv2.line(frame, (0, i), (IMAGE_WIDTH, i), (50, 50, 50), 1)
+        
+        # Add "SIM MODE" text
+        cv2.putText(frame, "SIM MODE", (IMAGE_WIDTH//2 - 80, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+        
+        self.frame_count += 1
+        
+        # Return as PIL-like object with tobytes method
+        class FakeImage:
+            def __init__(self, data):
+                self._data = data
+            def tobytes(self):
+                return self._data.tobytes()
+        
+        return FakeImage(frame)
+
+
+# Physics simulation state
+sim_physics_running = False
+
+async def sim_physics_loop():
+    """Background task that simulates robot physics at 50Hz."""
+    global sim_physics_running, left_motor, right_motor, robot_state
+    
+    sim_physics_running = True
+    last_time = time.time()
+    
+    while sim_physics_running:
+        current_time = time.time()
+        dt = current_time - last_time
+        last_time = current_time
+        
+        if left_motor and right_motor and hasattr(left_motor, 'update_position'):
+            # Update encoder positions based on motor power
+            left_motor.update_position(dt)
+            right_motor.update_position(dt)
+            
+            # Differential drive kinematics
+            # Convert motor power to velocity (cm/s)
+            max_speed_cm_s = 30.0  # Max robot speed
+            v_left = left_motor.power * max_speed_cm_s
+            v_right = right_motor.power * max_speed_cm_s
+            
+            # Calculate linear and angular velocity
+            v_linear = (v_left + v_right) / 2.0
+            v_angular = (v_right - v_left) / WHEEL_BASE_CM
+            
+            # Update robot pose
+            robot_state.theta += v_angular * dt
+            robot_state.x += v_linear * np.cos(robot_state.theta) * dt
+            robot_state.y += v_linear * np.sin(robot_state.theta) * dt
+        
+        await asyncio.sleep(0.02)  # 50Hz
+
+
+def generate_ghost_detection(robot_state) -> dict:
+    """Generate fake detection data for the ghost target."""
+    # Calculate relative position of ghost target
+    dx = GHOST_TARGET["x"] - robot_state.x
+    dy = GHOST_TARGET["y"] - robot_state.y
+    
+    # Distance to target
+    distance = np.sqrt(dx*dx + dy*dy)
+    
+    # Bearing to target (relative to robot heading)
+    target_angle = np.arctan2(dy, dx)
+    bearing = target_angle - robot_state.theta
+    
+    # Normalize bearing to [-pi, pi]
+    while bearing > np.pi: bearing -= 2*np.pi
+    while bearing < -np.pi: bearing += 2*np.pi
+    
+    # Check if target is in camera FOV
+    fov_rad = CAMERA_HFOV_DEG * np.pi / 180.0
+    if abs(bearing) > fov_rad / 2:
+        return None  # Target not visible
+    
+    # Check if target is within reasonable range
+    if distance > 300 or distance < 10:
+        return None
+    
+    # Calculate pixel position in frame
+    center_x = IMAGE_WIDTH / 2 + (bearing / (fov_rad / 2)) * (IMAGE_WIDTH / 2)
+    
+    # Estimate bounding box size based on distance
+    apparent_height = (GHOST_TARGET["height_cm"] * FOCAL_LENGTH) / distance
+    bbox_height = int(apparent_height)
+    bbox_width = int(bbox_height * 0.4)  # Bottle aspect ratio
+    
+    center_y = IMAGE_HEIGHT / 2 + 50  # Slightly below center
+    
+    return {
+        "label": GHOST_TARGET["label"],
+        "confidence": 0.95,
+        "center_x": int(center_x),
+        "center_y": int(center_y),
+        "width": bbox_width,
+        "height": bbox_height,
+        "distance_cm": distance
+    }
+
+
+# =============================================================================
 # GLOBAL STATE
 # =============================================================================
 
-robot: RobotClient = None
-left_motor: Motor = None
-right_motor: Motor = None
-camera: Camera = None
-lidar: Camera = None
-battery: PowerSensor = None
-imu: Sensor = None
-left_encoder: Encoder = None
-right_encoder: Encoder = None
+robot = None
+left_motor = None
+right_motor = None
+camera = None
+lidar = None
+battery = None
+imu = None
+left_encoder = None
+right_encoder = None
 
 # Auto-drive state
 is_auto_driving: bool = False
@@ -341,6 +521,53 @@ def calculate_distance(bbox_height_px: float, real_height_cm: float) -> float:
     return (real_height_cm * FOCAL_LENGTH) / bbox_height_px
 
 
+def calculate_distance_homography(bbox_bottom_y: int, image_height: int = IMAGE_HEIGHT) -> float:
+    """
+    Calculate distance using ground plane projection (Homography).
+    
+    Uses the bottom of the bounding box (assumed to be on the ground) to estimate
+    distance more accurately than the pinhole model at close range.
+    
+    Formula: D = H_cam / tan(θ_cam + α_pixel)
+    
+    Args:
+        bbox_bottom_y: Y coordinate of bottom of bounding box (pixels from top)
+        image_height: Total image height in pixels
+        
+    Returns:
+        Estimated distance in centimeters
+    """
+    # Calculate vertical FOV from horizontal FOV and aspect ratio
+    aspect_ratio = image_height / IMAGE_WIDTH
+    vfov_deg = CAMERA_HFOV_DEG * aspect_ratio
+    
+    # Pixel offset from image center (positive = below center = closer)
+    image_center_y = image_height / 2
+    pixel_offset = bbox_bottom_y - image_center_y
+    
+    # Convert pixel offset to angle (radians)
+    # Each pixel represents vfov_deg / image_height degrees
+    degrees_per_pixel = vfov_deg / image_height
+    alpha_pixel_deg = pixel_offset * degrees_per_pixel
+    alpha_pixel_rad = alpha_pixel_deg * (np.pi / 180.0)
+    
+    # Camera tilt in radians (positive = looking down)
+    theta_cam_rad = CAMERA_TILT_DEG * (np.pi / 180.0)
+    
+    # Total angle from horizontal to the ground point
+    total_angle = theta_cam_rad + alpha_pixel_rad
+    
+    # Check for invalid geometry (object above horizon or angle too shallow)
+    if total_angle <= 0.01:  # ~0.5 degree minimum
+        return 999.0  # Return large distance for objects above horizon
+    
+    # Ground plane projection
+    distance = CAMERA_HEIGHT_CM / np.tan(total_angle)
+    
+    # Clamp to reasonable range
+    return max(5.0, min(distance, 500.0))
+
+
 def process_detection(image_bytes: bytes) -> tuple:
     """
     Process an image for bottle/can detection.
@@ -481,10 +708,47 @@ def parse_pcd(data: bytes) -> list:
 # =============================================================================
 
 async def connect_to_robot() -> bool:
-    """Establish connection to the Viam robot."""
+    """Establish connection to the Viam robot (or create mock in SIM_MODE)."""
     global robot, left_motor, right_motor, camera, lidar, battery, imu
     global left_encoder, right_encoder
     
+    # =========================================================================
+    # SIMULATION MODE - Create mock components
+    # =========================================================================
+    if SIM_MODE:
+        print("\n" + "="*50)
+        print("  🎮 SIMULATION MODE - No Hardware Required")
+        print("="*50 + "\n")
+        
+        robot = "SIMULATED"  # Dummy value to indicate connected
+        
+        # Create mock motors
+        left_motor = MockMotor("left")
+        right_motor = MockMotor("right")
+        print("✓ Mock Motors created")
+        
+        # Create mock encoders (linked to motors)
+        left_encoder = MockEncoder(left_motor)
+        right_encoder = MockEncoder(right_motor)
+        print("✓ Mock Encoders created")
+        
+        # Create mock camera
+        camera = MockCamera()
+        print("✓ Mock Camera created")
+        
+        # No lidar, battery, or IMU in sim mode
+        lidar = None
+        battery = None
+        imu = None
+        
+        print(f"\n🎯 Ghost Target at ({GHOST_TARGET['x']}, {GHOST_TARGET['y']}) cm")
+        print("   Robot will try to navigate to it when auto-drive is enabled\n")
+        
+        return True
+    
+    # =========================================================================
+    # REAL MODE - Connect to Viam robot
+    # =========================================================================
     print("Connecting to robot...")
     
     try:
@@ -1103,6 +1367,11 @@ async def main():
     nav_config.dist_threshold_cm = dist_threshold_cm
     nav_fsm = NavigationFSM(left_motor, right_motor, nav_config)
     print("✓ Navigation FSM initialized")
+    
+    # Start physics simulation loop if in SIM_MODE
+    if SIM_MODE:
+        asyncio.create_task(sim_physics_loop())
+        print("✓ Physics simulation running at 50Hz")
     
     # Start producer task
     asyncio.create_task(producer_task())

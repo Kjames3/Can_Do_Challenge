@@ -11,6 +11,11 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
+    <!-- Three.js for 3D Visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/loaders/STLLoader.js"></script>
+
     <style>
         /* =================================================================
            CSS Variables & Reset
@@ -1102,25 +1107,23 @@
                     </div>
                 </div>
 
-                <!-- Trajectory Visualization -->
-                <div id="trajectory-card" class="card" style="display: none;">
+                <!-- 3D Visualization (Three.js) -->
+                <div id="viewport-3d-card" class="card">
                     <div class="card-header">
-                        <h2><span class="icon">🛤️</span> Trajectory</h2>
+                        <h2><span class="icon">🎮</span> 3D View</h2>
+                        <div id="nav-phase-display"
+                            style="font-size: 0.75rem; color: var(--accent-cyan); font-family: monospace;">IDLE</div>
                     </div>
-                    <div class="card-body" style="position: relative;">
-                        <div id="trajectory-container" class="lidar-container">
-                            <canvas id="trajectory-canvas" class="lidar-canvas" width="300" height="300"></canvas>
-                            <div
-                                style="display: flex; gap: 1rem; margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-muted);">
-                                <span>⚪ Start</span>
-                                <span style="color: #22c55e;">🟢 Path</span>
-                                <span style="color: #ef4444;">🔴 Robot</span>
-                                <span style="color: #eab308;">🟡 Target</span>
-                            </div>
+                    <div class="card-body" style="padding: 0;">
+                        <div id="viewport-3d-container" style="width: 100%; height: 300px; position: relative;">
+                            <canvas id="viewport-3d-canvas" style="width: 100%; height: 100%;"></canvas>
                         </div>
-                        <div id="trajectory-overlay"
-                            style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; border-radius: var(--radius-md);">
-                            <span style="color: var(--text-muted);">Start Auto-Drive to track trajectory</span>
+                        <div
+                            style="display: flex; gap: 1rem; padding: 0.5rem 1rem; font-size: 0.7rem; color: var(--text-muted); background: var(--bg-tertiary);">
+                            <span>🔵 Robot</span>
+                            <span style="color: #22c55e;">🟢 Start</span>
+                            <span style="color: #ef4444;">🔴 Target</span>
+                            <span style="color: #64748b;">⬜ Grid = 1m</span>
                         </div>
                     </div>
                 </div>
@@ -1143,7 +1146,179 @@
             isAutoDriving: false
         };
 
-        const SERVER_ADDRESS = "ws://localhost:8081";
+        // Get Pi address from URL input or default to current hostname
+        // This allows connecting to Pi when GUI is served from the same host
+        // or manually entering Pi IP in the connection input
+        const DEFAULT_PORT = 8081;
+
+        function getServerAddress() {
+            const hostInput = document.getElementById('robot-ip');
+            if (hostInput && hostInput.value && hostInput.value !== '192.168.1.X') {
+                return `ws://${hostInput.value}:${DEFAULT_PORT}`;
+            }
+            // Fallback: use localhost if running locally
+            return `ws://localhost:${DEFAULT_PORT}`;
+        }
+
+        // =================================================================
+        // Three.js 3D Visualization
+        // =================================================================
+        let scene3D, camera3D, renderer3D, controls3D;
+        let robotMesh, targetMarker, startMarker;
+        let robotTrailPoints = [];
+        const MAX_TRAIL_POINTS = 200;
+
+        function init3DViewport() {
+            const container = document.getElementById('viewport-3d-container');
+            const canvas = document.getElementById('viewport-3d-canvas');
+
+            if (!container || !canvas || typeof THREE === 'undefined') {
+                console.warn('Three.js not loaded or container not found');
+                return;
+            }
+
+            // Scene
+            scene3D = new THREE.Scene();
+            scene3D.background = new THREE.Color(0x1e293b);
+
+            // Camera (looking down at 45 degrees)
+            camera3D = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 1000);
+            camera3D.position.set(0, 2, 2);
+            camera3D.lookAt(0, 0, 0);
+
+            // Renderer
+            renderer3D = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer3D.setSize(container.clientWidth, container.clientHeight);
+            renderer3D.setPixelRatio(window.devicePixelRatio);
+
+            // Orbit Controls
+            controls3D = new THREE.OrbitControls(camera3D, renderer3D.domElement);
+            controls3D.enableDamping = true;
+            controls3D.dampingFactor = 0.1;
+            controls3D.maxPolarAngle = Math.PI / 2.1;  // Prevent going below ground
+
+            // Ground Grid (1 meter = 100cm per square)
+            const gridHelper = new THREE.GridHelper(5, 50, 0x475569, 0x334155);  // 5m x 5m, 10cm spacing
+            scene3D.add(gridHelper);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene3D.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(2, 4, 2);
+            scene3D.add(directionalLight);
+
+            // Robot Model - Try to load STL, fallback to box
+            const robotMaterial = new THREE.MeshStandardMaterial({ color: 0x06b6d4, metalness: 0.3, roughness: 0.7 });
+
+            // Create placeholder mesh first (will be replaced by STL if loaded)
+            const boxGeometry = new THREE.BoxGeometry(0.15, 0.08, 0.20);  // 15x8x20 cm fallback
+            robotMesh = new THREE.Mesh(boxGeometry, robotMaterial);
+            robotMesh.position.set(0, 0.04, 0);
+            scene3D.add(robotMesh);
+
+            // Try to load STL model
+            if (typeof THREE.STLLoader !== 'undefined') {
+                const stlLoader = new THREE.STLLoader();
+                stlLoader.load('VR2-23-A1.STL',
+                    (geometry) => {
+                        // STL loaded successfully
+                        geometry.computeVertexNormals();
+                        geometry.center();
+
+                        // Create new mesh and replace placeholder
+                        const stlMesh = new THREE.Mesh(geometry, robotMaterial);
+
+                        // Scale from mm to meters (STL files often use mm)
+                        stlMesh.scale.set(0.001, 0.001, 0.001);
+                        stlMesh.position.set(0, 0.04, 0);
+                        stlMesh.rotation.x = -Math.PI / 2;  // Rotate to stand upright
+
+                        scene3D.remove(robotMesh);
+                        robotMesh = stlMesh;
+                        scene3D.add(robotMesh);
+                        console.log('✓ STL model loaded');
+                    },
+                    (progress) => { },
+                    (error) => {
+                        console.warn('STL load failed, using box fallback:', error);
+                    }
+                );
+            }
+
+            // Direction indicator (front of robot - only for box fallback)
+            const arrowGeom = new THREE.ConeGeometry(0.03, 0.08, 8);
+            const arrowMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+            const arrow = new THREE.Mesh(arrowGeom, arrowMat);
+            arrow.rotation.x = Math.PI / 2;
+            arrow.position.set(0, 0, 0.12);
+            robotMesh.add(arrow);
+
+            // Start Marker (Green Disc)
+            const startGeom = new THREE.CylinderGeometry(0.05, 0.05, 0.01, 16);
+            const startMat = new THREE.MeshStandardMaterial({ color: 0x22c55e });
+            startMarker = new THREE.Mesh(startGeom, startMat);
+            startMarker.position.set(0, 0.005, 0);
+            scene3D.add(startMarker);
+
+            // Target Marker (Red Cylinder)
+            const targetGeom = new THREE.CylinderGeometry(0.08, 0.08, 0.2, 16);
+            const targetMat = new THREE.MeshStandardMaterial({ color: 0xef4444, transparent: true, opacity: 0.7 });
+            targetMarker = new THREE.Mesh(targetGeom, targetMat);
+            targetMarker.position.set(1, 0.1, 0.5);  // Default position
+            targetMarker.visible = false;  // Hidden until target detected
+            scene3D.add(targetMarker);
+
+            // Animation loop
+            function animate() {
+                requestAnimationFrame(animate);
+                controls3D.update();
+                renderer3D.render(scene3D, camera3D);
+            }
+            animate();
+
+            // Handle resize
+            window.addEventListener('resize', () => {
+                if (container && camera3D && renderer3D) {
+                    camera3D.aspect = container.clientWidth / container.clientHeight;
+                    camera3D.updateProjectionMatrix();
+                    renderer3D.setSize(container.clientWidth, container.clientHeight);
+                }
+            });
+
+            console.log('✓ 3D Viewport initialized');
+        }
+
+        function update3DScene(robotPose, targetPose, navPhase) {
+            if (!robotMesh) return;
+
+            // Update robot position (convert cm to meters)
+            robotMesh.position.x = robotPose.x / 100;
+            robotMesh.position.z = robotPose.y / 100;
+
+            // Update robot rotation (theta is heading, Three.js Y axis is up)
+            robotMesh.rotation.y = -robotPose.theta;
+
+            // Update target marker
+            if (targetPose && targetPose.x !== null && targetPose.y !== null) {
+                targetMarker.position.x = targetPose.x / 100;
+                targetMarker.position.z = targetPose.y / 100;
+                targetMarker.visible = true;
+            } else {
+                targetMarker.visible = false;
+            }
+
+            // Update nav phase display
+            const navPhaseDisplay = document.getElementById('nav-phase-display');
+            if (navPhaseDisplay && navPhase) {
+                navPhaseDisplay.textContent = navPhase;
+            }
+        }
+
+        // Initialize 3D viewport when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(init3DViewport, 100);  // Small delay to ensure Three.js is loaded
+        });
 
         // =================================================================
         // DOM Elements
@@ -1394,6 +1569,9 @@
                 elements.robotY.textContent = `Y: ${rp.y.toFixed(1)}`;
                 const thetaDeg = (rp.theta * 180 / Math.PI).toFixed(1);
                 elements.robotTheta.textContent = `θ: ${thetaDeg}°`;
+
+                // Update 3D viewport with robot pose
+                update3DScene(rp, data.target_pose, data.nav_phase);
             }
             if (data.target_pose && data.target_pose.x !== null) {
                 const tp = data.target_pose;
