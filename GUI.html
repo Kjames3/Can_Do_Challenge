@@ -1387,10 +1387,10 @@
             // Disconnect button
             disconnectBtn: document.getElementById('disconnect-btn'),
 
-            // Trajectory
+            // Trajectory (legacy - may not exist if using 3D viewport)
             trajectoryCard: document.getElementById('trajectory-card'),
             trajectoryCanvas: document.getElementById('trajectory-canvas'),
-            trajectoryCtx: document.getElementById('trajectory-canvas').getContext('2d'),
+            trajectoryCtx: document.getElementById('trajectory-canvas')?.getContext('2d') || null,
             trajectoryOverlay: document.getElementById('trajectory-overlay'),
             trajectoryContainer: document.getElementById('trajectory-container'),
 
@@ -1549,16 +1549,16 @@
                 elements.statWatts.textContent = data.battery.watts.toFixed(2) + ' W';
             }
 
-            // Update Trajectory Visualization
+            // Update Trajectory Visualization (legacy - elements may not exist with 3D viewport)
             // Show card when detection is enabled, show overlay when not auto-driving
-            if (data.detection_enabled !== undefined) {
+            if (data.detection_enabled !== undefined && elements.trajectoryCard) {
                 elements.trajectoryCard.style.display = data.detection_enabled ? 'block' : 'none';
             }
-            if (data.is_auto_driving !== undefined) {
+            if (data.is_auto_driving !== undefined && elements.trajectoryOverlay) {
                 elements.trajectoryOverlay.style.display = data.is_auto_driving ? 'none' : 'flex';
             }
-            // Draw trajectory when auto-driving
-            if (state.isAutoDriving && data.trajectory) {
+            // Draw trajectory when auto-driving (only if legacy function exists)
+            if (state.isAutoDriving && data.trajectory && typeof drawTrajectory === 'function') {
                 drawTrajectory(data);
             }
 
