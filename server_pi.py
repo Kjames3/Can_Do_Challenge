@@ -963,6 +963,8 @@ async def producer_task():
     BATTERY_INTERVAL = 5.0       # Update battery every 5s
     last_encoder_time = 0
     ENCODER_INTERVAL = 0.1       # Update encoders at 10Hz
+    last_motor_read_time = 0
+    MOTOR_READ_INTERVAL = 0.5    # Update motor status every 0.5s (2Hz) - saves API calls
     
     API_TIMEOUT = 2.0  # Timeout for Viam API calls to prevent freezes
     
@@ -984,25 +986,28 @@ async def producer_task():
         current_time = time.time()
         if robot and connected_clients:
             try:
-                # Gather motor data with timeout (reduce frequency of API calls)
-                try:
-                    left_pos, left_power_data, right_pos, right_power_data = await asyncio.wait_for(
-                        asyncio.gather(
-                            left_motor.get_position(),
-                            left_motor.is_powered(),
-                            right_motor.get_position(),
-                            right_motor.is_powered()
-                        ),
-                        timeout=API_TIMEOUT
-                    )
-                    cached_left_pos = left_pos
-                    cached_left_power = left_power_data[1]
-                    cached_right_pos = right_pos
-                    cached_right_power = right_power_data[1]
-                except asyncio.TimeoutError:
-                    print("⚠ Motor API timeout - using cached data")
-                except Exception as e:
-                    print(f"Motor read error: {e}")
+                # Gather motor data with timeout (less frequently to reduce API load)
+                if current_time - last_motor_read_time > MOTOR_READ_INTERVAL:
+                    try:
+                        left_pos, left_power_data, right_pos, right_power_data = await asyncio.wait_for(
+                            asyncio.gather(
+                                left_motor.get_position(),
+                                left_motor.is_powered(),
+                                right_motor.get_position(),
+                                right_motor.is_powered()
+                            ),
+                            timeout=API_TIMEOUT
+                        )
+                        cached_left_pos = left_pos
+                        cached_left_power = left_power_data[1]
+                        cached_right_pos = right_pos
+                        cached_right_power = right_power_data[1]
+                        last_motor_read_time = current_time
+                        reset_timeout_counter()  # Successful API call
+                    except asyncio.TimeoutError:
+                        await handle_api_timeout("Motor read")
+                    except Exception as e:
+                        print(f"Motor read error: {e}")
                 
                 # Build response data (using cached values for reliability)
                 data = {
