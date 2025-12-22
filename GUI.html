@@ -894,6 +894,16 @@
                         <small>Power</small>
                         <span id="stat-watts">-- W</span>
                     </div>
+                    <div class="separator"></div>
+                    <div class="power-item">
+                        <small>Session</small>
+                        <span id="stat-uptime">0:00</span>
+                    </div>
+                    <div class="separator"></div>
+                    <div class="power-item" id="time-remaining-container" style="display: none;">
+                        <small>Time Left</small>
+                        <span id="stat-time-remaining" style="color: var(--accent-yellow);">--:--</span>
+                    </div>
                 </div>
 
                 <div class="status-indicator">
@@ -1402,7 +1412,12 @@
             robotTheta: document.getElementById('robot-theta'),
             targetX: document.getElementById('target-x'),
             targetY: document.getElementById('target-y'),
-            targetDist: document.getElementById('target-dist')
+            targetDist: document.getElementById('target-dist'),
+
+            // Session & Battery Timer
+            statUptime: document.getElementById('stat-uptime'),
+            statTimeRemaining: document.getElementById('stat-time-remaining'),
+            timeRemainingContainer: document.getElementById('time-remaining-container')
         };
 
         // =================================================================
@@ -1418,8 +1433,21 @@
 
             state.ws.onopen = () => {
                 state.connected = true;
+                state.sessionStartTime = Date.now();
                 updateConnectionStatus('connected');
                 elements.controlArea.classList.remove('disabled-overlay');
+
+                // Start session timer (updates every second)
+                if (state.sessionTimerInterval) clearInterval(state.sessionTimerInterval);
+                state.sessionTimerInterval = setInterval(() => {
+                    if (!state.connected) return;
+                    const elapsed = Math.floor((Date.now() - state.sessionStartTime) / 1000);
+                    const mins = Math.floor(elapsed / 60);
+                    const secs = elapsed % 60;
+                    if (elements.statUptime) {
+                        elements.statUptime.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+                    }
+                }, 1000);
             };
 
             state.ws.onclose = () => {
@@ -1546,9 +1574,43 @@
             // Update Battery / Power Stats
             if (data.battery) {
                 elements.powerStatsPanel.style.display = 'flex';
-                elements.statVolts.textContent = data.battery.voltage.toFixed(2) + ' V';
+                const voltage = data.battery.voltage;
+                elements.statVolts.textContent = voltage.toFixed(2) + ' V';
                 elements.statAmps.textContent = data.battery.amps.toFixed(3) + ' A';
                 elements.statWatts.textContent = data.battery.watts.toFixed(2) + ' W';
+
+                // Battery time remaining calculation
+                // Threshold: 12.2V = rover will shutdown in ~2-3 minutes
+                const LOW_VOLTAGE_THRESHOLD = 12.2;
+                const CRITICAL_VOLTAGE = 11.8;  // Rover dies at ~11.8V
+
+                if (voltage <= LOW_VOLTAGE_THRESHOLD && elements.timeRemainingContainer) {
+                    elements.timeRemainingContainer.style.display = 'block';
+
+                    // Estimate time remaining based on voltage (linear approximation)
+                    // 12.2V = ~2:30, 11.8V = ~0:00
+                    const voltageRange = LOW_VOLTAGE_THRESHOLD - CRITICAL_VOLTAGE;
+                    const voltageRemaining = Math.max(0, voltage - CRITICAL_VOLTAGE);
+                    const percentRemaining = voltageRemaining / voltageRange;
+                    const totalSeconds = Math.floor(percentRemaining * 150);  // ~2:30 max
+
+                    const mins = Math.floor(totalSeconds / 60);
+                    const secs = totalSeconds % 60;
+
+                    elements.statTimeRemaining.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+
+                    // Color based on urgency
+                    if (voltage <= 12.0) {
+                        elements.statTimeRemaining.style.color = 'var(--accent-red)';
+                        elements.statVolts.style.color = 'var(--accent-red)';
+                    } else {
+                        elements.statTimeRemaining.style.color = 'var(--accent-yellow)';
+                        elements.statVolts.style.color = 'var(--accent-yellow)';
+                    }
+                } else if (elements.timeRemainingContainer) {
+                    elements.timeRemainingContainer.style.display = 'none';
+                    elements.statVolts.style.color = '';  // Reset color
+                }
             }
 
             // Update Trajectory Visualization (legacy - elements may not exist with 3D viewport)
