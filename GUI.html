@@ -900,9 +900,9 @@
                         <span id="stat-uptime">0:00</span>
                     </div>
                     <div class="separator"></div>
-                    <div class="power-item" id="time-remaining-container" style="display: none;">
+                    <div class="power-item" id="time-remaining-container">
                         <small>Time Left</small>
-                        <span id="stat-time-remaining" style="color: var(--accent-yellow);">--:--</span>
+                        <span id="stat-time-remaining" style="color: var(--accent-green);">OK</span>
                     </div>
                 </div>
 
@@ -1607,8 +1607,10 @@
                         elements.statTimeRemaining.style.color = 'var(--accent-yellow)';
                         elements.statVolts.style.color = 'var(--accent-yellow)';
                     }
-                } else if (elements.timeRemainingContainer) {
-                    elements.timeRemainingContainer.style.display = 'none';
+                } else if (elements.statTimeRemaining) {
+                    // Voltage is good - show OK in green
+                    elements.statTimeRemaining.textContent = 'OK';
+                    elements.statTimeRemaining.style.color = 'var(--accent-green)';
                     elements.statVolts.style.color = '';  // Reset color
                 }
             }

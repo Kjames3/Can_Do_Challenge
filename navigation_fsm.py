@@ -89,7 +89,7 @@ class NavigationFSM:
         self._last_left_power = None
         self._last_right_power = None
         self._last_motor_time = 0.0
-        self._MOTOR_INTERVAL = 0.05  # 50ms = 20Hz max
+        self._MOTOR_INTERVAL = 0.10  # 100ms = 10Hz max (was 20Hz, reduced to avoid API overflow)
         self._POWER_DEADBAND = 0.02  # 2% deadband
         self._MOTOR_TIMEOUT = 2.5    # Timeout for motor commands
         

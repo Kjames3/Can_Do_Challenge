@@ -1188,7 +1188,7 @@ async def producer_task():
     last_encoder_time = 0
     ENCODER_INTERVAL = 0.2       # Update encoders at 5Hz (was 10Hz) - reduces API calls
     last_motor_read_time = 0
-    MOTOR_READ_INTERVAL = 0.5    # Update motor status every 0.5s (2Hz) - saves API calls
+    MOTOR_READ_INTERVAL = 1.0    # Update motor status every 1.0s (1Hz) - critical to avoid API overflow
     last_lidar_time = 0
     
     API_TIMEOUT = 2.0  # Timeout for Viam API calls to prevent freezes
@@ -1213,8 +1213,9 @@ async def producer_task():
         current_time = time.time()
         if robot and connected_clients:
             try:
-                # Gather motor data with timeout (less frequently to reduce API load)
-                if current_time - last_motor_read_time > MOTOR_READ_INTERVAL:
+                # Gather motor data with timeout (SKIP during auto-drive to save API calls)
+                # During auto-drive, encoders provide position data for odometry
+                if not is_auto_driving and current_time - last_motor_read_time > MOTOR_READ_INTERVAL:
                     try:
                         _t0 = time.time()
                         left_pos, left_power_data, right_pos, right_power_data = await asyncio.wait_for(
