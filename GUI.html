@@ -1247,12 +1247,13 @@
                 );
             }
 
-            // Direction indicator (arrow pointing forward, attached to front of robot)
+            // Direction indicator (arrow pointing forward along +Z axis)
             const arrowGeom = new THREE.ConeGeometry(0.03, 0.08, 8);
             const arrowMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
             const arrow = new THREE.Mesh(arrowGeom, arrowMat);
-            arrow.rotation.x = Math.PI / 2;  // Point cone forward (along +Z)
-            arrow.position.set(0, 0.02, 0.15);  // At front center of robot
+            // Cone default points along +Y, rotate -90° around X to point along +Z
+            arrow.rotation.x = -Math.PI / 2;
+            arrow.position.set(0, 0.04, 0.16);  // At front center of robot, slightly above
             robotMesh.add(arrow);
 
             // Start Marker (Green Disc)
@@ -1571,6 +1572,13 @@
                 const thetaDeg = (rp.theta * 180 / Math.PI).toFixed(1);
                 elements.robotTheta.textContent = `θ: ${thetaDeg}°`;
 
+                // DEBUG: Log robot_pose data every 30 frames
+                if (!window._poseLogCount) window._poseLogCount = 0;
+                window._poseLogCount++;
+                if (window._poseLogCount % 30 === 0) {
+                    console.log('robot_pose:', rp.x.toFixed(1), rp.y.toFixed(1), thetaDeg + '°');
+                }
+
                 // Update 3D viewport with robot pose
                 update3DScene(rp, data.target_pose, data.nav_phase);
             }
@@ -1603,13 +1611,14 @@
 
             const html = detections.map(d => {
                 const distInches = (d.distance_cm / 2.54).toFixed(1);
+                const distFeet = (d.distance_cm / 30.48).toFixed(2);
                 return `
                 <div class="detection-item">
                     <div class="detection-item-label">
                         <span class="detection-badge">${d.label}</span>
                     </div>
                     <div class="detection-item-stats">
-                        <span title="Distance">${d.distance_cm.toFixed(0)}cm (${distInches}in)</span>
+                        <span title="Distance">${d.distance_cm.toFixed(0)}cm / ${distInches}in / ${distFeet}ft</span>
                         <span title="Confidence">${(d.confidence * 100).toFixed(0)}%</span>
                         <div class="confidence-bar" title="Confidence">
                             <div class="confidence-fill" style="width: ${d.confidence * 100}%"></div>
