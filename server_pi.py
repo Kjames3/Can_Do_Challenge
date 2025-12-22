@@ -876,6 +876,9 @@ async def reconnect_to_robot():
     success = await connect_to_robot()
     
     if success:
+        # Update NavigationFSM with new motor references
+        if nav_fsm and left_motor and right_motor:
+            nav_fsm.update_motors(left_motor, right_motor)
         print("✓ Reconnection successful!\n")
     else:
         print("✗ Reconnection failed - will retry on next timeout\n")

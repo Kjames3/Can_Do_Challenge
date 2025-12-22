@@ -41,12 +41,12 @@ class NavigationConfig:
     bearing_hysteresis: float = 0.08      # ~4.5° - prevents oscillation
     large_turn_threshold: float = 0.35    # ~20° - use tank turn above this
     
-    # Motor speeds
-    rotate_speed: float = 0.22            # Tank turn speed
-    pivot_speed: float = 0.20             # Pivot turn speed
-    drive_speed: float = 0.22             # Forward drive speed
-    search_speed: float = 0.18            # Search rotation speed
-    backup_speed: float = 0.20            # Backup speed for avoiding
+    # Motor speeds (higher = fewer small movements = fewer API calls)
+    rotate_speed: float = 0.28            # Tank turn speed
+    pivot_speed: float = 0.25             # Pivot turn speed
+    drive_speed: float = 0.35             # Forward drive speed (increased from 0.22)
+    search_speed: float = 0.22            # Search rotation speed
+    backup_speed: float = 0.25            # Backup speed for avoiding
     
     # Camera
     camera_hfov_deg: float = 76.5
@@ -136,6 +136,16 @@ class NavigationFSM:
         self._set_state(NavigationState.IDLE)
         await self._stop_motors()
         print("⏹ Navigation stopped")
+    
+    def update_motors(self, left_motor, right_motor):
+        """Update motor references (call after reconnection)"""
+        self.left_motor = left_motor
+        self.right_motor = right_motor
+        # Reset coalescing state
+        self._last_left_power = None
+        self._last_right_power = None
+        self._last_motor_time = 0.0
+        print("✓ NavigationFSM motors updated")
     
     async def update(self, detection: dict = None, lidar_min_distance_cm: float = None):
         """
