@@ -1,0 +1,28 @@
+# STL 3D Model Files (large binary files)
+*.STL
+*.stl
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# YOLO weights (downloaded automatically)
+*.pt
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Profiling
+*.prof
