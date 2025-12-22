@@ -61,11 +61,16 @@ API_KEY = "0eg1lzk5jg3x2c3cjh3i17aoljf76989"
 LEFT_MOTOR_NAME = "left"
 RIGHT_MOTOR_NAME = "right"
 CAMERA_NAME = "cam"
-LIDAR_NAME = None  # No lidar on this robot
+LIDAR_NAME = "lidar"  # RPLIDAR A1 - set to None if not connected
 BATTERY_NAME = "ina219"
 IMU_NAME = "imu"
 LEFT_ENCODER_NAME = "left-enc"   # Pi 5 encoder name
 RIGHT_ENCODER_NAME = "right-enc" # Pi 5 encoder name
+
+# Lidar Configuration (for obstacle avoidance and distance fusion)
+LIDAR_READ_INTERVAL = 0.5       # Read lidar at 2Hz to save API calls
+LIDAR_FORWARD_ARC_DEG = 60      # Forward arc to check for obstacles (±30°)
+LIDAR_OBSTACLE_DIST_CM = 25     # Trigger avoidance if obstacle closer than this
 
 # Detection Configuration
 KNOWN_HEIGHT_BOTTLE = 20.0  # Standard water bottle height in cm
@@ -518,6 +523,138 @@ async def update_robot_state_with_imu():
 
 
 # =============================================================================
+# LIDAR FUNCTIONS
+# =============================================================================
+
+# Cache for lidar scan data
+cached_lidar_distances = []
+cached_lidar_angles = []
+
+
+async def get_lidar_scan_data():
+    """
+    Get lidar scan and extract useful data.
+    
+    Returns:
+        tuple: (min_forward_distance_cm, distances_array, angles_array)
+               Returns (None, [], []) if lidar unavailable
+    """
+    global lidar, cached_lidar_distances, cached_lidar_angles
+    
+    if not lidar:
+        return None, [], []
+    
+    try:
+        # Get point cloud from lidar (Viam returns PCD format)
+        pcd_bytes, _ = await asyncio.wait_for(
+            lidar.get_point_cloud(),
+            timeout=API_TIMEOUT
+        )
+        
+        # Parse PCD binary data
+        distances, angles = parse_pcd_to_polar(pcd_bytes)
+        cached_lidar_distances = distances
+        cached_lidar_angles = angles
+        
+        # Find minimum distance in forward arc (±LIDAR_FORWARD_ARC_DEG/2)
+        half_arc = np.radians(LIDAR_FORWARD_ARC_DEG / 2)
+        min_forward_dist = float('inf')
+        
+        for dist, angle in zip(distances, angles):
+            # Normalize angle to [-pi, pi] where 0 is forward
+            if -half_arc <= angle <= half_arc:
+                if dist > 0 and dist < min_forward_dist:
+                    min_forward_dist = dist
+        
+        # Convert to cm and return
+        min_dist_cm = min_forward_dist * 100 if min_forward_dist != float('inf') else None
+        reset_timeout_counter()  # Success
+        
+        return min_dist_cm, distances, angles
+        
+    except asyncio.TimeoutError:
+        await handle_api_timeout("Lidar read")
+        return None, cached_lidar_distances, cached_lidar_angles
+    except Exception as e:
+        print(f"Lidar error: {e}")
+        return None, [], []
+
+
+def parse_pcd_to_polar(pcd_bytes: bytes):
+    """
+    Parse PCD binary data to polar coordinates.
+    
+    Returns:
+        tuple: (distances in meters, angles in radians)
+    """
+    distances = []
+    angles = []
+    
+    try:
+        # Skip PCD header (find DATA binary or ascii)
+        data_start = pcd_bytes.find(b'DATA binary')
+        if data_start == -1:
+            data_start = pcd_bytes.find(b'DATA ascii')
+            if data_start == -1:
+                return [], []
+        
+        # Find newline after DATA line
+        newline_pos = pcd_bytes.find(b'\n', data_start)
+        if newline_pos == -1:
+            return [], []
+        
+        # Binary data starts after newline
+        binary_data = pcd_bytes[newline_pos + 1:]
+        
+        # Assume XYZ float32 format (12 bytes per point)
+        point_size = 12
+        num_points = len(binary_data) // point_size
+        
+        for i in range(num_points):
+            offset = i * point_size
+            x = np.frombuffer(binary_data[offset:offset+4], dtype=np.float32)[0]
+            y = np.frombuffer(binary_data[offset+4:offset+8], dtype=np.float32)[0]
+            # z is height, we mainly care about x,y for 2D navigation
+            
+            # Convert to polar
+            dist = np.sqrt(x*x + y*y)
+            angle = np.arctan2(y, x)  # Angle from robot's X axis
+            
+            if dist > 0.01:  # Filter out near-zero readings
+                distances.append(dist)
+                angles.append(angle)
+                
+    except Exception as e:
+        print(f"PCD parse error: {e}")
+    
+    return distances, angles
+
+
+def get_lidar_distance_at_angle(target_angle_rad: float, tolerance_rad: float = 0.1):
+    """
+    Get lidar distance at a specific angle (for fusing with camera detection).
+    
+    Args:
+        target_angle_rad: Angle to check (0 = forward, positive = left)
+        tolerance_rad: Angular tolerance (~6 degrees default)
+    
+    Returns:
+        float: Average distance in cm at that angle, or None if no data
+    """
+    global cached_lidar_distances, cached_lidar_angles
+    
+    matching_dists = []
+    for dist, angle in zip(cached_lidar_distances, cached_lidar_angles):
+        if abs(angle - target_angle_rad) <= tolerance_rad:
+            matching_dists.append(dist * 100)  # Convert to cm
+    
+    if not matching_dists:
+        return None
+    
+    return sum(matching_dists) / len(matching_dists)
+
+
+# =============================================================================
 # DETECTION FUNCTIONS
 # =============================================================================
 
@@ -965,9 +1102,10 @@ async def producer_task():
     last_battery_time = 0
     BATTERY_INTERVAL = 5.0       # Update battery every 5s
     last_encoder_time = 0
-    ENCODER_INTERVAL = 0.1       # Update encoders at 10Hz
+    ENCODER_INTERVAL = 0.2       # Update encoders at 5Hz (was 10Hz) - reduces API calls
     last_motor_read_time = 0
     MOTOR_READ_INTERVAL = 0.5    # Update motor status every 0.5s (2Hz) - saves API calls
+    last_lidar_time = 0
     
     API_TIMEOUT = 2.0  # Timeout for Viam API calls to prevent freezes
     
@@ -976,6 +1114,8 @@ async def producer_task():
     current_watts = 0.0
     current_pct = 0.0
     
+    # Cached lidar data (for obstacle avoidance)
+    cached_min_forward_dist_cm = None
     # Cached motor data (updated less frequently to reduce API load)
     cached_left_pos = 0.0
     cached_left_power = 0.0
@@ -1039,8 +1179,9 @@ async def producer_task():
                     "auto_drive_start": auto_drive_start_pos
                 }
                 
-                # Update odometry from wheel encoders (if available)
-                if left_encoder and right_encoder:
+                # Update odometry from wheel encoders (ONLY during auto-drive to save API calls)
+                # Manual control doesn't need odometry - user drives by sight
+                if is_auto_driving and left_encoder and right_encoder:
                     try:
                         left_enc_pos, _ = await left_encoder.get_position()
                         right_enc_pos, _ = await right_encoder.get_position()
@@ -1050,11 +1191,6 @@ async def producer_task():
                         
                         # Fuse IMU heading to correct encoder drift
                         await update_robot_state_with_imu()
-                        
-                        # DEBUG: Print every 50 frames to verify encoders are working
-                        if frame_count % 50 == 0:
-                            print(f"Odom: x={robot_state.x:.1f}, y={robot_state.y:.1f}, θ={np.degrees(robot_state.theta):.1f}°")
-                            print(f"Encoders: L={left_enc_pos:.2f}, R={right_enc_pos:.2f}")
                     except Exception as e:
                         print(f"Encoder error: {e}")
                 
@@ -1294,7 +1430,8 @@ async def producer_task():
                                     print(f"  Detection: dist={det['distance_cm']:.1f}cm, center_x={det['center_x']}px")
                             
                             # Update Navigation FSM (handles all navigation logic)
-                            await nav_fsm.update(detection=det)
+                            # Pass lidar data for obstacle avoidance
+                            await nav_fsm.update(detection=det, lidar_min_distance_cm=cached_min_forward_dist_cm)
                             
                             # Check if FSM reached ARRIVED state
                             if nav_fsm.state == NavigationState.ARRIVED:
@@ -1305,14 +1442,24 @@ async def producer_task():
                         print(f"Camera/Auto-drive loop error: {e}")
                         pass
                 
-                # Process lidar data
-                if lidar:
+                # Process lidar data (rate-limited to save API calls)
+                if lidar and is_auto_driving and (current_time - last_lidar_time > LIDAR_READ_INTERVAL):
                     try:
-                        pc_bytes, _ = await lidar.get_point_cloud()
-                        points = parse_pcd(pc_bytes)
-                        data["lidar_points"] = points
-                    except Exception:
-                        pass
+                        cached_min_forward_dist_cm, distances, angles = await get_lidar_scan_data()
+                        
+                        # Also include in data for GUI visualization if needed
+                        if distances:
+                            # Convert to points for GUI (every 10th point to reduce data)
+                            points = []
+                            for i in range(0, len(distances), 10):
+                                d, a = distances[i], angles[i]
+                                points.append({"x": d * np.cos(a), "y": d * np.sin(a)})
+                            data["lidar_points"] = points
+                        
+                        last_lidar_time = current_time
+                    except Exception as e:
+                        if "No such file" not in str(e):  # Don't spam if disconnected
+                            print(f"Lidar error: {e}")
                 
                 # Check IMU for confirmation
                 if imu:
