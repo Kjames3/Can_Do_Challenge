@@ -1677,6 +1677,10 @@ async def consumer_task(websocket):
                  # Stop Navigation FSM
                  if nav_fsm:
                      await nav_fsm.stop()
+                 
+                 # Reset timeout counter and wait briefly for API queue to clear
+                 reset_timeout_counter()
+                 await asyncio.sleep(0.5)  # Let API queue drain before manual control
             
             elif msg_type == "disconnect":
                  print("Client requested disconnect - stopping motors")
