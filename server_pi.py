@@ -107,6 +107,17 @@ VIDEO_FPS_CAP = 15          # 15 FPS for Pi 5 (GPU: 24-30)
 JPEG_QUALITY = 65           # 65% for Pi 5 (GPU: 70-85)
 
 # =============================================================================
+# TIMEOUT AND RECONNECTION SETTINGS
+# =============================================================================
+# Increased timeouts for network latency tolerance
+MOTOR_CMD_TIMEOUT = 2.5     # Timeout for motor set_power (seconds)
+API_TIMEOUT = 3.0           # Timeout for encoder/camera API calls (seconds)
+
+# Auto-reconnection settings
+MAX_CONSECUTIVE_TIMEOUTS = 5    # Reconnect after this many consecutive timeouts
+RECONNECT_DELAY = 2.0           # Delay before reconnection attempt (seconds)
+
+# =============================================================================
 # SIMULATION MODE - Mock Classes and Ghost Target
 # =============================================================================
 
@@ -282,6 +293,17 @@ battery = None
 imu = None
 left_encoder = None
 right_encoder = None
+
+# Timeout tracking for auto-reconnection
+consecutive_timeout_count = 0
+is_reconnecting = False
+
+# Motor command coalescing (prevents hitting Viam 100-request limit)
+# Only send motor commands if power value changed or interval elapsed
+last_motor_power = {"left": None, "right": None}
+last_motor_time = {"left": 0.0, "right": 0.0}
+MOTOR_CMD_MIN_INTERVAL = 0.05  # 50ms = 20Hz max per motor
+MOTOR_POWER_DEADBAND = 0.02   # Ignore changes smaller than 2%
 
 # Auto-drive state
 is_auto_driving: bool = False
@@ -821,6 +843,104 @@ async def connect_to_robot() -> bool:
         robot = None
         return False
 
+
+async def reconnect_to_robot():
+    """
+    Attempt to reconnect to the robot after consecutive timeouts.
+    Closes existing connection and re-establishes it.
+    """
+    global robot, is_reconnecting, consecutive_timeout_count
+    
+    if is_reconnecting or SIM_MODE:
+        return False
+    
+    is_reconnecting = True
+    consecutive_timeout_count = 0
+    
+    print("\n" + "="*50)
+    print("  🔄 AUTO-RECONNECTING TO ROBOT")
+    print("="*50 + "\n")
+    
+    # Close existing connection
+    try:
+        if robot and robot != "SIMULATED":
+            await robot.close()
+            print("✓ Closed existing connection")
+    except Exception as e:
+        print(f"⚠ Error closing connection: {e}")
+    
+    # Wait before reconnecting
+    await asyncio.sleep(RECONNECT_DELAY)
+    
+    # Attempt reconnection
+    success = await connect_to_robot()
+    
+    if success:
+        print("✓ Reconnection successful!\n")
+    else:
+        print("✗ Reconnection failed - will retry on next timeout\n")
+    
+    is_reconnecting = False
+    return success
+
+
+async def handle_api_timeout(operation_name: str = "API call"):
+    """
+    Called when an API timeout occurs. Tracks consecutive timeouts
+    and triggers reconnection if threshold exceeded.
+    """
+    global consecutive_timeout_count
+    
+    consecutive_timeout_count += 1
+    print(f"⚠ {operation_name} timeout ({consecutive_timeout_count}/{MAX_CONSECUTIVE_TIMEOUTS})")
+    
+    if consecutive_timeout_count >= MAX_CONSECUTIVE_TIMEOUTS:
+        print(f"⚠ Max consecutive timeouts reached - triggering reconnection")
+        await reconnect_to_robot()
+
+
+def reset_timeout_counter():
+    """Called on successful API call to reset the timeout counter."""
+    global consecutive_timeout_count
+    if consecutive_timeout_count > 0:
+        consecutive_timeout_count = 0
+
+
+def should_send_motor_command(motor: str, power: float) -> bool:
+    """
+    Check if motor command should actually be sent (coalescing).
+    Returns True if:
+    - Power value changed beyond deadband, OR
+    - Minimum interval elapsed since last command
+    
+    This prevents flooding the Viam API with redundant commands.
+    """
+    global last_motor_power, last_motor_time
+    
+    now = time.time()
+    last_power = last_motor_power.get(motor)
+    last_time = last_motor_time.get(motor, 0)
+    
+    # Always send if this is the first command or a stop (power=0)
+    if last_power is None or power == 0:
+        return True
+    
+    # Check if power changed beyond deadband
+    power_changed = abs(power - last_power) > MOTOR_POWER_DEADBAND
+    
+    # Check if minimum interval elapsed
+    interval_elapsed = (now - last_time) >= MOTOR_CMD_MIN_INTERVAL
+    
+    return power_changed or interval_elapsed
+
+
+def update_motor_state(motor: str, power: float):
+    """Update the last sent motor power and time."""
+    global last_motor_power, last_motor_time
+    last_motor_power[motor] = power
+    last_motor_time[motor] = time.time()
+
+
 # =============================================================================
 # WEBSOCKET HANDLERS
 # =============================================================================
@@ -1219,27 +1339,32 @@ async def consumer_task(websocket):
     global robot, left_motor, right_motor, detection_enabled, is_auto_driving
     global nav_phase, nav_acquire_samples, nav_target_distance, nav_target_bearing
     
-    MOTOR_CMD_TIMEOUT = 1.0  # Timeout for motor commands
-    
     async for message in websocket:
         try:
             data = json.loads(message)
             msg_type = data.get("type")
             
-            if not robot:
+            if not robot or is_reconnecting:
                 continue
             
             if msg_type == "set_power":
                 motor = data.get("motor")
                 power = float(data.get("power", 0.0))
                 
+                # Coalescing: Skip if command is redundant
+                if not should_send_motor_command(motor, power):
+                    continue
+                
                 try:
                     if motor == "left":
                         await asyncio.wait_for(left_motor.set_power(power), timeout=MOTOR_CMD_TIMEOUT)
+                        update_motor_state("left", power)
                     elif motor == "right":
                         await asyncio.wait_for(right_motor.set_power(power), timeout=MOTOR_CMD_TIMEOUT)
+                        update_motor_state("right", power)
+                    reset_timeout_counter()  # Success - reset counter
                 except asyncio.TimeoutError:
-                    print(f"⚠ Motor command timeout for {motor}")
+                    await handle_api_timeout(f"Motor {motor}")
             
             elif msg_type == "stop":
                 try:
@@ -1250,8 +1375,13 @@ async def consumer_task(websocket):
                         ),
                         timeout=MOTOR_CMD_TIMEOUT
                     )
+                    # Update motor state to stopped
+                    update_motor_state("left", 0)
+                    update_motor_state("right", 0)
+                    reset_timeout_counter()
                 except asyncio.TimeoutError:
-                    print("⚠ Stop command timeout - forcing stop via stop()")
+                    await handle_api_timeout("Stop command")
+                    # Try harder with stop()
                     try:
                         await asyncio.wait_for(
                             asyncio.gather(
@@ -1260,6 +1390,8 @@ async def consumer_task(websocket):
                             ),
                             timeout=MOTOR_CMD_TIMEOUT
                         )
+                        update_motor_state("left", 0)
+                        update_motor_state("right", 0)
                     except:
                         print("✗ Motor stop failed!")
             

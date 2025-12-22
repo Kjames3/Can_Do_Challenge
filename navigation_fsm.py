@@ -85,6 +85,14 @@ class NavigationFSM:
         # Avoiding state data
         self.avoid_start_time = 0.0
         
+        # Motor command coalescing (prevents Viam API flooding)
+        self._last_left_power = None
+        self._last_right_power = None
+        self._last_motor_time = 0.0
+        self._MOTOR_INTERVAL = 0.05  # 50ms = 20Hz max
+        self._POWER_DEADBAND = 0.02  # 2% deadband
+        self._MOTOR_TIMEOUT = 2.5    # Timeout for motor commands
+        
         # Callbacks for state changes (optional)
         self.on_state_change = None
         self.on_arrived = None
@@ -290,13 +298,35 @@ class NavigationFSM:
     # =========================================================================
     
     async def _set_motor_power(self, left: float, right: float):
-        """Set motor power with error handling"""
+        """Set motor power with coalescing and timeout handling"""
+        now = time.time()
+        
+        # Coalescing: Skip if power values haven't changed significantly
+        # and minimum interval hasn't elapsed
+        left_changed = self._last_left_power is None or abs(left - self._last_left_power) > self._POWER_DEADBAND
+        right_changed = self._last_right_power is None or abs(right - self._last_right_power) > self._POWER_DEADBAND
+        interval_elapsed = (now - self._last_motor_time) >= self._MOTOR_INTERVAL
+        is_stop = (left == 0 and right == 0)
+        
+        # Only send if something changed OR interval elapsed OR it's a stop command
+        if not (left_changed or right_changed or interval_elapsed or is_stop):
+            return
+        
         try:
             if self.left_motor and self.right_motor:
-                await asyncio.gather(
-                    self.left_motor.set_power(left),
-                    self.right_motor.set_power(right)
+                await asyncio.wait_for(
+                    asyncio.gather(
+                        self.left_motor.set_power(left),
+                        self.right_motor.set_power(right)
+                    ),
+                    timeout=self._MOTOR_TIMEOUT
                 )
+                # Update state on success
+                self._last_left_power = left
+                self._last_right_power = right
+                self._last_motor_time = now
+        except asyncio.TimeoutError:
+            print(f"⚠ Nav motor timeout (L={left:.2f}, R={right:.2f})")
         except Exception as e:
             print(f"Motor error: {e}")
     
