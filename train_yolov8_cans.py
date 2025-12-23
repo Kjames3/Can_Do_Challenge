@@ -28,8 +28,14 @@ def get_project_root():
 
 def prepare_combined_dataset(project_root: Path, force_rebuild: bool = False):
     """
-    Prepare a combined dataset by merging both can datasets.
+    Prepare a combined dataset by merging all can datasets.
     Remaps all class labels to a single 'can' class (index 0).
+    
+    Supports datasets:
+    - can1_dataset: 4 classes (Deformation, Fissure, Open-can, Perfect) -> can
+    - can2_dataset: 1 class (soda cans) -> can
+    - can3_dataset: 5 classes (0, 1, 2, can, cans) -> can
+    - can4_dataset: 3 classes (BIODEGRADABLE, can, distractor) -> can
     
     Args:
         project_root: Path to the project root directory
@@ -55,89 +61,82 @@ def prepare_combined_dataset(project_root: Path, force_rebuild: bool = False):
         (combined_dir / split / "images").mkdir(parents=True, exist_ok=True)
         (combined_dir / split / "labels").mkdir(parents=True, exist_ok=True)
     
-    print("Preparing combined dataset...")
+    print("Preparing combined dataset from all available datasets...")
     
-    # Dataset paths
-    can1_dir = project_root / "datasets" / "can1_dataset"
-    can2_dir = project_root / "datasets" / "can2_dataset"
+    import random
+    random.seed(42)  # For reproducibility
     
     stats = {"train": 0, "valid": 0, "test": 0}
     
-    # Process can1_dataset (has train, valid, test splits)
-    # Remap all 4 classes (0-3) to class 0 (can)
-    for split in ["train", "valid", "test"]:
-        src_images = can1_dir / split / "images"
-        src_labels = can1_dir / split / "labels"
+    # Define all datasets to process
+    datasets = [
+        {"name": "can1_dataset", "has_splits": True},
+        {"name": "can2_dataset", "has_splits": False},  # Only has train
+        {"name": "can3_dataset", "has_splits": True},
+        {"name": "can4_dataset", "has_splits": True},
+    ]
+    
+    for dataset_info in datasets:
+        dataset_name = dataset_info["name"]
+        dataset_dir = project_root / "datasets" / dataset_name
         
-        if not src_images.exists():
-            print(f"  Warning: {src_images} not found, skipping...")
+        if not dataset_dir.exists():
+            print(f"  ⚠ {dataset_name} not found, skipping...")
             continue
+        
+        print(f"\n  Processing {dataset_name}...")
+        
+        if dataset_info["has_splits"]:
+            # Dataset has train/valid/test splits
+            for split in ["train", "valid", "test"]:
+                count = process_dataset_split(
+                    dataset_dir, combined_dir, dataset_name, split
+                )
+                stats[split] += count
+                if count > 0:
+                    print(f"    ✓ {split}: {count} images")
+        else:
+            # Dataset only has train - we'll split it 80/10/10
+            src_images = dataset_dir / "train" / "images"
+            src_labels = dataset_dir / "train" / "labels"
             
-        dst_images = combined_dir / split / "images"
-        dst_labels = combined_dir / split / "labels"
-        
-        for img_file in src_images.glob("*"):
-            if img_file.suffix.lower() in [".jpg", ".jpeg", ".png", ".bmp", ".webp"]:
-                # Copy image with prefix to avoid name conflicts
-                new_name = f"can1_{img_file.name}"
-                shutil.copy2(img_file, dst_images / new_name)
-                
-                # Copy and remap label file
-                label_file = src_labels / f"{img_file.stem}.txt"
-                if label_file.exists():
-                    remap_label_file(label_file, dst_labels / f"can1_{img_file.stem}.txt")
-                else:
-                    # Create empty label file if no annotations
-                    (dst_labels / f"can1_{img_file.stem}.txt").touch()
-                
-                stats[split] += 1
-        
-        print(f"  ✓ Processed {stats[split]} images from can1_dataset/{split}")
-    
-    # Process can2_dataset (only has train split)
-    # Class 0 stays as class 0 (already 'soda cans' -> 'can')
-    src_images = can2_dir / "train" / "images"
-    src_labels = can2_dir / "train" / "labels"
-    
-    if src_images.exists():
-        # Split can2 data: 80% train, 10% valid, 10% test
-        image_files = list(src_images.glob("*"))
-        image_files = [f for f in image_files if f.suffix.lower() in [".jpg", ".jpeg", ".png", ".bmp", ".webp"]]
-        
-        # Shuffle for random split
-        import random
-        random.seed(42)  # For reproducibility
-        random.shuffle(image_files)
-        
-        n_files = len(image_files)
-        n_train = int(n_files * 0.8)
-        n_valid = int(n_files * 0.1)
-        
-        splits = {
-            "train": image_files[:n_train],
-            "valid": image_files[n_train:n_train + n_valid],
-            "test": image_files[n_train + n_valid:]
-        }
-        
-        for split, files in splits.items():
-            dst_images = combined_dir / split / "images"
-            dst_labels = combined_dir / split / "labels"
+            if not src_images.exists():
+                print(f"    ⚠ No train/images found, skipping...")
+                continue
             
-            for img_file in files:
-                # Copy image with prefix
-                new_name = f"can2_{img_file.name}"
-                shutil.copy2(img_file, dst_images / new_name)
-                
-                # Copy label file (no remapping needed, already class 0)
-                label_file = src_labels / f"{img_file.stem}.txt"
-                if label_file.exists():
-                    shutil.copy2(label_file, dst_labels / f"can2_{img_file.stem}.txt")
-                else:
-                    (dst_labels / f"can2_{img_file.stem}.txt").touch()
-                
-                stats[split] += len(files)
+            image_files = list(src_images.glob("*"))
+            image_files = [f for f in image_files 
+                          if f.suffix.lower() in [".jpg", ".jpeg", ".png", ".bmp", ".webp"]]
             
-            print(f"  ✓ Added {len(files)} images from can2_dataset to {split}")
+            random.shuffle(image_files)
+            
+            n_files = len(image_files)
+            n_train = int(n_files * 0.8)
+            n_valid = int(n_files * 0.1)
+            
+            splits = {
+                "train": image_files[:n_train],
+                "valid": image_files[n_train:n_train + n_valid],
+                "test": image_files[n_train + n_valid:]
+            }
+            
+            for split, files in splits.items():
+                dst_images = combined_dir / split / "images"
+                dst_labels = combined_dir / split / "labels"
+                
+                for img_file in files:
+                    new_name = f"{dataset_name}_{img_file.name}"
+                    shutil.copy2(img_file, dst_images / new_name)
+                    
+                    label_file = src_labels / f"{img_file.stem}.txt"
+                    if label_file.exists():
+                        remap_label_file(label_file, dst_labels / f"{dataset_name}_{img_file.stem}.txt")
+                    else:
+                        (dst_labels / f"{dataset_name}_{img_file.stem}.txt").touch()
+                    
+                    stats[split] += 1
+                
+                print(f"    ✓ {split}: {len(files)} images (auto-split)")
     
     # Create data.yaml configuration
     data_yaml = {
@@ -153,13 +152,53 @@ def prepare_combined_dataset(project_root: Path, force_rebuild: bool = False):
     with open(yaml_path, "w") as f:
         yaml.dump(data_yaml, f, default_flow_style=False)
     
-    print(f"\n✓ Combined dataset created at {combined_dir}")
+    print(f"\n{'='*50}")
+    print(f"✓ Combined dataset created at {combined_dir}")
     print(f"  - Training images: {stats['train']}")
     print(f"  - Validation images: {stats['valid']}")
     print(f"  - Test images: {stats['test']}")
+    print(f"  - Total: {sum(stats.values())}")
     print(f"  - Config: {yaml_path}")
+    print(f"{'='*50}")
     
     return combined_dir
+
+
+def process_dataset_split(dataset_dir: Path, combined_dir: Path, 
+                          dataset_name: str, split: str) -> int:
+    """
+    Process a single split (train/valid/test) from a dataset.
+    
+    Returns:
+        Number of images processed
+    """
+    src_images = dataset_dir / split / "images"
+    src_labels = dataset_dir / split / "labels"
+    
+    if not src_images.exists():
+        return 0
+    
+    dst_images = combined_dir / split / "images"
+    dst_labels = combined_dir / split / "labels"
+    
+    count = 0
+    for img_file in src_images.glob("*"):
+        if img_file.suffix.lower() in [".jpg", ".jpeg", ".png", ".bmp", ".webp"]:
+            # Copy image with prefix to avoid name conflicts
+            new_name = f"{dataset_name}_{img_file.name}"
+            shutil.copy2(img_file, dst_images / new_name)
+            
+            # Copy and remap label file
+            label_file = src_labels / f"{img_file.stem}.txt"
+            if label_file.exists():
+                remap_label_file(label_file, dst_labels / f"{dataset_name}_{img_file.stem}.txt")
+            else:
+                # Create empty label file if no annotations
+                (dst_labels / f"{dataset_name}_{img_file.stem}.txt").touch()
+            
+            count += 1
+    
+    return count
 
 
 def remap_label_file(src_path: Path, dst_path: Path):
