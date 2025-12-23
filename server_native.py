@@ -240,12 +240,12 @@ class NativeEncoder:
     Counts pulses on button press events.
     """
     
-    def __init__(self, pin, name="encoder", ppr=20):
+    def __init__(self, pin, name="encoder", ppr=1000):
         """
         Args:
             pin: BOARD pin number
             name: Encoder name for logging
-            ppr: Pulses per revolution (encoder resolution)
+            ppr: Pulses per revolution (encoder resolution, default 1000)
         """
         self.name = name
         self.ppr = ppr
@@ -664,10 +664,16 @@ async def handle_client(websocket):
 
 async def broadcast_loop():
     """Broadcast sensor data to all connected clients."""
-    global frame_count, last_detections
+    global frame_count, last_detections, is_auto_driving
     
     last_video_time = 0
     video_interval = 1.0 / VIDEO_FPS_CAP
+    
+    # Auto-drive control parameters
+    TARGET_DISTANCE_CM = 25.0  # Stop when this close to target
+    CENTER_THRESHOLD_PX = 80   # Acceptable centering error
+    DRIVE_SPEED = 0.25
+    TURN_SPEED = 0.20
     
     while True:
         if connected_clients:
@@ -702,6 +708,43 @@ async def broadcast_loop():
                     for d in last_detections:
                         x1, y1, x2, y2 = d['bbox']
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
+                
+                # === AUTO-DRIVE CONTROL ===
+                if is_auto_driving and left_motor and right_motor:
+                    if last_detections:
+                        # Get closest detection
+                        target = min(last_detections, key=lambda d: d['distance_cm'])
+                        distance = target['distance_cm']
+                        center_x = target['center_x']
+                        
+                        # Calculate error from image center
+                        image_center = IMAGE_WIDTH / 2
+                        error_x = center_x - image_center
+                        
+                        if distance <= TARGET_DISTANCE_CM:
+                            # Arrived - stop
+                            left_motor.stop()
+                            right_motor.stop()
+                            is_auto_driving = False
+                            print(f"✓ Arrived at target ({distance:.1f}cm)")
+                        elif abs(error_x) > CENTER_THRESHOLD_PX:
+                            # Turn toward target
+                            if error_x > 0:
+                                # Target is to the right, turn right
+                                left_motor.set_power(TURN_SPEED)
+                                right_motor.set_power(-TURN_SPEED)
+                            else:
+                                # Target is to the left, turn left
+                                left_motor.set_power(-TURN_SPEED)
+                                right_motor.set_power(TURN_SPEED)
+                        else:
+                            # Drive forward
+                            left_motor.set_power(DRIVE_SPEED)
+                            right_motor.set_power(DRIVE_SPEED)
+                    else:
+                        # No detection - spin slowly to search
+                        left_motor.set_power(TURN_SPEED * 0.5)
+                        right_motor.set_power(-TURN_SPEED * 0.5)
                 
                 # Encode to JPEG
                 _, buffer = cv2.imencode('.jpg', frame, 
