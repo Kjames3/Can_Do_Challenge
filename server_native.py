@@ -135,9 +135,13 @@ IMAGE_WIDTH = 640
 IMAGE_HEIGHT = 480
 
 # Performance Settings
-VIDEO_FPS_CAP = 30
-JPEG_QUALITY = 75
-DETECTION_INTERVAL = 2      # Run detection every N frames
+VIDEO_FPS_CAP = 20          # Reduced to avoid camera buffer issues
+JPEG_QUALITY = 70
+DETECTION_INTERVAL = 1      # Run detection every frame for better tracking
+CONFIDENCE_THRESHOLD = 0.25 # Lower threshold for longer range detection
+
+# Detection inference size
+INFERENCE_SIZE = 640        # Larger = better long-range detection, slower
 
 # YOLO Model
 YOLO_MODEL = 'yolov8n_cans.pt'
@@ -159,6 +163,7 @@ class NativeMotor:
     def __init__(self, pin_a, pin_b, pin_pwm, name="motor"):
         self.name = name
         self._power = 0.0
+        self._encoder = None  # Associated encoder for direction tracking
         
         if SIM_MODE:
             return
@@ -175,6 +180,10 @@ class NativeMotor:
         self.pwm = PWMOutputDevice(self.pin_pwm_bcm, frequency=1000)
         
         print(f"  ✓ {name}: In1=GPIO{self.pin_a_bcm}, In2=GPIO{self.pin_b_bcm}, PWM=GPIO{self.pin_pwm_bcm}")
+    
+    def set_encoder(self, encoder):
+        """Associate an encoder with this motor for direction tracking."""
+        self._encoder = encoder
     
     def _board_to_bcm(self, board_pin):
         """Convert physical BOARD pin number to BCM GPIO number."""
@@ -193,6 +202,10 @@ class NativeMotor:
         Positive = forward, Negative = backward.
         """
         self._power = max(-1.0, min(1.0, power))
+        
+        # Update encoder direction
+        if self._encoder:
+            self._encoder.set_direction(self._power >= 0)
         
         if SIM_MODE:
             return
@@ -250,6 +263,7 @@ class NativeEncoder:
         self.name = name
         self.ppr = ppr
         self._count = 0
+        self._direction = 1  # 1 = forward, -1 = backward
         self._lock = threading.Lock()
         self._button = None
         
@@ -278,18 +292,23 @@ class NativeEncoder:
         }
         return board_to_bcm.get(board_pin, board_pin)
     
+    def set_direction(self, forward: bool):
+        """Set direction for pulse counting (call based on motor power)."""
+        with self._lock:
+            self._direction = 1 if forward else -1
+    
     def _pulse_callback(self):
         """Called on each encoder pulse (edge)."""
         with self._lock:
-            self._count += 1
+            self._count += self._direction
     
     def get_position(self):
-        """Get encoder position in revolutions."""
+        """Get encoder position in revolutions (signed)."""
         with self._lock:
             return self._count / self.ppr
     
     def get_count(self):
-        """Get raw pulse count."""
+        """Get raw pulse count (signed)."""
         with self._lock:
             return self._count
     
@@ -566,7 +585,7 @@ def process_detection(frame):
     if detection_model is None or frame is None:
         return frame, []
     
-    results = detection_model(frame, imgsz=320, verbose=False)
+    results = detection_model(frame, imgsz=INFERENCE_SIZE, verbose=False, conf=CONFIDENCE_THRESHOLD)
     detections = []
     
     for r in results:
@@ -801,6 +820,11 @@ def initialize_hardware():
     print("\nEncoders:")
     left_encoder = NativeEncoder(LEFT_ENCODER_PIN, "left_encoder")
     right_encoder = NativeEncoder(RIGHT_ENCODER_PIN, "right_encoder")
+    
+    # Link motors to encoders for direction tracking
+    left_motor.set_encoder(left_encoder)
+    right_motor.set_encoder(right_encoder)
+    print("  ✓ Motors linked to encoders for direction tracking")
     
     # Camera
     print("\nCamera:")
