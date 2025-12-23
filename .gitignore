@@ -1,3 +1,9 @@
+# Datasets (large files - download from Roboflow)
+datasets/
+
+# Training runs (generated output)
+runs/
+
 # STL 3D Model Files (large binary files)
 *.STL
 *.stl
@@ -9,9 +15,10 @@ __pycache__/
 *.pyd
 .Python
 *.so
+.venv/
 
-# YOLO weights (downloaded automatically)
-*.pt
+# Base YOLO weights (downloaded automatically)
+yolov8n.pt
 
 # IDE
 .vscode/
@@ -26,3 +33,5 @@ Thumbs.db
 
 # Profiling
 *.prof
+
+# Note: yolov8n_cans.pt (our custom trained model) is explicitly tracked

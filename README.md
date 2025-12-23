@@ -132,11 +132,55 @@ Click the **Connect** button to establish the WebSocket connection.
 
 ```
 viam_projects/
-├── server.py              # WebSocket server with Viam SDK integration
+├── server_pi.py           # WebSocket server for Raspberry Pi
+├── server_jetson.py       # WebSocket server for Jetson
 ├── GUI.html               # Web-based control panel
-├── yolov8n.pt             # YOLOv8 nano model weights
-├── test_camera_detection.py  # Standalone detection test script
+├── yolov8n_cans.pt        # Custom trained can detection model
+├── train_yolov8_cans.py   # Training script for custom model
+├── navigation_fsm.py      # Autonomous navigation state machine
 └── README.md              # This file
+```
+
+## Training Custom Model
+
+The `yolov8n_cans.pt` model is a fine-tuned YOLOv8n trained to detect soda cans. To retrain or improve the model:
+
+### 1. Download Datasets
+
+Download the following Roboflow datasets in **YOLOv8 format**:
+
+| Dataset | Link | Description |
+|---------|------|-------------|
+| Cans Dataset | [Roboflow - Cans](https://universe.roboflow.com/heho/cans-p8c8x/dataset/4/download) | 783 training images with can condition labels |
+| Soda Can Dataset | [Roboflow - Soda Cans](https://universe.roboflow.com/soda-can-dataset/my-first-project-qqbah) | 288 training images of soda cans |
+
+Extract them to:
+```
+datasets/
+├── can1_dataset/    # First dataset
+└── can2_dataset/    # Second dataset
+```
+
+### 2. Train the Model
+
+```bash
+# Install dependencies
+pip install ultralytics pyyaml
+
+# Train for 100 epochs (GPU recommended)
+python train_yolov8_cans.py --epochs 100
+
+# The script will:
+# - Merge both datasets into a single "can" class
+# - Create train/valid/test splits
+# - Save the best model to runs/can_detection/yolov8n_cans/weights/best.pt
+```
+
+### 3. Deploy the Model
+
+Copy the trained model to the project root:
+```bash
+copy runs\can_detection\yolov8n_cans\weights\best.pt yolov8n_cans.pt
 ```
 
 ## Configuration
