@@ -44,13 +44,46 @@ SIM_MODE = args.sim
 import websockets
 
 # Conditional hardware imports
+GPIO = None
+GPIOZERO_AVAILABLE = False
+
 if not SIM_MODE:
+    # Try to set up gpiozero with a working pin factory for Pi 5
+    pin_factory_found = False
+    
     try:
-        from gpiozero import PWMOutputDevice, DigitalOutputDevice
-        import RPi.GPIO as GPIO
+        from gpiozero import PWMOutputDevice, DigitalOutputDevice, Device, Button
+        GPIOZERO_AVAILABLE = True
+        
+        # Try pin factories in order of preference for Pi 5
+        factories_to_try = [
+            ("rpi-lgpio", "gpiozero.pins.lgpio", "LGPIOFactory"),
+            ("lgpio", "gpiozero.pins.lgpio", "LGPIOFactory"),
+            ("pigpio", "gpiozero.pins.pigpio", "PiGPIOFactory"),
+            ("native", "gpiozero.pins.native", "NativeFactory"),
+        ]
+        
+        for name, module_path, factory_class in factories_to_try:
+            try:
+                module = __import__(module_path, fromlist=[factory_class])
+                factory = getattr(module, factory_class)
+                Device.pin_factory = factory()
+                print(f"✓ Using {name} pin factory")
+                pin_factory_found = True
+                break
+            except (ImportError, Exception) as e:
+                continue
+        
+        if not pin_factory_found:
+            print("⚠ No suitable GPIO pin factory found!")
+            print("  On Raspberry Pi 5, install: sudo apt install python3-lgpio")
+            print("  Or: pip install rpi-lgpio")
+            SIM_MODE = True
+            
     except ImportError as e:
-        print(f"Warning: Hardware library not available: {e}")
-        print("Run with --sim for simulation mode")
+        print(f"⚠ gpiozero not available: {e}")
+        print("  Install with: pip install gpiozero")
+        print("  Running in simulation mode")
         SIM_MODE = True
 
 # =============================================================================
@@ -203,8 +236,8 @@ class NativeMotor:
 
 class NativeEncoder:
     """
-    Single-channel encoder using GPIO interrupt counting.
-    Counts pulses on rising/falling edges.
+    Single-channel encoder using gpiozero Button for Pi 5 compatibility.
+    Counts pulses on button press events.
     """
     
     def __init__(self, pin, name="encoder", ppr=20):
@@ -217,20 +250,23 @@ class NativeEncoder:
         self.name = name
         self.ppr = ppr
         self._count = 0
-        self._last_count = 0
         self._lock = threading.Lock()
+        self._button = None
         
         if SIM_MODE:
             return
         
         self.pin_bcm = self._board_to_bcm(pin)
         
-        # Setup GPIO with interrupt
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(self.pin_bcm, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        GPIO.add_event_detect(self.pin_bcm, GPIO.BOTH, callback=self._pulse_callback)
-        
-        print(f"  ✓ {name}: GPIO{self.pin_bcm}")
+        try:
+            # Use gpiozero Button which works with lgpio on Pi 5
+            from gpiozero import Button
+            self._button = Button(self.pin_bcm, pull_up=True)
+            self._button.when_pressed = self._pulse_callback
+            self._button.when_released = self._pulse_callback  # Count both edges
+            print(f"  ✓ {name}: GPIO{self.pin_bcm}")
+        except Exception as e:
+            print(f"  ⚠ {name} init failed: {e}")
     
     def _board_to_bcm(self, board_pin):
         """Convert physical BOARD pin to BCM GPIO number."""
@@ -242,8 +278,8 @@ class NativeEncoder:
         }
         return board_to_bcm.get(board_pin, board_pin)
     
-    def _pulse_callback(self, channel):
-        """Called on each encoder pulse (interrupt)."""
+    def _pulse_callback(self):
+        """Called on each encoder pulse (edge)."""
         with self._lock:
             self._count += 1
     
@@ -264,8 +300,8 @@ class NativeEncoder:
     
     def cleanup(self):
         """Release GPIO resources."""
-        if not SIM_MODE:
-            GPIO.remove_event_detect(self.pin_bcm)
+        if self._button:
+            self._button.close()
 
 
 # =============================================================================
@@ -712,9 +748,6 @@ def initialize_hardware():
     print("\n" + "="*50)
     print("Initializing Hardware (Native GPIO)")
     print("="*50)
-    
-    if not SIM_MODE:
-        GPIO.setwarnings(False)
     
     # Motors
     print("\nMotors:")
