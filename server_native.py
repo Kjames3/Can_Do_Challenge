@@ -40,19 +40,18 @@ parser.add_argument('--sim', action='store_true', help='Run in simulation mode (
 args = parser.parse_args()
 SIM_MODE = args.sim
 
+# Import websockets first (always needed)
+import websockets
+
 # Conditional hardware imports
 if not SIM_MODE:
     try:
-        import websockets
         from gpiozero import PWMOutputDevice, DigitalOutputDevice
-        from gpiozero.pins.pigpio import PiGPIOFactory
         import RPi.GPIO as GPIO
     except ImportError as e:
         print(f"Warning: Hardware library not available: {e}")
         print("Run with --sim for simulation mode")
         SIM_MODE = True
-else:
-    import websockets
 
 # =============================================================================
 # GPIO PIN CONFIGURATION (from Viam Dashboard)
@@ -574,8 +573,8 @@ def process_detection(frame):
 # WEBSOCKET SERVER
 # =============================================================================
 
-async def handle_client(websocket, path):
-    """Handle WebSocket client connection."""
+async def handle_client(websocket):
+    """Handle WebSocket client connection (websockets 10+ API)."""
     global detection_enabled, is_auto_driving
     
     connected_clients.add(websocket)
