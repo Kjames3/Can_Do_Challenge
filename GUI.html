@@ -14,7 +14,6 @@
     <!-- Three.js for 3D Visualization (r128 - last version with classic JS support) -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
 
     <style>
         /* =================================================================
@@ -1218,44 +1217,14 @@
             directionalLight.position.set(2, 4, 2);
             scene3D.add(directionalLight);
 
-            // Robot Model - Try to load STL, fallback to box
+            // Robot Model - Simple box geometry (no STL loading to avoid CORS issues)
             const robotMaterial = new THREE.MeshStandardMaterial({ color: 0x06b6d4, metalness: 0.3, roughness: 0.7 });
 
-            // Create placeholder mesh first (will be replaced by STL if loaded)
             // Box: width(X) x height(Y) x depth(Z) - depth is forward direction
             const boxGeometry = new THREE.BoxGeometry(0.15, 0.08, 0.25);  // 15cm wide x 8cm tall x 25cm long (forward)
             robotMesh = new THREE.Mesh(boxGeometry, robotMaterial);
             robotMesh.position.set(0, 0.04, 0);
             scene3D.add(robotMesh);
-
-            // Try to load STL model
-            if (typeof THREE.STLLoader !== 'undefined') {
-                const stlLoader = new THREE.STLLoader();
-                stlLoader.load('VR2-23-A1.STL',
-                    (geometry) => {
-                        // STL loaded successfully
-                        geometry.computeVertexNormals();
-                        geometry.center();
-
-                        // Create new mesh and replace placeholder
-                        const stlMesh = new THREE.Mesh(geometry, robotMaterial);
-
-                        // Scale from mm to meters (STL files often use mm)
-                        stlMesh.scale.set(0.001, 0.001, 0.001);
-                        stlMesh.position.set(0, 0.04, 0);
-                        stlMesh.rotation.x = -Math.PI / 2;  // Rotate to stand upright
-
-                        scene3D.remove(robotMesh);
-                        robotMesh = stlMesh;
-                        scene3D.add(robotMesh);
-                        console.log('✓ STL model loaded');
-                    },
-                    (progress) => { },
-                    (error) => {
-                        console.warn('STL load failed, using box fallback:', error);
-                    }
-                );
-            }
 
             // Direction indicator (arrow pointing forward along +Z axis)
             const arrowGeom = new THREE.ConeGeometry(0.03, 0.08, 8);
