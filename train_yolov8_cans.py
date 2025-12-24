@@ -1,8 +1,9 @@
 """
-YOLOv8n Fine-tuning Script for Soda Can Detection
+YOLO11n Fine-tuning Script for Soda Can Detection
 
-This script fine-tunes the YOLOv8n model to detect soda cans using two 
-Roboflow datasets. All classes are merged into a single "can" class.
+This script fine-tunes the YOLO11n model (lighter and faster than YOLOv8)
+to detect soda cans using Roboflow datasets. All classes are merged into 
+a single "can" class.
 
 Datasets:
 - can1_dataset: 783 train + 88 valid + 44 test images (4 classes -> 1 class)
@@ -227,14 +228,14 @@ def train_model(
     epochs: int = 100,
     batch_size: int = 16,
     img_size: int = 640,
-    pretrained_weights: str = "yolov8n.pt",
+    pretrained_weights: str = "yolo11n.pt",  # YOLO11n - lighter and faster
     project_name: str = "can_detection",
-    run_name: str = "yolov8n_cans",
+    run_name: str = "yolo11n_cans",
     resume: bool = False,
     device: str = None
 ):
     """
-    Train YOLOv8n model for can detection.
+    Train YOLO11n model for can detection.
     
     Args:
         data_yaml: Path to dataset configuration file
@@ -267,7 +268,7 @@ def train_model(
             print("⚠️  No CUDA GPU detected, using CPU (training will be slower)")
     
     print(f"\n{'='*60}")
-    print("YOLOv8n Can Detection Training")
+    print("YOLO11n Can Detection Training")
     print(f"{'='*60}")
     print(f"Dataset config: {data_yaml}")
     print(f"Epochs: {epochs}")
@@ -419,7 +420,7 @@ def export_model(model_path: Path, formats: list = None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Train YOLOv8n for soda can detection"
+        description="Train YOLO11n for soda can detection"
     )
     parser.add_argument(
         "--epochs", type=int, default=100,

@@ -143,8 +143,8 @@ CONFIDENCE_THRESHOLD = 0.25 # Lower threshold for longer range detection
 # Detection inference size
 INFERENCE_SIZE = 640        # Larger = better long-range detection, slower
 
-# YOLO Model
-YOLO_MODEL = 'yolov8n_cans.pt'
+# YOLO Model (YOLO11 preferred, fallback to YOLOv8)
+YOLO_MODEL = 'yolo11n_cans.pt'  # Will fallback to yolov8n_cans.pt if not found
 
 # =============================================================================
 # MOTOR DRIVER CLASS (In1/In2 + PWM Pattern)
@@ -670,6 +670,33 @@ async def handle_client(websocket):
                         left_motor.stop()
                     if right_motor:
                         right_motor.stop()
+                
+                elif msg_type == "capture_image":
+                    # Capture current frame and save for training
+                    if camera:
+                        frame = camera.get_frame()
+                        if frame is not None:
+                            # Create directory if needed
+                            import os
+                            from datetime import datetime
+                            capture_dir = "captured_images"
+                            os.makedirs(capture_dir, exist_ok=True)
+                            
+                            # Save with timestamp
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                            filepath = os.path.join(capture_dir, f"can_{timestamp}.jpg")
+                            cv2.imwrite(filepath, frame)
+                            
+                            # Count existing images
+                            count = len([f for f in os.listdir(capture_dir) if f.endswith('.jpg')])
+                            print(f"📸 Captured image: {filepath} (total: {count})")
+                            
+                            # Send count back to client
+                            await websocket.send(json.dumps({
+                                "type": "capture_response",
+                                "count": count,
+                                "filename": filepath
+                            }))
                 
             except Exception as e:
                 print(f"Message handling error: {e}")

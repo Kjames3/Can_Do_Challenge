@@ -925,9 +925,17 @@
                 <div class="card">
                     <div class="card-header">
                         <h2><span class="icon">📹</span> Camera Feed</h2>
-                        <div class="toggle-wrapper">
-                            <span class="toggle-label">Detection</span>
-                            <div id="detection-toggle" class="toggle" title="Toggle object detection"></div>
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <button id="capture-btn" class="btn btn-primary"
+                                style="padding: 0.4rem 0.8rem; font-size: 0.75rem;" title="Capture image for training">
+                                📸 Capture
+                            </button>
+                            <span id="capture-count" style="font-size: 0.75rem; color: var(--text-secondary);">0
+                                saved</span>
+                            <div class="toggle-wrapper">
+                                <span class="toggle-label">Detection</span>
+                                <div id="detection-toggle" class="toggle" title="Toggle object detection"></div>
+                            </div>
                         </div>
                     </div>
                     <div class="card-body">
@@ -1346,6 +1354,10 @@
 
             stopBtn: document.getElementById('stop-btn'),
 
+            // Image Capture
+            captureBtn: document.getElementById('capture-btn'),
+            captureCount: document.getElementById('capture-count'),
+
             autoDriveWrapper: document.getElementById('auto-drive-wrapper'),
 
             // WSAD / D-Pad
@@ -1438,6 +1450,9 @@
                     const data = JSON.parse(event.data);
                     if (data.type === "readout") {
                         handleReadout(data);
+                    } else if (data.type === "capture_response") {
+                        // Update capture count display
+                        elements.captureCount.textContent = `${data.count} saved`;
                     }
                 } catch (e) {
                     console.error("Message parse error:", e);
@@ -2084,6 +2099,19 @@
 
             const msgType = state.isAutoDriving ? "stop_auto_drive" : "start_auto_drive";
             state.ws.send(JSON.stringify({ type: msgType }));
+        });
+
+        // Capture Image Button
+        elements.captureBtn.addEventListener('click', () => {
+            if (!state.connected) return;
+            state.ws.send(JSON.stringify({ type: "capture_image" }));
+            // Temporarily disable button to prevent spam
+            elements.captureBtn.disabled = true;
+            elements.captureBtn.textContent = '⏳ Saving...';
+            setTimeout(() => {
+                elements.captureBtn.disabled = false;
+                elements.captureBtn.textContent = '📸 Capture';
+            }, 500);
         });
 
         // Disconnect Button
