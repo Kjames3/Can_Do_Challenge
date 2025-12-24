@@ -53,7 +53,7 @@ IMU_NAME = "imu" # Assuming an IMU named "imu"
 KNOWN_HEIGHT_BOTTLE = 20.0  # Standard water bottle height in cm
 KNOWN_HEIGHT_CAN = 12.0     # Standard soda can height in cm
 FOCAL_LENGTH = 600          # Webcam focal length (calibrate for accuracy)
-TARGET_CLASSES = [0]        # Custom model: 0=can (for yolov8n_cans.pt)
+TARGET_CLASSES = [0]        # Custom model: 0=can (for yolo11n_cans.pt)
 
 # Camera Calibration (HYPER hypercam HD 1080 = 76.5° HFOV)
 CAMERA_HFOV_DEG = 76.5      # Horizontal field of view in degrees
@@ -73,7 +73,7 @@ WHEEL_BASE_CM = 19.55       # Distance between wheel contact points in cm
 USE_GPU = True              # Enable CUDA acceleration
 
 # YOLO Model - use custom trained can detection model
-YOLO_MODEL = 'yolov8n_cans.pt'   # Custom trained for soda cans
+YOLO_MODEL = 'yolo11n_cans.pt'   # YOLO11 - trained on combined can datasets
 
 # Inference resolution - higher = better accuracy with GPU
 INFERENCE_SIZE = 640        # 640px for Jetson (Pi: 320)

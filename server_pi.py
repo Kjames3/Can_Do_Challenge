@@ -78,7 +78,7 @@ LIDAR_OBSTACLE_DIST_CM = 25     # Trigger avoidance if obstacle closer than this
 KNOWN_HEIGHT_BOTTLE = 20.0  # Standard water bottle height in cm
 KNOWN_HEIGHT_CAN = 12.0     # Standard soda can height in cm
 FOCAL_LENGTH = 600          # Webcam focal length (calibrate for accuracy)
-TARGET_CLASSES = [0]        # Custom model: 0=can (for yolov8n_cans.pt)
+TARGET_CLASSES = [0]        # Custom model: 0=can (for yolo11n_cans.pt)
 
 # Camera Calibration (HYPER hypercam HD 1080 = 76.5° HFOV)
 CAMERA_HFOV_DEG = 76.5      # Horizontal field of view in degrees
@@ -99,7 +99,7 @@ CAMERA_TILT_DEG = 15.0      # Camera tilt angle (degrees, positive = looking dow
 # These settings are tuned for CPU-only inference on Pi 5
 
 # YOLO Model - use custom trained can detection model
-YOLO_MODEL = 'yolov8n_cans.pt'   # Custom trained for soda cans
+YOLO_MODEL = 'yolo11n_cans.pt'   # YOLO11 - trained on combined can datasets
 
 # Inference resolution - lower = faster
 INFERENCE_SIZE = 320        # 320px for Pi 5 (GPU: 640)

@@ -75,6 +75,8 @@ def prepare_combined_dataset(project_root: Path, force_rebuild: bool = False):
         {"name": "can2_dataset", "has_splits": False},  # Only has train
         {"name": "can3_dataset", "has_splits": True},
         {"name": "can4_dataset", "has_splits": True},
+        {"name": "can5_dataset", "has_splits": True},
+        {"name": "custom_dataset", "has_splits": True},  # Rover perspective images
     ]
     
     for dataset_info in datasets:

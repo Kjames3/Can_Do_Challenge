@@ -19,6 +19,10 @@ __pycache__/
 
 # Base YOLO weights (downloaded automatically)
 yolov8n.pt
+yolo11n.pt
+
+# Captured training images from rover (download from Pi)
+captured_images/
 
 # IDE
 .vscode/

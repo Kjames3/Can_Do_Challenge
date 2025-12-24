@@ -1228,8 +1228,9 @@
             // Robot Model - Simple box geometry (no STL loading to avoid CORS issues)
             const robotMaterial = new THREE.MeshStandardMaterial({ color: 0x06b6d4, metalness: 0.3, roughness: 0.7 });
 
-            // Box: width(X) x height(Y) x depth(Z) - depth is forward direction
-            const boxGeometry = new THREE.BoxGeometry(0.15, 0.08, 0.25);  // 15cm wide x 8cm tall x 25cm long (forward)
+            // Box: width(X) x height(Y) x depth(Z) - Z is forward direction
+            // Rover is wider than it is long, so width > depth
+            const boxGeometry = new THREE.BoxGeometry(0.25, 0.08, 0.15);  // 25cm wide x 8cm tall x 15cm long
             robotMesh = new THREE.Mesh(boxGeometry, robotMaterial);
             robotMesh.position.set(0, 0.04, 0);
             scene3D.add(robotMesh);
@@ -1240,7 +1241,7 @@
             const arrow = new THREE.Mesh(arrowGeom, arrowMat);
             // Cone default points along +Y, rotate -90° around X to point along +Z
             arrow.rotation.x = -Math.PI / 2;
-            arrow.position.set(0, 0.04, 0.16);  // At front center of robot, slightly above
+            arrow.position.set(0, 0.04, 0.11);  // At front center of robot (half of depth + arrow length)
             robotMesh.add(arrow);
 
             // Start Marker (Green Disc)

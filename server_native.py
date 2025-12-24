@@ -123,6 +123,10 @@ WHEEL_BASE_MM = 356             # mm (width between wheels)
 WHEEL_DIAMETER_CM = WHEEL_CIRCUMFERENCE_MM / (np.pi * 10)  # Convert to cm
 WHEEL_BASE_CM = WHEEL_BASE_MM / 10
 
+# Motor drift compensation (adjust if rover drifts when driving straight)
+# Positive = reduce right motor power, Negative = reduce left motor power
+DRIFT_COMPENSATION = 0.05  # 5% reduction on right motor (rover was drifting right)
+
 # Detection Configuration
 KNOWN_HEIGHT_BOTTLE = 20.0  # Standard water bottle height in cm
 KNOWN_HEIGHT_CAN = 12.0     # Standard soda can height in cm
@@ -645,9 +649,17 @@ async def handle_client(websocket):
                     motor = data.get("motor")
                     power = float(data.get("power", 0))
                     
+                    # Apply drift compensation for forward driving
+                    # Only apply when both motors should be moving together
                     if motor == "left" and left_motor:
+                        if DRIFT_COMPENSATION < 0:
+                            # Reduce left motor power
+                            power = power * (1.0 + DRIFT_COMPENSATION)
                         left_motor.set_power(power)
                     elif motor == "right" and right_motor:
+                        if DRIFT_COMPENSATION > 0:
+                            # Reduce right motor power
+                            power = power * (1.0 - DRIFT_COMPENSATION)
                         right_motor.set_power(power)
                 
                 elif msg_type == "stop":
@@ -887,8 +899,12 @@ def cleanup():
     if lidar:
         lidar.cleanup()
     
-    if not SIM_MODE:
-        GPIO.cleanup()
+    # Only cleanup GPIO if it was initialized (not None)
+    if not SIM_MODE and GPIO is not None:
+        try:
+            GPIO.cleanup()
+        except:
+            pass  # GPIO may not have cleanup method depending on library
     
     print("Cleanup complete.")
 
