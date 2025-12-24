@@ -1,5 +1,41 @@
 # Viam Rover Project - Update Log
 
+## 2024-12-24 13:45 PST
+
+### Changes Made
+1. **MPU6050 IMU Integration**
+   - Added `NativeIMU` class for direct I2C access to MPU6050
+   - Gyroscope integration for accurate heading tracking
+   - Auto-calibration on startup
+   - Tilt detection from accelerometer
+
+2. **Drift Compensation (Encoder + IMU)**
+   - IMU heading used to maintain straight line during auto-drive
+   - Proportional controller adjusts motor power to correct drift
+   - Config: `DRIFT_CORRECTION_GAIN = 0.02`
+
+3. **Heading-Based Odometry**
+   - 3D viewer now uses IMU heading instead of encoder-derived heading
+   - Much more accurate position tracking
+   - New method: `robot_state.update_with_imu()`
+
+4. **Tilt Safety**
+   - Emergency stop if pitch or roll > 30°
+   - Prevents damage from falling off edges
+   - Config: `MAX_TILT_DEGREES = 30.0`
+
+5. **Stuck Detection**
+   - Detects when motors running but no movement for 1.5s
+   - Uses both encoder velocity and IMU acceleration
+   - Logs warning (can optionally auto-stop)
+
+### Dependencies to Install on Pi
+```bash
+pip install smbus2
+```
+
+---
+
 ## 2023-12-23 21:42 PST
 
 ### Changes Made

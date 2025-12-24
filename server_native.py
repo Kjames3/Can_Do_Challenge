@@ -151,6 +151,30 @@ INFERENCE_SIZE = 640        # Larger = better long-range detection, slower
 YOLO_MODEL = 'yolo11n_cans.pt'  # Will fallback to yolov8n_cans.pt if not found
 
 # =============================================================================
+# IMU CONFIGURATION (MPU6050)
+# =============================================================================
+IMU_I2C_BUS = 1              # I2C bus number (from Viam config)
+IMU_I2C_ADDRESS = 0x68       # Default MPU6050 address
+IMU_SAMPLE_RATE = 50         # Hz - how often to read IMU
+IMU_GYRO_SCALE = 131.0       # LSB/(°/s) for ±250°/s range
+
+# Drift Compensation Settings
+DRIFT_CORRECTION_ENABLED = True
+DRIFT_CORRECTION_GAIN = 0.02  # Proportional gain for heading correction
+VELOCITY_MATCH_GAIN = 0.05    # Proportional gain for encoder velocity matching
+
+# Tilt Safety Settings
+TILT_SAFETY_ENABLED = True
+MAX_TILT_DEGREES = 30.0       # Emergency stop if pitch or roll exceeds this
+
+# Stuck Detection Settings
+STUCK_DETECTION_ENABLED = True
+STUCK_MOTOR_THRESHOLD = 0.15  # Min motor power to check for stuck
+STUCK_TIME_THRESHOLD = 1.5    # Seconds of no movement before declaring stuck
+STUCK_ACCEL_THRESHOLD = 0.1   # g's - min acceleration to indicate movement
+STUCK_ENCODER_THRESHOLD = 5   # Min encoder pulses per second to indicate movement
+
+# =============================================================================
 # MOTOR DRIVER CLASS (In1/In2 + PWM Pattern)
 # =============================================================================
 
@@ -325,6 +349,230 @@ class NativeEncoder:
         """Release GPIO resources."""
         if self._button:
             self._button.close()
+
+
+# =============================================================================
+# IMU CLASS (MPU6050 via I2C)
+# =============================================================================
+
+class NativeIMU:
+    """
+    Direct I2C access to MPU6050 IMU for heading, tilt, and motion detection.
+    
+    Features:
+    - Gyroscope integration for heading (yaw)
+    - Accelerometer for pitch/roll (tilt detection)
+    - Motion detection for stuck detection
+    """
+    
+    # MPU6050 Register addresses
+    PWR_MGMT_1 = 0x6B
+    GYRO_CONFIG = 0x1B
+    ACCEL_CONFIG = 0x1C
+    ACCEL_XOUT_H = 0x3B
+    GYRO_XOUT_H = 0x43
+    
+    def __init__(self, bus: int = 1, address: int = 0x68, name: str = "imu"):
+        self.name = name
+        self.bus = bus
+        self.address = address
+        self._smbus = None
+        self._initialized = False
+        
+        # Heading tracking (integrated from gyro Z)
+        self._heading = 0.0  # radians
+        self._heading_offset = 0.0  # For calibration
+        self._last_update = time.time()
+        
+        # Calibration offsets
+        self._gyro_offset = [0.0, 0.0, 0.0]
+        self._accel_offset = [0.0, 0.0, 0.0]
+        
+        # Motion state
+        self._is_moving = False
+        self._motion_threshold = STUCK_ACCEL_THRESHOLD
+        
+        self._lock = threading.Lock()
+        
+        if not SIM_MODE:
+            self._initialize_hardware()
+    
+    def _initialize_hardware(self):
+        """Initialize I2C connection to MPU6050."""
+        try:
+            import smbus2
+            self._smbus = smbus2.SMBus(self.bus)
+            
+            # Wake up MPU6050 (it starts in sleep mode)
+            self._smbus.write_byte_data(self.address, self.PWR_MGMT_1, 0x00)
+            time.sleep(0.1)
+            
+            # Configure gyro for ±250°/s (most sensitive)
+            self._smbus.write_byte_data(self.address, self.GYRO_CONFIG, 0x00)
+            
+            # Configure accelerometer for ±2g (most sensitive)
+            self._smbus.write_byte_data(self.address, self.ACCEL_CONFIG, 0x00)
+            
+            self._initialized = True
+            print(f"  ✓ {self.name} initialized on I2C bus {self.bus}, addr 0x{self.address:02x}")
+            
+            # Auto-calibrate (assumes stationary at startup)
+            self._calibrate()
+            
+        except ImportError:
+            print(f"  ✗ {self.name}: smbus2 not installed (pip install smbus2)")
+            self._initialized = False
+        except Exception as e:
+            print(f"  ✗ {self.name}: I2C error - {e}")
+            self._initialized = False
+    
+    def _calibrate(self, samples: int = 100):
+        """Calibrate gyro/accel offsets (call when stationary)."""
+        if not self._initialized:
+            return
+        
+        print(f"  ⏳ Calibrating {self.name} (keep rover still)...")
+        
+        gyro_sum = [0.0, 0.0, 0.0]
+        accel_sum = [0.0, 0.0, 0.0]
+        
+        for _ in range(samples):
+            raw_gyro = self._read_raw_gyro()
+            raw_accel = self._read_raw_accel()
+            for i in range(3):
+                gyro_sum[i] += raw_gyro[i]
+                accel_sum[i] += raw_accel[i]
+            time.sleep(0.01)
+        
+        self._gyro_offset = [g / samples for g in gyro_sum]
+        # Don't offset Z accel (should be ~1g due to gravity)
+        self._accel_offset = [accel_sum[0] / samples, accel_sum[1] / samples, 0.0]
+        
+        print(f"  ✓ {self.name} calibrated")
+    
+    def _read_raw_word(self, reg: int) -> int:
+        """Read a signed 16-bit value from two registers."""
+        high = self._smbus.read_byte_data(self.address, reg)
+        low = self._smbus.read_byte_data(self.address, reg + 1)
+        value = (high << 8) | low
+        if value >= 0x8000:
+            value -= 0x10000
+        return value
+    
+    def _read_raw_gyro(self) -> list:
+        """Read raw gyroscope values (LSB units)."""
+        if not self._initialized:
+            return [0.0, 0.0, 0.0]
+        try:
+            gx = self._read_raw_word(self.GYRO_XOUT_H)
+            gy = self._read_raw_word(self.GYRO_XOUT_H + 2)
+            gz = self._read_raw_word(self.GYRO_XOUT_H + 4)
+            return [gx, gy, gz]
+        except:
+            return [0.0, 0.0, 0.0]
+    
+    def _read_raw_accel(self) -> list:
+        """Read raw accelerometer values (LSB units)."""
+        if not self._initialized:
+            return [0.0, 0.0, 16384.0]  # Fake 1g on Z
+        try:
+            ax = self._read_raw_word(self.ACCEL_XOUT_H)
+            ay = self._read_raw_word(self.ACCEL_XOUT_H + 2)
+            az = self._read_raw_word(self.ACCEL_XOUT_H + 4)
+            return [ax, ay, az]
+        except:
+            return [0.0, 0.0, 16384.0]
+    
+    def get_gyro(self) -> tuple:
+        """Get gyroscope readings in degrees/second."""
+        raw = self._read_raw_gyro()
+        # Convert to degrees/sec (131 LSB/(°/s) for ±250°/s range)
+        gx = (raw[0] - self._gyro_offset[0]) / IMU_GYRO_SCALE
+        gy = (raw[1] - self._gyro_offset[1]) / IMU_GYRO_SCALE
+        gz = (raw[2] - self._gyro_offset[2]) / IMU_GYRO_SCALE
+        return (gx, gy, gz)
+    
+    def get_accel(self) -> tuple:
+        """Get accelerometer readings in g's."""
+        raw = self._read_raw_accel()
+        # Convert to g's (16384 LSB/g for ±2g range)
+        ax = (raw[0] - self._accel_offset[0]) / 16384.0
+        ay = (raw[1] - self._accel_offset[1]) / 16384.0
+        az = raw[2] / 16384.0  # Don't offset Z
+        return (ax, ay, az)
+    
+    def update(self):
+        """
+        Update heading by integrating gyroscope.
+        Call this frequently (at least 50Hz) for accurate heading.
+        """
+        if not self._initialized:
+            return
+        
+        current_time = time.time()
+        dt = current_time - self._last_update
+        self._last_update = current_time
+        
+        if dt > 0.5:
+            # Too long since last update, skip integration
+            return
+        
+        _, _, gz = self.get_gyro()
+        
+        with self._lock:
+            # Integrate gyro Z to get heading (convert deg/s to rad)
+            self._heading += np.radians(gz) * dt
+            # Normalize to -π to π
+            self._heading = np.arctan2(np.sin(self._heading), np.cos(self._heading))
+        
+        # Update motion state
+        ax, ay, az = self.get_accel()
+        accel_magnitude = np.sqrt(ax*ax + ay*ay)  # Ignore Z (gravity)
+        self._is_moving = accel_magnitude > self._motion_threshold
+    
+    def get_heading(self) -> float:
+        """Get current heading in radians (integrated from gyro Z)."""
+        with self._lock:
+            return self._heading - self._heading_offset
+    
+    def reset_heading(self):
+        """Reset heading to zero (set current heading as reference)."""
+        with self._lock:
+            self._heading_offset = self._heading
+    
+    def get_tilt(self) -> tuple:
+        """
+        Get pitch and roll angles in degrees from accelerometer.
+        
+        Returns:
+            (pitch, roll) - pitch is forward/back tilt, roll is side tilt
+        """
+        ax, ay, az = self.get_accel()
+        
+        # Calculate pitch (rotation around Y axis) and roll (rotation around X axis)
+        pitch = np.degrees(np.arctan2(ax, np.sqrt(ay*ay + az*az)))
+        roll = np.degrees(np.arctan2(ay, np.sqrt(ax*ax + az*az)))
+        
+        return (pitch, roll)
+    
+    def is_tilted_unsafe(self) -> bool:
+        """Check if rover is tilted beyond safe limits."""
+        pitch, roll = self.get_tilt()
+        return abs(pitch) > MAX_TILT_DEGREES or abs(roll) > MAX_TILT_DEGREES
+    
+    def is_moving(self) -> bool:
+        """Check if rover is moving based on accelerometer."""
+        return self._is_moving
+    
+    def get_yaw_rate(self) -> float:
+        """Get current yaw rate in degrees/second."""
+        _, _, gz = self.get_gyro()
+        return gz
+    
+    def cleanup(self):
+        """Release I2C resources."""
+        if self._smbus:
+            self._smbus.close()
 
 
 # =============================================================================
@@ -506,7 +754,7 @@ class NativeLidar:
 # =============================================================================
 
 class RobotState:
-    """Track robot pose using wheel encoder odometry."""
+    """Track robot pose using wheel encoder odometry with optional IMU heading fusion."""
     
     def __init__(self):
         self.x = 0.0  # cm
@@ -544,6 +792,42 @@ class RobotState:
         
         self.last_left_pos = left_pos
         self.last_right_pos = right_pos
+    
+    def update_with_imu(self, left_pos, right_pos, imu_heading):
+        """
+        Update pose using encoder distance + IMU heading (more accurate).
+        
+        Args:
+            left_pos: Left encoder position in revolutions
+            right_pos: Right encoder position in revolutions
+            imu_heading: Heading from IMU in radians
+        """
+        if not self.initialized:
+            self.last_left_pos = left_pos
+            self.last_right_pos = right_pos
+            self.initialized = True
+            return
+        
+        # Delta in revolutions
+        left_delta = left_pos - self.last_left_pos
+        right_delta = right_pos - self.last_right_pos
+        
+        # Convert to distance (cm)
+        left_dist = left_delta * WHEEL_CIRCUMFERENCE_MM / 10
+        right_dist = right_delta * WHEEL_CIRCUMFERENCE_MM / 10
+        
+        # Average distance for forward movement
+        distance = (left_dist + right_dist) / 2
+        
+        # Use IMU heading directly (much more accurate than encoder-derived)
+        self.theta = imu_heading
+        
+        # Update position using IMU heading
+        self.x += distance * np.cos(self.theta)
+        self.y += distance * np.sin(self.theta)
+        
+        self.last_left_pos = left_pos
+        self.last_right_pos = right_pos
 
 
 # =============================================================================
@@ -556,13 +840,20 @@ left_encoder: NativeEncoder = None
 right_encoder: NativeEncoder = None
 camera: NativeCamera = None
 lidar: NativeLidar = None
+imu: NativeIMU = None  # MPU6050 IMU
 robot_state = RobotState()
 
 detection_model: YOLO = None
 detection_enabled = False
 is_auto_driving = False
+is_stuck = False  # Set True when motors running but no movement
+is_tilted = False  # Set True if tilt exceeds safe limits
 frame_count = 0
 last_detections = []
+
+# Stuck detection state
+_stuck_start_time = None
+_last_encoder_count = 0
 
 connected_clients = set()
 
@@ -722,10 +1013,13 @@ async def handle_client(websocket):
 
 async def broadcast_loop():
     """Broadcast sensor data to all connected clients."""
-    global frame_count, last_detections, is_auto_driving
+    global frame_count, last_detections, is_auto_driving, is_stuck, is_tilted
+    global _stuck_start_time, _last_encoder_count
     
     last_video_time = 0
     video_interval = 1.0 / VIDEO_FPS_CAP
+    last_imu_time = 0
+    imu_interval = 1.0 / IMU_SAMPLE_RATE
     
     # Auto-drive control parameters
     TARGET_DISTANCE_CM = 25.0  # Stop when this close to target
@@ -733,9 +1027,68 @@ async def broadcast_loop():
     DRIVE_SPEED = 0.25
     TURN_SPEED = 0.20
     
+    # For drift correction during straight driving
+    initial_heading = None
+    
     while True:
         if connected_clients:
             current_time = time.time()
+            
+            # === IMU UPDATE (high frequency) ===
+            if imu and current_time - last_imu_time >= imu_interval:
+                last_imu_time = current_time
+                imu.update()
+                
+                # --- TILT SAFETY CHECK ---
+                if TILT_SAFETY_ENABLED and imu.is_tilted_unsafe():
+                    if not is_tilted:
+                        is_tilted = True
+                        print("⚠️ TILT SAFETY: Rover tilted too far! Emergency stop.")
+                        if left_motor:
+                            left_motor.stop()
+                        if right_motor:
+                            right_motor.stop()
+                        is_auto_driving = False
+                elif is_tilted:
+                    # Clear tilt flag when level again
+                    is_tilted = False
+                    print("✓ Tilt returned to safe range")
+                
+                # --- STUCK DETECTION ---
+                if STUCK_DETECTION_ENABLED and left_motor and right_motor:
+                    motor_power = max(abs(left_motor._current_power), abs(right_motor._current_power))
+                    
+                    if motor_power > STUCK_MOTOR_THRESHOLD:
+                        # Check if actually moving
+                        encoder_count = 0
+                        if left_encoder:
+                            encoder_count += abs(left_encoder.get_count())
+                        if right_encoder:
+                            encoder_count += abs(right_encoder.get_count())
+                        
+                        imu_moving = imu.is_moving() if imu else True
+                        encoder_moving = abs(encoder_count - _last_encoder_count) > STUCK_ENCODER_THRESHOLD
+                        
+                        if not imu_moving and not encoder_moving:
+                            # Possibly stuck
+                            if _stuck_start_time is None:
+                                _stuck_start_time = current_time
+                            elif current_time - _stuck_start_time > STUCK_TIME_THRESHOLD:
+                                if not is_stuck:
+                                    is_stuck = True
+                                    print("⚠️ STUCK: Motors running but no movement detected!")
+                                    # Optionally stop motors
+                                    # left_motor.stop()
+                                    # right_motor.stop()
+                        else:
+                            _stuck_start_time = None
+                            if is_stuck:
+                                is_stuck = False
+                                print("✓ Movement detected, no longer stuck")
+                        
+                        _last_encoder_count = encoder_count
+                    else:
+                        _stuck_start_time = None
             
             # Throttle video frame rate
             if current_time - last_video_time < video_interval:
@@ -744,12 +1097,19 @@ async def broadcast_loop():
             
             last_video_time = current_time
             
-            # Update odometry
+            # --- UPDATE ODOMETRY (with IMU heading if available) ---
             if left_encoder and right_encoder:
-                robot_state.update(
-                    left_encoder.get_position(),
-                    right_encoder.get_position()
-                )
+                if imu:
+                    robot_state.update_with_imu(
+                        left_encoder.get_position(),
+                        right_encoder.get_position(),
+                        imu.get_heading()
+                    )
+                else:
+                    robot_state.update(
+                        left_encoder.get_position(),
+                        right_encoder.get_position()
+                    )
             
             # Get camera frame
             frame = camera.get_frame() if camera else None
@@ -768,7 +1128,7 @@ async def broadcast_loop():
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
                 
                 # === AUTO-DRIVE CONTROL ===
-                if is_auto_driving and left_motor and right_motor:
+                if is_auto_driving and left_motor and right_motor and not is_tilted:
                     if last_detections:
                         # Get closest detection
                         target = min(last_detections, key=lambda d: d['distance_cm'])
@@ -784,9 +1144,11 @@ async def broadcast_loop():
                             left_motor.stop()
                             right_motor.stop()
                             is_auto_driving = False
+                            initial_heading = None
                             print(f"✓ Arrived at target ({distance:.1f}cm)")
                         elif abs(error_x) > CENTER_THRESHOLD_PX:
-                            # Turn toward target
+                            # Turn toward target - reset heading reference
+                            initial_heading = None
                             if error_x > 0:
                                 # Target is to the right, turn right
                                 left_motor.set_power(TURN_SPEED)
@@ -796,11 +1158,37 @@ async def broadcast_loop():
                                 left_motor.set_power(-TURN_SPEED)
                                 right_motor.set_power(TURN_SPEED)
                         else:
-                            # Drive forward
-                            left_motor.set_power(DRIVE_SPEED)
-                            right_motor.set_power(DRIVE_SPEED)
+                            # Drive forward WITH DRIFT CORRECTION
+                            left_power = DRIVE_SPEED
+                            right_power = DRIVE_SPEED
+                            
+                            if DRIFT_CORRECTION_ENABLED and imu:
+                                # Lock in heading when starting straight drive
+                                if initial_heading is None:
+                                    initial_heading = imu.get_heading()
+                                
+                                # Calculate heading error
+                                heading_error = imu.get_heading() - initial_heading
+                                # Normalize to -π to π
+                                heading_error = np.arctan2(np.sin(heading_error), np.cos(heading_error))
+                                
+                                # Apply proportional correction
+                                correction = heading_error * DRIFT_CORRECTION_GAIN
+                                
+                                # If drifting right (positive error), speed up right motor
+                                # If drifting left (negative error), speed up left motor
+                                left_power -= correction
+                                right_power += correction
+                                
+                                # Clamp to valid range
+                                left_power = max(0.0, min(1.0, left_power))
+                                right_power = max(0.0, min(1.0, right_power))
+                            
+                            left_motor.set_power(left_power)
+                            right_motor.set_power(right_power)
                     else:
                         # No detection - spin slowly to search
+                        initial_heading = None
                         left_motor.set_power(TURN_SPEED * 0.5)
                         right_motor.set_power(-TURN_SPEED * 0.5)
                 
@@ -820,11 +1208,19 @@ async def broadcast_loop():
                 "detection_enabled": detection_enabled,
                 "detections": last_detections,
                 "is_auto_driving": is_auto_driving,
+                "is_stuck": is_stuck,
+                "is_tilted": is_tilted,
                 "robot_pose": {
                     "x": robot_state.x,
                     "y": robot_state.y,
                     "theta": robot_state.theta
                 },
+                "imu": {
+                    "pitch": imu.get_tilt()[0] if imu else 0,
+                    "roll": imu.get_tilt()[1] if imu else 0,
+                    "heading_deg": np.degrees(imu.get_heading()) if imu else 0,
+                    "yaw_rate": imu.get_yaw_rate() if imu else 0
+                } if imu else None,
                 "lidar_points": lidar.get_points_xy()[:360] if lidar else []
             }
             
@@ -844,7 +1240,7 @@ async def broadcast_loop():
 
 def initialize_hardware():
     """Initialize all hardware components."""
-    global left_motor, right_motor, left_encoder, right_encoder, camera, lidar
+    global left_motor, right_motor, left_encoder, right_encoder, camera, lidar, imu
     
     print("\n" + "="*50)
     print("Initializing Hardware (Native GPIO)")
@@ -864,6 +1260,10 @@ def initialize_hardware():
     left_motor.set_encoder(left_encoder)
     right_motor.set_encoder(right_encoder)
     print("  ✓ Motors linked to encoders for direction tracking")
+    
+    # IMU
+    print("\nIMU (MPU6050):")
+    imu = NativeIMU(IMU_I2C_BUS, IMU_I2C_ADDRESS, "imu")
     
     # Camera
     print("\nCamera:")
@@ -898,6 +1298,8 @@ def cleanup():
         camera.cleanup()
     if lidar:
         lidar.cleanup()
+    if imu:
+        imu.cleanup()
     
     # Only cleanup GPIO if it was initialized (not None)
     if not SIM_MODE and GPIO is not None:
