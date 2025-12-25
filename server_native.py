@@ -109,6 +109,7 @@ RIGHT_ENCODER_PIN = 40
 I2C_BUS = 1                # I2C bus number
 
 # Camera
+# TODO: If camera path is different, change it here. Check if camera is connected by running `ls /dev/v4l/by-id/` in the terminal.
 CAMERA_PATH = "/dev/v4l/by-id/usb-Jieli_Technology_USB_PHY_2.0-video-index0"
 CAMERA_INDEX = 0           # Fallback to index if path fails
 
@@ -624,11 +625,27 @@ class NativeCamera:
     
     def _capture_loop(self):
         """Background thread that continuously captures frames."""
+        frame_errors = 0
+        frame_ok_count = 0
         while self._running:
-            ret, frame = self.cap.read()
-            if ret:
-                with self._frame_lock:
-                    self._frame = frame
+            try:
+                ret, frame = self.cap.read()
+                if ret:
+                    with self._frame_lock:
+                        self._frame = frame
+                    frame_ok_count += 1
+                    frame_errors = 0  # Reset on success
+                    # Log first successful frame
+                    if frame_ok_count == 1:
+                        print(f"  ✓ Camera: First frame captured successfully")
+                else:
+                    frame_errors += 1
+                    if frame_errors == 10:
+                        print(f"  ⚠ Camera: Failed to read frame (10 consecutive failures)")
+            except Exception as e:
+                frame_errors += 1
+                if frame_errors == 1:
+                    print(f"  ⚠ Camera capture error: {e}")
             time.sleep(0.001)  # Small sleep to prevent CPU spinning
     
     def get_frame(self):
@@ -1056,7 +1073,7 @@ async def broadcast_loop():
                 
                 # --- STUCK DETECTION ---
                 if STUCK_DETECTION_ENABLED and left_motor and right_motor:
-                    motor_power = max(abs(left_motor._current_power), abs(right_motor._current_power))
+                    motor_power = max(abs(left_motor._power), abs(right_motor._power))
                     
                     if motor_power > STUCK_MOTOR_THRESHOLD:
                         # Check if actually moving
