@@ -165,8 +165,10 @@ DRIFT_CORRECTION_GAIN = 0.02  # Proportional gain for heading correction
 VELOCITY_MATCH_GAIN = 0.05    # Proportional gain for encoder velocity matching
 
 # Tilt Safety Settings
-TILT_SAFETY_ENABLED = True
-MAX_TILT_DEGREES = 30.0       # Emergency stop if pitch or roll exceeds this
+# NOTE: Disabled because IMU calibration can cause false positives
+# Re-enable after IMU is properly calibrated on a level surface
+TILT_SAFETY_ENABLED = False
+MAX_TILT_DEGREES = 45.0       # Emergency stop if pitch or roll exceeds this (increased from 30)
 
 # Stuck Detection Settings
 STUCK_DETECTION_ENABLED = True
@@ -611,17 +613,28 @@ class NativeCamera:
             print("  ✗ Failed to open camera")
             return
         
+        # Use MJPEG format for faster capture and less tearing
+        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+        self.cap.set(cv2.CAP_PROP_FOURCC, fourcc)
+        
         # Set resolution
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
+        
+        # Reduce buffer size to minimize tearing (only keep 1 frame in buffer)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        
+        # Flush initial stale frames from the buffer
+        for _ in range(5):
+            self.cap.grab()
         
         # Start capture thread for non-blocking reads
         self._running = True
         self._thread = threading.Thread(target=self._capture_loop, daemon=True)
         self._thread.start()
         
-        print(f"  ✓ Camera: {width}x{height}")
+        print(f"  ✓ Camera: {width}x{height} (MJPEG, buffer=1)")
     
     def _capture_loop(self):
         """Background thread that continuously captures frames."""
@@ -840,8 +853,9 @@ class RobotState:
         self.theta = imu_heading
         
         # Update position using IMU heading
-        self.x += distance * np.cos(self.theta)
-        self.y += distance * np.sin(self.theta)
+        # Convention: Y is forward (cos), X is lateral (sin)
+        self.x += distance * np.sin(self.theta)
+        self.y += distance * np.cos(self.theta)
         
         self.last_left_pos = left_pos
         self.last_right_pos = right_pos
