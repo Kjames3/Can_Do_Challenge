@@ -7,6 +7,7 @@ This module implements a clean FSM-based navigation system with states:
 - APPROACHING: 3-phase navigation (ACQUIRE→ROTATE→DRIVE)
 - ARRIVED: At target, stopped
 - AVOIDING: Backing up from obstacle
+- RETURNING: Navigating back to start position
 """
 
 import asyncio
@@ -21,6 +22,7 @@ class NavigationState:
     APPROACHING = "APPROACHING"
     ARRIVED = "ARRIVED"
     AVOIDING = "AVOIDING"
+    RETURNING = "RETURNING"
 
 
 class ApproachPhase:
@@ -58,6 +60,10 @@ class NavigationConfig:
     # Obstacle avoidance
     obstacle_min_distance_cm: float = 20.0  # Back up if closer than this
     backup_duration_sec: float = 0.8
+    
+    # Return navigation
+    auto_return: bool = True              # Automatically return after reaching target
+    return_distance_threshold: float = 15.0  # cm - close enough to start position
 
 
 class NavigationFSM:
@@ -95,9 +101,20 @@ class NavigationFSM:
         self._POWER_DEADBAND = 0.02  # 2% deadband
         self._MOTOR_TIMEOUT = 2.5    # Timeout for motor commands
         
+        # Start position tracking for RETURNING state
+        self.start_x = 0.0
+        self.start_y = 0.0
+        self.start_theta = 0.0
+        self.current_x = 0.0
+        self.current_y = 0.0
+        self.current_theta = 0.0
+        self.return_phase = "ROTATE"  # ROTATE or DRIVE
+        self.return_target_heading = 0.0
+        
         # Callbacks for state changes (optional)
         self.on_state_change = None
         self.on_arrived = None
+        self.on_returned = None  # Called when returned to start
     
     @property
     def state_summary(self) -> str:
@@ -118,14 +135,29 @@ class NavigationFSM:
             if self.on_state_change:
                 self.on_state_change(old_state, new_state)
     
-    async def start(self):
-        """Start navigation - enters SEARCHING state"""
+    async def start(self, start_pose: dict = None):
+        """Start navigation - enters SEARCHING state
+        
+        Args:
+            start_pose: Optional dict with 'x', 'y', 'theta' for return navigation
+        """
         self.acquire_samples.clear()
         self.target_distance = 0.0
         self.target_bearing = 0.0
         self.last_turn_dir = 0
+        
+        # Store start position for RETURNING
+        if start_pose:
+            self.start_x = start_pose.get('x', 0.0)
+            self.start_y = start_pose.get('y', 0.0)
+            self.start_theta = start_pose.get('theta', 0.0)
+        else:
+            self.start_x = 0.0
+            self.start_y = 0.0
+            self.start_theta = 0.0
+        
         self._set_state(NavigationState.SEARCHING)
-        print("🚀 Navigation started - SEARCHING for target")
+        print(f"🚀 Navigation started - SEARCHING for target (start: x={self.start_x:.1f}, y={self.start_y:.1f})")
     
     async def start_approach(self):
         """Start direct approach - skips SEARCHING (for when target already visible)"""
@@ -153,26 +185,37 @@ class NavigationFSM:
         self._last_motor_time = 0.0
         print("✓ NavigationFSM motors updated")
     
-    async def update(self, detection: dict = None, lidar_min_distance_cm: float = None):
+    async def update(self, detection: dict = None, lidar_min_distance_cm: float = None, current_pose: dict = None):
         """
         Called each frame to update navigation.
         
         Args:
             detection: Dict with 'distance_cm' and 'center_x' from YOLO
             lidar_min_distance_cm: Minimum distance from lidar (for obstacle avoidance)
+            current_pose: Dict with 'x', 'y', 'theta' for return navigation
         """
+        # Update current pose for RETURNING
+        if current_pose:
+            self.current_x = current_pose.get('x', 0.0)
+            self.current_y = current_pose.get('y', 0.0)
+            self.current_theta = current_pose.get('theta', 0.0)
+        
         if self.state == NavigationState.IDLE:
             return
         
         if self.state == NavigationState.ARRIVED:
+            # Check if auto-return is enabled
+            if self.config.auto_return:
+                self._start_return()
             return
         
-        # Check for obstacles first (safety)
-        if lidar_min_distance_cm is not None and lidar_min_distance_cm < self.config.obstacle_min_distance_cm:
-            if self.state != NavigationState.AVOIDING:
-                self._set_state(NavigationState.AVOIDING)
-                self.avoid_start_time = time.time()
-                print(f"⚠️ Obstacle detected at {lidar_min_distance_cm:.1f}cm - backing up")
+        # Check for obstacles first (safety) - but not during RETURNING
+        if self.state != NavigationState.RETURNING:
+            if lidar_min_distance_cm is not None and lidar_min_distance_cm < self.config.obstacle_min_distance_cm:
+                if self.state != NavigationState.AVOIDING:
+                    self._set_state(NavigationState.AVOIDING)
+                    self.avoid_start_time = time.time()
+                    print(f"⚠️ Obstacle detected at {lidar_min_distance_cm:.1f}cm - backing up")
         
         # Handle current state
         if self.state == NavigationState.SEARCHING:
@@ -181,6 +224,8 @@ class NavigationFSM:
             await self._handle_approaching(detection)
         elif self.state == NavigationState.AVOIDING:
             await self._handle_avoiding()
+        elif self.state == NavigationState.RETURNING:
+            await self._handle_returning()
     
     # =========================================================================
     # STATE HANDLERS
@@ -337,6 +382,112 @@ class NavigationFSM:
             await self._stop_motors()
             self._set_state(NavigationState.SEARCHING)
             print("↩ Backup complete → SEARCHING")
+    
+    def _start_return(self):
+        """Initialize return to start position"""
+        # Calculate bearing to start position
+        dx = self.start_x - self.current_x
+        dy = self.start_y - self.current_y
+        
+        # Distance to start
+        distance_to_start = np.sqrt(dx**2 + dy**2)
+        
+        if distance_to_start < self.config.return_distance_threshold:
+            # Already close enough to start
+            print("✓ Already at start position - navigation complete")
+            self._set_state(NavigationState.IDLE)
+            if self.on_returned:
+                self.on_returned()
+            return
+        
+        # Calculate target heading (angle to start)
+        self.return_target_heading = np.arctan2(dy, dx)
+        self.return_phase = "ROTATE"
+        
+        # Reset IMU for precision turn
+        if self.imu:
+            self.imu.reset_heading()
+            # Calculate how much we need to turn
+            heading_diff = self.return_target_heading - self.current_theta
+            # Normalize to [-pi, pi]
+            while heading_diff > np.pi:
+                heading_diff -= 2 * np.pi
+            while heading_diff < -np.pi:
+                heading_diff += 2 * np.pi
+            self.target_imu_rotation = heading_diff
+        
+        self._set_state(NavigationState.RETURNING)
+        print(f"↩ RETURNING to start (dist={distance_to_start:.1f}cm, heading={np.degrees(self.return_target_heading):.1f}°)")
+    
+    async def _handle_returning(self):
+        """RETURNING: Navigate back to start position"""
+        # Calculate distance to start
+        dx = self.start_x - self.current_x
+        dy = self.start_y - self.current_y
+        distance_to_start = np.sqrt(dx**2 + dy**2)
+        
+        # Check if arrived at start
+        if distance_to_start < self.config.return_distance_threshold:
+            await self._stop_motors()
+            self._set_state(NavigationState.IDLE)
+            print(f"✓ RETURNED to start! Distance: {distance_to_start:.1f}cm")
+            if self.on_returned:
+                self.on_returned()
+            return
+        
+        if self.return_phase == "ROTATE":
+            # Rotate to face start position
+            if self.imu:
+                current_heading = self.imu.get_heading()
+                remaining_turn = self.target_imu_rotation - current_heading
+                threshold = 0.08  # ~5 degrees
+            else:
+                # Fallback: use odometry heading
+                heading_diff = self.return_target_heading - self.current_theta
+                while heading_diff > np.pi:
+                    heading_diff -= 2 * np.pi
+                while heading_diff < -np.pi:
+                    heading_diff += 2 * np.pi
+                remaining_turn = heading_diff
+                threshold = 0.15
+            
+            if abs(remaining_turn) <= threshold:
+                await self._stop_motors()
+                self.return_phase = "DRIVE"
+                print("  ✓ Aligned → DRIVING to start")
+                await asyncio.sleep(0.2)
+                return
+            
+            # Turn toward start
+            MIN_MOVING_POWER = 0.24
+            target_speed = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(remaining_turn) * 1.5))
+            
+            if remaining_turn > 0:
+                await self._set_motor_power(target_speed, 0.0)
+            else:
+                await self._set_motor_power(0.0, target_speed)
+        
+        elif self.return_phase == "DRIVE":
+            # Drive toward start
+            # Recalculate bearing in case of drift
+            target_heading = np.arctan2(dy, dx)
+            heading_error = target_heading - self.current_theta
+            while heading_error > np.pi:
+                heading_error -= 2 * np.pi
+            while heading_error < -np.pi:
+                heading_error += 2 * np.pi
+            
+            # If drifted too much, go back to ROTATE
+            if abs(heading_error) > 0.5:  # ~30 degrees
+                self.return_phase = "ROTATE"
+                if self.imu:
+                    self.imu.reset_heading()
+                    self.target_imu_rotation = heading_error
+                print(f"  ⚠ Drift detected ({np.degrees(heading_error):.1f}°) → re-rotating")
+                return
+            
+            # Drive forward
+            await self._set_motor_power(self.config.drive_speed, self.config.drive_speed)
     
     # =========================================================================
     # MOTOR HELPERS

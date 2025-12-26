@@ -138,8 +138,29 @@ viam_projects/
 ├── yolov8n_cans.pt        # Custom trained can detection model
 ├── train_yolov8_cans.py   # Training script for custom model
 ├── navigation_fsm.py      # Autonomous navigation state machine
+├── calibrate_motors.py    # Motor calibration utility
 └── README.md              # This file
 ```
+
+## Autonomous Navigation
+
+The rover features a sophisticated Finite State Machine (FSM) for autonomous can collection:
+
+### States
+| State | Description |
+|-------|-------------|
+| **IDLE** | Waiting for command |
+| **SEARCHING** | Spinning to find a target (initial state when no can visible) |
+| **APPROACHING** | 3-phase navigation: ACQUIRE → ROTATE → DRIVE |
+| **ARRIVED** | At target, stopped |
+| **AVOIDING** | Backing up from obstacle |
+| **RETURNING** | Navigating back to start position |
+
+### Features
+- **IMU-Precision Turns**: Uses MPU6050 gyroscope for accurate rotation
+- **Smooth Pivot Turns**: One-wheel-locked turns with P-control ramp-down
+- **Auto-Return**: After reaching target, robot returns to start position
+- **Motor Calibration**: Run `calibrate_motors.py` to find minimum power threshold
 
 ## Training Custom Model
 

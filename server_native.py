@@ -1005,7 +1005,11 @@ async def handle_client(websocket):
                     if fsm:
                         if left_motor and right_motor:
                             fsm.update_motors(left_motor, right_motor)
-                        await fsm.start()
+                        await fsm.start(start_pose={
+                            'x': robot_state.x,
+                            'y': robot_state.y,
+                            'theta': robot_state.theta
+                        })
                 
                 elif msg_type == "stop_auto_drive":
                     is_auto_driving = False
@@ -1190,7 +1194,11 @@ async def broadcast_loop():
                         if front_dists:
                             lidar_min = min(front_dists) * 100.0 # Convert to cm
                     
-                    await fsm.update(detection, lidar_min)
+                    await fsm.update(detection, lidar_min, current_pose={
+                        'x': robot_state.x,
+                        'y': robot_state.y,
+                        'theta': robot_state.theta
+                    })
                 
                 # Encode to JPEG
                 _, buffer = cv2.imencode('.jpg', frame, 

@@ -1,5 +1,33 @@
 # Viam Rover Project - Update Log
 
+## 2024-12-26 14:15 PST
+
+### Changes Made
+1. **Navigation FSM Enhancements**
+   - Added **RETURNING state**: Robot automatically returns to start position after reaching target
+   - Uses odometry (x, y, theta) to track position and navigate back
+   - IMU-precision turns during return navigation
+
+2. **Motor Calibration Script** (`calibrate_motors.py`)
+   - Finds minimum power needed to overcome friction
+   - Tests each motor in forward/backward directions
+   - Outputs recommended `MIN_MOVING_POWER` value
+
+3. **Smooth Pivot Turns**
+   - Changed from tank turns to one-wheel-locked pivot turns
+   - P-control ramp-down as robot approaches target angle
+   - Uses calibrated `MIN_MOVING_POWER = 0.24`
+
+4. **IMU Gyro Scale Fix**
+   - Changed `IMU_GYRO_SCALE` from 131.0 to 65.5 (±500°/s range)
+   - Fixed 2x overshoot during precision turns
+
+5. **Drift Compensation Update**
+   - Changed to `-0.10` (reduces LEFT motor by 10%)
+   - Corrects right-drift issue
+
+---
+
 ## 2024-12-24 13:45 PST
 
 ### Changes Made
