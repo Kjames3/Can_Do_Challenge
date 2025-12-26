@@ -1287,8 +1287,16 @@ def initialize_hardware():
     # Initialize Navigation FSM
     global fsm
     print("\nNavigation FSM:")
-    fsm = NavigationFSM(left_motor, right_motor)
-    print("✓ FSM initialized")
+    fsm = NavigationFSM(left_motor, right_motor, imu=imu)
+    
+    # Wire up callbacks
+    def on_arrived():
+        global is_auto_driving
+        print("🎉 FSM Callback: TARGET REACHED! Disengaging auto-drive.")
+        is_auto_driving = False
+    
+    fsm.on_arrived = on_arrived
+    print("✓ FSM initialized (IMU enabled)" if imu else "✓ FSM initialized (Camera only)")
     
     print("\n" + "="*50)
     print("✓ Hardware initialization complete")

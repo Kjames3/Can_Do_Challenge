@@ -37,8 +37,8 @@ class NavigationConfig:
     dist_threshold_cm: float = 3.0
     
     # Bearing thresholds (radians)
-    bearing_threshold: float = 0.12       # ~7° - aligned enough to drive
-    bearing_hysteresis: float = 0.08      # ~4.5° - prevents oscillation
+    bearing_threshold: float = 0.20       # ~11.5° - relaxed to reduce oscillation
+    bearing_hysteresis: float = 0.15      # ~8.5° - prevents rapid switching
     large_turn_threshold: float = 0.35    # ~20° - use tank turn above this
     
     # Motor speeds (higher = fewer small movements = fewer API calls)
@@ -67,9 +67,10 @@ class NavigationFSM:
     Receives detection and lidar data each frame, outputs motor commands.
     """
     
-    def __init__(self, left_motor, right_motor, config: NavigationConfig = None):
+    def __init__(self, left_motor, right_motor, imu=None, config: NavigationConfig = None):
         self.left_motor = left_motor
         self.right_motor = right_motor
+        self.imu = imu  # IMU for precision turns
         self.config = config or NavigationConfig()
         
         # State
@@ -80,6 +81,7 @@ class NavigationFSM:
         self.acquire_samples = []
         self.target_distance = 0.0
         self.target_bearing = 0.0
+        self.target_imu_rotation = 0.0  # IMU: Stores exact angle to turn
         self.last_turn_dir = 0
         
         # Avoiding state data
@@ -137,10 +139,12 @@ class NavigationFSM:
         await self._stop_motors()
         print("⏹ Navigation stopped")
     
-    def update_motors(self, left_motor, right_motor):
+    def update_motors(self, left_motor, right_motor, imu=None):
         """Update motor references (call after reconnection)"""
         self.left_motor = left_motor
         self.right_motor = right_motor
+        if imu is not None:
+            self.imu = imu
         # Reset coalescing state
         self._last_left_power = None
         self._last_right_power = None
@@ -216,7 +220,7 @@ class NavigationFSM:
             await self._handle_drive(det_distance, det_bearing)
     
     async def _handle_acquire(self, distance: float, bearing: float):
-        """ACQUIRE sub-phase: Collect samples and average"""
+        """ACQUIRE sub-phase: Collect samples, average, and LOCK IN IMU TARGET"""
         self.acquire_samples.append((distance, bearing))
         print(f"  Sample {len(self.acquire_samples)}/{self.config.acquire_count}: dist={distance:.1f}cm")
         
@@ -232,42 +236,60 @@ class NavigationFSM:
             # Decide next phase
             if abs(avg_bearing) > self.config.bearing_threshold:
                 self.approach_phase = ApproachPhase.ROTATE
-                print(f"  → ROTATE (need to turn {np.degrees(avg_bearing):.1f}°)")
+                
+                # IMU Pre-calculation: Lock in turn amount
+                if self.imu:
+                    # Reset IMU "zero" to now. We want to turn exactly 'avg_bearing' amount.
+                    self.imu.reset_heading()
+                    self.target_imu_rotation = avg_bearing
+                    print(f"  → ROTATE (IMU Precision Turn: {np.degrees(avg_bearing):.1f}°)")
+                else:
+                    print(f"  → ROTATE (Camera Reactive Turn: {np.degrees(avg_bearing):.1f}°)")
             else:
                 self.approach_phase = ApproachPhase.DRIVE
                 print("  → DRIVE")
     
     async def _handle_rotate(self, bearing: float):
-        """ROTATE sub-phase: Turn toward target"""
-        # Check if aligned (with hysteresis)
-        if abs(bearing) <= self.config.bearing_hysteresis:
+        """ROTATE sub-phase: Turn toward target using IMU if available"""
+        
+        remaining_turn = 0.0
+        
+        # STRATEGY 1: IMU PRECISION TURN (Robust, No Wobble)
+        if self.imu:
+            # How much have we turned since we started rotating?
+            current_heading = self.imu.get_heading()
+            
+            # Calculate remaining error
+            # target_imu_rotation is what we wanted (e.g., +0.3 rad)
+            # current_heading starts at 0 and grows to +0.3
+            remaining_turn = self.target_imu_rotation - current_heading
+        
+        # STRATEGY 2: CAMERA REACTIVE TURN (Fallback)
+        else:
+            remaining_turn = bearing
+        
+        # CHECK COMPLETION (Use tighter threshold for IMU because it's precise)
+        threshold = 0.05 if self.imu else self.config.bearing_hysteresis
+        
+        if abs(remaining_turn) <= threshold:
             await self._stop_motors()
             self.approach_phase = ApproachPhase.DRIVE
             self.last_turn_dir = 0
             print("✓ Aligned! → DRIVE")
+            # Optional: Take a split second to stabilize
+            await asyncio.sleep(0.15)
             return
         
-        if abs(bearing) > self.config.bearing_threshold:
-            turn_dir = 1 if bearing > 0 else -1
-            
-            # Oscillation detection
-            speed_mult = 0.7 if (self.last_turn_dir != 0 and turn_dir != self.last_turn_dir) else 1.0
-            self.last_turn_dir = turn_dir
-            
-            if abs(bearing) > self.config.large_turn_threshold:
-                # Large turn - tank turn (both wheels opposite)
-                l_pow = self.config.rotate_speed * turn_dir * speed_mult
-                r_pow = -self.config.rotate_speed * turn_dir * speed_mult
-            else:
-                # Small turn - pivot turn (one wheel only)
-                if turn_dir > 0:
-                    l_pow = self.config.pivot_speed * speed_mult
-                    r_pow = 0.0
-                else:
-                    l_pow = 0.0
-                    r_pow = self.config.pivot_speed * speed_mult
-            
-            await self._set_motor_power(l_pow, r_pow)
+        # EXECUTE TURN
+        # With IMU, we can use a constant fast speed (no need to slow down/wobble)
+        TURN_SPEED = 0.35 if self.imu else self.config.rotate_speed
+        
+        if remaining_turn > 0:
+            # Turn Right (Target is to the right, positive bearing)
+            await self._set_motor_power(TURN_SPEED, -TURN_SPEED)
+        else:
+            # Turn Left (Target is to the left, negative bearing)
+            await self._set_motor_power(-TURN_SPEED, TURN_SPEED)
     
     async def _handle_drive(self, distance: float, bearing: float):
         """DRIVE sub-phase: Drive straight to target"""
