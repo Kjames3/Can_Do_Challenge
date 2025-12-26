@@ -71,12 +71,12 @@ def prepare_combined_dataset(project_root: Path, force_rebuild: bool = False):
     
     # Define all datasets to process
     datasets = [
-        {"name": "can1_dataset", "has_splits": True},
-        {"name": "can2_dataset", "has_splits": False},  # Only has train
-        {"name": "can3_dataset", "has_splits": True},
-        {"name": "can4_dataset", "has_splits": True},
-        {"name": "can5_dataset", "has_splits": True},
-        {"name": "custom_dataset", "has_splits": True},  # Rover perspective images
+        {"name": "can1_dataset", "has_splits": True, "valid_classes": [3, 4]},  # Filter for 'can', 'cans'
+        {"name": "can2_dataset", "has_splits": False, "valid_classes": None},  # Keep all
+        {"name": "can3_dataset", "has_splits": True, "valid_classes": [1]},    # Filter for 'can'
+        {"name": "can4_dataset", "has_splits": True, "valid_classes": None},   # Keep all
+        {"name": "can5_dataset", "has_splits": True, "valid_classes": None},   # Keep all
+        {"name": "custom_dataset", "has_splits": True, "valid_classes": None},  # Keep all
     ]
     
     for dataset_info in datasets:
@@ -93,7 +93,8 @@ def prepare_combined_dataset(project_root: Path, force_rebuild: bool = False):
             # Dataset has train/valid/test splits
             for split in ["train", "valid", "test"]:
                 count = process_dataset_split(
-                    dataset_dir, combined_dir, dataset_name, split
+                    dataset_dir, combined_dir, dataset_name, split,
+                    valid_classes=dataset_info.get("valid_classes")
                 )
                 stats[split] += count
                 if count > 0:
@@ -133,7 +134,11 @@ def prepare_combined_dataset(project_root: Path, force_rebuild: bool = False):
                     
                     label_file = src_labels / f"{img_file.stem}.txt"
                     if label_file.exists():
-                        remap_label_file(label_file, dst_labels / f"{dataset_name}_{img_file.stem}.txt")
+                        remap_label_file(
+                            label_file, 
+                            dst_labels / f"{dataset_name}_{img_file.stem}.txt",
+                            valid_classes=dataset_info.get("valid_classes")
+                        )
                     else:
                         (dst_labels / f"{dataset_name}_{img_file.stem}.txt").touch()
                     
@@ -168,7 +173,8 @@ def prepare_combined_dataset(project_root: Path, force_rebuild: bool = False):
 
 
 def process_dataset_split(dataset_dir: Path, combined_dir: Path, 
-                          dataset_name: str, split: str) -> int:
+                          dataset_name: str, split: str,
+                          valid_classes: list = None) -> int:
     """
     Process a single split (train/valid/test) from a dataset.
     
@@ -194,7 +200,11 @@ def process_dataset_split(dataset_dir: Path, combined_dir: Path,
             # Copy and remap label file
             label_file = src_labels / f"{img_file.stem}.txt"
             if label_file.exists():
-                remap_label_file(label_file, dst_labels / f"{dataset_name}_{img_file.stem}.txt")
+                remap_label_file(
+                    label_file, 
+                    dst_labels / f"{dataset_name}_{img_file.stem}.txt",
+                    valid_classes=valid_classes
+                )
             else:
                 # Create empty label file if no annotations
                 (dst_labels / f"{dataset_name}_{img_file.stem}.txt").touch()
@@ -204,9 +214,10 @@ def process_dataset_split(dataset_dir: Path, combined_dir: Path,
     return count
 
 
-def remap_label_file(src_path: Path, dst_path: Path):
+def remap_label_file(src_path: Path, dst_path: Path, valid_classes: list = None):
     """
     Remap all class indices in a YOLO label file to class 0.
+    If valid_classes is provided, only keep lines with those class indices.
     
     YOLO format: <class_id> <x_center> <y_center> <width> <height>
     """
@@ -217,6 +228,12 @@ def remap_label_file(src_path: Path, dst_path: Path):
     for line in lines:
         parts = line.strip().split()
         if len(parts) >= 5:
+            class_id = int(parts[0])
+            
+            # Filter classes if valid_classes is specified
+            if valid_classes is not None and class_id not in valid_classes:
+                continue
+                
             # Replace class index with 0, keep bounding box coordinates
             parts[0] = "0"
             remapped_lines.append(" ".join(parts) + "\n")
@@ -315,7 +332,9 @@ def train_model(
         "save": True,
         "save_period": -1,  # Save checkpoint every epoch
         "cache": True,  # Cache images in RAM for faster training
-        "workers": 0,  # Use 0 on Windows to avoid multiprocessing issues
+        "cache": True,  # Cache images in RAM for faster training
+        "workers": 8,  # Increased for Linux/Ubuntu
+        "freeze": 10,  # Freeze backbone
         "plots": True,  # Generate training plots
         "device": device,  # Explicitly set device
     }
@@ -429,8 +448,8 @@ def main():
         help="Number of training epochs (default: 100)"
     )
     parser.add_argument(
-        "--batch", type=int, default=16,
-        help="Batch size (default: 16)"
+        "--batch", type=int, default=32,
+        help="Batch size (default: 32)"
     )
     parser.add_argument(
         "--imgsz", type=int, default=640,
