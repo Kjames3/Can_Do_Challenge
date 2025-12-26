@@ -159,7 +159,7 @@ YOLO_MODEL = 'yolo11n_cans.pt'  # Will fallback to yolov8n_cans.pt if not found
 IMU_I2C_BUS = 1              # I2C bus number (from Viam config)
 IMU_I2C_ADDRESS = 0x68       # Default MPU6050 address
 IMU_SAMPLE_RATE = 50         # Hz - how often to read IMU
-IMU_GYRO_SCALE = 131.0       # LSB/(°/s) for ±250°/s range
+IMU_GYRO_SCALE = 65.5        # LSB/(°/s) for ±500°/s range (Was 131.0 for ±250°/s)
 
 # Drift Compensation Settings
 DRIFT_CORRECTION_ENABLED = True

@@ -135,9 +135,11 @@ class NavigationFSM:
     
     async def stop(self):
         """Stop navigation and motors"""
+        was_active = self.state != NavigationState.IDLE
         self._set_state(NavigationState.IDLE)
         await self._stop_motors()
-        print("⏹ Navigation stopped")
+        if was_active:
+            print("⏹ Navigation stopped")
     
     def update_motors(self, left_motor, right_motor, imu=None):
         """Update motor references (call after reconnection)"""
@@ -250,46 +252,57 @@ class NavigationFSM:
                 print("  → DRIVE")
     
     async def _handle_rotate(self, bearing: float):
-        """ROTATE sub-phase: Turn toward target using IMU if available"""
+        """
+        ROTATE sub-phase: SMOOTH PIVOT TURN (1-Wheel Locked)
+        """
         
-        remaining_turn = 0.0
-        
-        # STRATEGY 1: IMU PRECISION TURN (Robust, No Wobble)
+        # 1. Determine how much is left to turn
         if self.imu:
-            # How much have we turned since we started rotating?
+            # IMU: Calculate remaining angle based on gyro integration
             current_heading = self.imu.get_heading()
-            
-            # Calculate remaining error
-            # target_imu_rotation is what we wanted (e.g., +0.3 rad)
-            # current_heading starts at 0 and grows to +0.3
             remaining_turn = self.target_imu_rotation - current_heading
-        
-        # STRATEGY 2: CAMERA REACTIVE TURN (Fallback)
+            threshold = 0.05  # ~3 degrees precision for IMU
         else:
+            # Fallback: Use camera bearing
             remaining_turn = bearing
-        
-        # CHECK COMPLETION (Use tighter threshold for IMU because it's precise)
-        threshold = 0.05 if self.imu else self.config.bearing_hysteresis
-        
+            threshold = self.config.bearing_hysteresis
+
+        # 2. Check if we are done
         if abs(remaining_turn) <= threshold:
             await self._stop_motors()
             self.approach_phase = ApproachPhase.DRIVE
             self.last_turn_dir = 0
             print("✓ Aligned! → DRIVE")
-            # Optional: Take a split second to stabilize
-            await asyncio.sleep(0.15)
+            # Small pause to let chassis settle before driving
+            await asyncio.sleep(0.2)
             return
         
-        # EXECUTE TURN
-        # With IMU, we can use a constant fast speed (no need to slow down/wobble)
-        TURN_SPEED = 0.35 if self.imu else self.config.rotate_speed
+        # 3. Calculate Smooth Speed (Ramp Down)
+        # "Deliberate" movement: Start at pivot_speed, slow down as we get closer.
+        # MIN_MOVING_POWER ensures we don't stall due to friction.
         
+        base_speed = self.config.pivot_speed  # Default 0.25
+        MIN_MOVING_POWER = 0.18
+        
+        # Simple P-Control: Scale speed based on remaining error 
+        dynamic_speed = abs(remaining_turn) * 1.5 
+        
+        # Clamp speed between stall-threshold and max pivot speed
+        target_speed = max(MIN_MOVING_POWER, min(base_speed, dynamic_speed))
+        
+        # 4. Execute Pivot Turn (One Wheel Locked)
         if remaining_turn > 0:
-            # Turn Right (Target is to the right, positive bearing)
-            await self._set_motor_power(TURN_SPEED, -TURN_SPEED)
+            # Turn RIGHT -> Lock LEFT wheel, Drive RIGHT wheel forward
+            # Pivot point is the left wheel
+            l_pow = 0.0
+            r_pow = target_speed
         else:
-            # Turn Left (Target is to the left, negative bearing)
-            await self._set_motor_power(-TURN_SPEED, TURN_SPEED)
+            # Turn LEFT -> Lock RIGHT wheel, Drive LEFT wheel forward
+            # Pivot point is the right wheel
+            l_pow = target_speed
+            r_pow = 0.0
+            
+        await self._set_motor_power(l_pow, r_pow)
     
     async def _handle_drive(self, distance: float, bearing: float):
         """DRIVE sub-phase: Drive straight to target"""
