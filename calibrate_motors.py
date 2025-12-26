@@ -13,13 +13,50 @@ import argparse
 import time
 import sys
 
-# Check if running on Raspberry Pi
+# =============================================================================
+# GPIO SETUP (gpiozero with fallback - same as server_native.py)
+# =============================================================================
+
+SIM_MODE = False
+
 try:
-    import RPi.GPIO as GPIO
-    SIM_MODE = False
-except ImportError:
-    print("⚠ RPi.GPIO not available - running in simulation mode")
-    GPIO = None
+    # Try to set up gpiozero with a working pin factory for Pi 5
+    import importlib
+    
+    try:
+        from gpiozero import PWMOutputDevice, DigitalOutputDevice, Device, Button
+        
+        # Try different pin factories in order of preference
+        factories = [
+            ("rpi-lgpio", "gpiozero.pins.lgpio", "LGPIOFactory"),
+            ("lgpio", "gpiozero.pins.lgpio", "LGPIOFactory"),
+            ("pigpio", "gpiozero.pins.pigpio", "PiGPIOFactory"),
+            ("native", "gpiozero.pins.native", "NativeFactory"),
+        ]
+        
+        factory_set = False
+        for name, module_path, factory_name in factories:
+            try:
+                pin_module = importlib.import_module(module_path)
+                factory_class = getattr(pin_module, factory_name)
+                Device.pin_factory = factory_class()
+                print(f"✓ Using {name} pin factory")
+                factory_set = True
+                break
+            except Exception as e:
+                continue
+        
+        if not factory_set:
+            print("⚠ No GPIO pin factory available, using simulation mode")
+            SIM_MODE = True
+            
+    except ImportError as e:
+        print(f"⚠ gpiozero not available: {e}")
+        print("  Install with: pip install gpiozero rpi-lgpio")
+        SIM_MODE = True
+        
+except Exception as e:
+    print(f"⚠ GPIO setup failed: {e}")
     SIM_MODE = True
 
 
@@ -40,32 +77,29 @@ RIGHT_MOTOR_PWM = 13
 LEFT_ENCODER_PIN = 4
 RIGHT_ENCODER_PIN = 17
 
-# PWM frequency
-PWM_FREQUENCY = 1000
-
 
 # =============================================================================
-# HARDWARE CLASSES (simplified from server_native.py)
+# HARDWARE CLASSES (using gpiozero like server_native.py)
 # =============================================================================
 
 class CalibrationMotor:
-    """Simplified motor class for calibration"""
+    """Motor class using gpiozero for Pi 5 compatibility"""
     
     def __init__(self, pin_a, pin_b, pwm_pin, name):
         self.name = name
-        self.pin_a = pin_a
-        self.pin_b = pin_b
-        self.pwm_pin = pwm_pin
         self._power = 0.0
-        self.pwm = None
+        self.pin_a_dev = None
+        self.pin_b_dev = None
+        self.pwm_dev = None
         
-        if not SIM_MODE and GPIO:
-            GPIO.setup(pin_a, GPIO.OUT)
-            GPIO.setup(pin_b, GPIO.OUT)
-            GPIO.setup(pwm_pin, GPIO.OUT)
-            self.pwm = GPIO.PWM(pwm_pin, PWM_FREQUENCY)
-            self.pwm.start(0)
-            print(f"  ✓ {name} initialized")
+        if not SIM_MODE:
+            try:
+                self.pin_a_dev = DigitalOutputDevice(pin_a)
+                self.pin_b_dev = DigitalOutputDevice(pin_b)
+                self.pwm_dev = PWMOutputDevice(pwm_pin, frequency=1000)
+                print(f"  ✓ {name} initialized")
+            except Exception as e:
+                print(f"  ✗ {name} failed: {e}")
         else:
             print(f"  ✓ {name} (simulated)")
     
@@ -73,48 +107,54 @@ class CalibrationMotor:
         """Set motor power (-1.0 to 1.0)"""
         self._power = max(-1.0, min(1.0, power))
         
-        if SIM_MODE or not GPIO:
+        if SIM_MODE or not self.pwm_dev:
             return
         
         if power >= 0:
-            GPIO.output(self.pin_a, GPIO.HIGH)
-            GPIO.output(self.pin_b, GPIO.LOW)
+            self.pin_a_dev.on()
+            self.pin_b_dev.off()
         else:
-            GPIO.output(self.pin_a, GPIO.LOW)
-            GPIO.output(self.pin_b, GPIO.HIGH)
+            self.pin_a_dev.off()
+            self.pin_b_dev.on()
         
-        duty = abs(self._power) * 100
-        self.pwm.ChangeDutyCycle(duty)
+        self.pwm_dev.value = abs(self._power)
     
     def stop(self):
         self.set_power(0)
-        if not SIM_MODE and GPIO:
-            GPIO.output(self.pin_a, GPIO.LOW)
-            GPIO.output(self.pin_b, GPIO.LOW)
+        if not SIM_MODE and self.pin_a_dev:
+            self.pin_a_dev.off()
+            self.pin_b_dev.off()
     
     def cleanup(self):
         self.stop()
-        if self.pwm:
-            self.pwm.stop()
+        if self.pwm_dev:
+            self.pwm_dev.close()
+        if self.pin_a_dev:
+            self.pin_a_dev.close()
+        if self.pin_b_dev:
+            self.pin_b_dev.close()
 
 
 class CalibrationEncoder:
-    """Simplified encoder class for calibration"""
+    """Encoder class using gpiozero Button for Pi 5 compatibility"""
     
     def __init__(self, pin, name):
         self.name = name
-        self.pin = pin
         self._count = 0
-        self._last_state = 0
+        self.button = None
         
-        if not SIM_MODE and GPIO:
-            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            GPIO.add_event_detect(pin, GPIO.BOTH, callback=self._callback)
-            print(f"  ✓ {name} initialized")
+        if not SIM_MODE:
+            try:
+                self.button = Button(pin, pull_up=True)
+                self.button.when_pressed = self._on_edge
+                self.button.when_released = self._on_edge
+                print(f"  ✓ {name} initialized")
+            except Exception as e:
+                print(f"  ✗ {name} failed: {e}")
         else:
             print(f"  ✓ {name} (simulated)")
     
-    def _callback(self, channel):
+    def _on_edge(self):
         self._count += 1
     
     def get_count(self):
@@ -124,11 +164,8 @@ class CalibrationEncoder:
         self._count = 0
     
     def cleanup(self):
-        if not SIM_MODE and GPIO:
-            try:
-                GPIO.remove_event_detect(self.pin)
-            except:
-                pass
+        if self.button:
+            self.button.close()
 
 
 # =============================================================================
@@ -202,11 +239,6 @@ def run_calibration(step_size=0.01, max_power=0.5, hold_duration=0.5):
     if SIM_MODE:
         print("\n⚠ SIMULATION MODE - Results are simulated\n")
     
-    # Initialize GPIO
-    if not SIM_MODE and GPIO:
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setwarnings(False)
-    
     print("\nInitializing hardware...")
     
     # Create motor and encoder instances
@@ -254,9 +286,6 @@ def run_calibration(step_size=0.01, max_power=0.5, hold_duration=0.5):
         right_motor.cleanup()
         left_encoder.cleanup()
         right_encoder.cleanup()
-        
-        if not SIM_MODE and GPIO:
-            GPIO.cleanup()
     
     # Print results
     print("\n" + "="*60)
