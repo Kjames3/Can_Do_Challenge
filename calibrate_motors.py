@@ -81,80 +81,127 @@ RIGHT_ENCODER_PIN = 40
 
 
 # =============================================================================
-# HARDWARE CLASSES (using gpiozero like server_native.py)
+# PIN CONVERSION (from server_native.py)
+# =============================================================================
+
+def board_to_bcm(board_pin):
+    """Convert physical BOARD pin number to BCM GPIO number."""
+    # Raspberry Pi 5 BOARD to BCM mapping
+    board_to_bcm_map = {
+        3: 2, 5: 3, 7: 4, 8: 14, 10: 15, 11: 17, 12: 18, 13: 27,
+        15: 22, 16: 23, 18: 24, 19: 10, 21: 9, 22: 25, 23: 11, 24: 8,
+        26: 7, 27: 0, 28: 1, 29: 5, 31: 6, 32: 12, 33: 13, 35: 19,
+        36: 16, 37: 26, 38: 20, 40: 21
+    }
+    return board_to_bcm_map.get(board_pin, board_pin)
+
+
+# =============================================================================
+# HARDWARE CLASSES (matching server_native.py exactly)
 # =============================================================================
 
 class CalibrationMotor:
-    """Motor class using gpiozero for Pi 5 compatibility"""
+    """
+    Direct GPIO motor control using In1/In2 + PWM pattern.
+    Mirrors NativeMotor from server_native.py.
     
-    def __init__(self, pin_a, pin_b, pwm_pin, name):
+    In1/In2 Logic:
+    - Forward:  In1=HIGH, In2=LOW, PWM controls speed
+    - Backward: In1=LOW, In2=HIGH, PWM controls speed
+    - Stop:     In1=LOW, In2=LOW (or PWM=0)
+    """
+    
+    def __init__(self, pin_a, pin_b, pin_pwm, name="motor"):
         self.name = name
         self._power = 0.0
-        self.pin_a_dev = None
-        self.pin_b_dev = None
-        self.pwm_dev = None
+        self.in1 = None
+        self.in2 = None
+        self.pwm = None
         
-        if not SIM_MODE:
-            try:
-                self.pin_a_dev = DigitalOutputDevice(pin_a)
-                self.pin_b_dev = DigitalOutputDevice(pin_b)
-                self.pwm_dev = PWMOutputDevice(pwm_pin, frequency=1000)
-                print(f"  ✓ {name} initialized")
-            except Exception as e:
-                print(f"  ✗ {name} failed: {e}")
-        else:
+        if SIM_MODE:
             print(f"  ✓ {name} (simulated)")
-    
-    def set_power(self, power):
-        """Set motor power (-1.0 to 1.0)"""
-        self._power = max(-1.0, min(1.0, power))
-        
-        if SIM_MODE or not self.pwm_dev:
             return
         
-        if power >= 0:
-            self.pin_a_dev.on()
-            self.pin_b_dev.off()
-        else:
-            self.pin_a_dev.off()
-            self.pin_b_dev.on()
+        # Convert BOARD pins to BCM
+        self.pin_a_bcm = board_to_bcm(pin_a)
+        self.pin_b_bcm = board_to_bcm(pin_b)
+        self.pin_pwm_bcm = board_to_bcm(pin_pwm)
         
-        self.pwm_dev.value = abs(self._power)
+        try:
+            # Initialize GPIO devices (same as server_native.py)
+            self.in1 = DigitalOutputDevice(self.pin_a_bcm)
+            self.in2 = DigitalOutputDevice(self.pin_b_bcm)
+            self.pwm = PWMOutputDevice(self.pin_pwm_bcm, frequency=1000)
+            print(f"  ✓ {name}: In1=GPIO{self.pin_a_bcm}, In2=GPIO{self.pin_b_bcm}, PWM=GPIO{self.pin_pwm_bcm}")
+        except Exception as e:
+            print(f"  ✗ {name} failed: {e}")
+    
+    def set_power(self, power):
+        """
+        Set motor power from -1.0 to 1.0.
+        Positive = forward, Negative = backward.
+        """
+        self._power = max(-1.0, min(1.0, power))
+        
+        if SIM_MODE or not self.pwm:
+            return
+        
+        if abs(self._power) < 0.01:
+            # Stop
+            self.in1.off()
+            self.in2.off()
+            self.pwm.value = 0
+        elif self._power > 0:
+            # Forward
+            self.in1.on()
+            self.in2.off()
+            self.pwm.value = abs(self._power)
+        else:
+            # Backward
+            self.in1.off()
+            self.in2.on()
+            self.pwm.value = abs(self._power)
     
     def stop(self):
+        """Emergency stop."""
         self.set_power(0)
-        if not SIM_MODE and self.pin_a_dev:
-            self.pin_a_dev.off()
-            self.pin_b_dev.off()
     
     def cleanup(self):
+        """Release GPIO resources."""
         self.stop()
-        if self.pwm_dev:
-            self.pwm_dev.close()
-        if self.pin_a_dev:
-            self.pin_a_dev.close()
-        if self.pin_b_dev:
-            self.pin_b_dev.close()
+        if self.in1:
+            self.in1.close()
+        if self.in2:
+            self.in2.close()
+        if self.pwm:
+            self.pwm.close()
 
 
 class CalibrationEncoder:
-    """Encoder class using gpiozero Button for Pi 5 compatibility"""
+    """
+    Encoder class using gpiozero Button for Pi 5 compatibility.
+    Mirrors NativeEncoder from server_native.py.
+    """
     
     def __init__(self, pin, name):
         self.name = name
         self._count = 0
         self.button = None
         
-        if not SIM_MODE:
-            try:
-                self.button = Button(pin, pull_up=True)
-                self.button.when_pressed = self._on_edge
-                self.button.when_released = self._on_edge
-                print(f"  ✓ {name} initialized")
-            except Exception as e:
-                print(f"  ✗ {name} failed: {e}")
-        else:
+        if SIM_MODE:
             print(f"  ✓ {name} (simulated)")
+            return
+        
+        # Convert BOARD pin to BCM
+        pin_bcm = board_to_bcm(pin)
+        
+        try:
+            self.button = Button(pin_bcm, pull_up=True)
+            self.button.when_pressed = self._on_edge
+            self.button.when_released = self._on_edge
+            print(f"  ✓ {name}: GPIO{pin_bcm}")
+        except Exception as e:
+            print(f"  ✗ {name} failed: {e}")
     
     def _on_edge(self):
         self._count += 1
