@@ -292,15 +292,15 @@ class NavigationFSM:
         
         # 4. Execute Pivot Turn (One Wheel Locked)
         if remaining_turn > 0:
-            # Turn RIGHT -> Lock LEFT wheel, Drive RIGHT wheel forward
-            # Pivot point is the left wheel
-            l_pow = 0.0
-            r_pow = target_speed
-        else:
-            # Turn LEFT -> Lock RIGHT wheel, Drive LEFT wheel forward
+            # Turn RIGHT -> Lock RIGHT wheel, Drive LEFT wheel forward
             # Pivot point is the right wheel
             l_pow = target_speed
             r_pow = 0.0
+        else:
+            # Turn LEFT -> Lock LEFT wheel, Drive RIGHT wheel forward
+            # Pivot point is the left wheel
+            l_pow = 0.0
+            r_pow = target_speed
             
         await self._set_motor_power(l_pow, r_pow)
     
