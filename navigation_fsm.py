@@ -324,13 +324,20 @@ class NavigationFSM:
         
         try:
             if self.left_motor and self.right_motor:
-                await asyncio.wait_for(
-                    asyncio.gather(
-                        self.left_motor.set_power(left),
-                        self.right_motor.set_power(right)
-                    ),
-                    timeout=self._MOTOR_TIMEOUT
-                )
+                # Handle synchronous motors (server_native)
+                if not asyncio.iscoroutinefunction(self.left_motor.set_power):
+                    self.left_motor.set_power(left)
+                    self.right_motor.set_power(right)
+                else:
+                    # Handle async motors (Viam SDK)
+                    await asyncio.wait_for(
+                        asyncio.gather(
+                            self.left_motor.set_power(left),
+                            self.right_motor.set_power(right)
+                        ),
+                        timeout=self._MOTOR_TIMEOUT
+                    )
+                
                 # Update state on success
                 self._last_left_power = left
                 self._last_right_power = right

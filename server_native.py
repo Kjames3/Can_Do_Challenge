@@ -30,7 +30,9 @@ import threading
 import base64
 import numpy as np
 import cv2
+import cv2
 from ultralytics import YOLO
+from navigation_fsm import NavigationFSM, NavigationConfig
 
 # =============================================================================
 # COMMAND LINE ARGUMENTS
@@ -873,6 +875,7 @@ camera: NativeCamera = None
 lidar: NativeLidar = None
 imu: NativeIMU = None  # MPU6050 IMU
 robot_state = RobotState()
+fsm: NavigationFSM = None  # Navigation FSM
 
 detection_model: YOLO = None
 detection_enabled = False
@@ -990,6 +993,8 @@ async def handle_client(websocket):
                     if right_motor:
                         right_motor.stop()
                     is_auto_driving = False
+                    if fsm:
+                        await fsm.stop()
                 
                 elif msg_type == "toggle_detection":
                     detection_enabled = data.get("enabled", False)
@@ -997,9 +1002,15 @@ async def handle_client(websocket):
                 elif msg_type == "start_auto_drive":
                     is_auto_driving = True
                     detection_enabled = True
+                    if fsm:
+                        if left_motor and right_motor:
+                            fsm.update_motors(left_motor, right_motor)
+                        await fsm.start()
                 
                 elif msg_type == "stop_auto_drive":
                     is_auto_driving = False
+                    if fsm:
+                        await fsm.stop()
                     if left_motor:
                         left_motor.stop()
                     if right_motor:
@@ -1158,70 +1169,28 @@ async def broadcast_loop():
                         x1, y1, x2, y2 = d['bbox']
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
                 
-                # === AUTO-DRIVE CONTROL ===
-                if is_auto_driving and left_motor and right_motor and not is_tilted:
+                # === AUTO-DRIVE CONTROL (FSM) ===
+                if is_auto_driving and fsm:
+                    # Get closest detection
+                    detection = None
                     if last_detections:
-                        # Get closest detection
+                        # Find closest target
                         target = min(last_detections, key=lambda d: d['distance_cm'])
-                        distance = target['distance_cm']
-                        center_x = target['center_x']
-                        
-                        # Calculate error from image center
-                        image_center = IMAGE_WIDTH / 2
-                        error_x = center_x - image_center
-                        
-                        if distance <= TARGET_DISTANCE_CM:
-                            # Arrived - stop
-                            left_motor.stop()
-                            right_motor.stop()
-                            is_auto_driving = False
-                            initial_heading = None
-                            print(f"✓ Arrived at target ({distance:.1f}cm)")
-                        elif abs(error_x) > CENTER_THRESHOLD_PX:
-                            # Turn toward target - reset heading reference
-                            initial_heading = None
-                            if error_x > 0:
-                                # Target is to the right, turn right
-                                left_motor.set_power(TURN_SPEED)
-                                right_motor.set_power(-TURN_SPEED)
-                            else:
-                                # Target is to the left, turn left
-                                left_motor.set_power(-TURN_SPEED)
-                                right_motor.set_power(TURN_SPEED)
-                        else:
-                            # Drive forward WITH DRIFT CORRECTION
-                            left_power = DRIVE_SPEED
-                            right_power = DRIVE_SPEED
-                            
-                            if DRIFT_CORRECTION_ENABLED and imu:
-                                # Lock in heading when starting straight drive
-                                if initial_heading is None:
-                                    initial_heading = imu.get_heading()
-                                
-                                # Calculate heading error
-                                heading_error = imu.get_heading() - initial_heading
-                                # Normalize to -π to π
-                                heading_error = np.arctan2(np.sin(heading_error), np.cos(heading_error))
-                                
-                                # Apply proportional correction
-                                correction = heading_error * DRIFT_CORRECTION_GAIN
-                                
-                                # If drifting right (positive error), speed up right motor
-                                # If drifting left (negative error), speed up left motor
-                                left_power -= correction
-                                right_power += correction
-                                
-                                # Clamp to valid range
-                                left_power = max(0.0, min(1.0, left_power))
-                                right_power = max(0.0, min(1.0, right_power))
-                            
-                            left_motor.set_power(left_power)
-                            right_motor.set_power(right_power)
-                    else:
-                        # No detection - spin slowly to search
-                        initial_heading = None
-                        left_motor.set_power(TURN_SPEED * 0.5)
-                        right_motor.set_power(-TURN_SPEED * 0.5)
+                        detection = {
+                            'distance_cm': target['distance_cm'],
+                            'center_x': target['center_x']
+                        }
+                    
+                    # Get lidar minimum distance for obstacle avoidance
+                    lidar_min = None
+                    if lidar:
+                        # Simple check: min distance in front sector (-45 to +45 deg)
+                        scan = lidar.get_scan()
+                        front_dists = [d for a, d in scan if -0.78 < a < 0.78] # +/- 45 deg
+                        if front_dists:
+                            lidar_min = min(front_dists) * 100.0 # Convert to cm
+                    
+                    await fsm.update(detection, lidar_min)
                 
                 # Encode to JPEG
                 _, buffer = cv2.imencode('.jpg', frame, 
@@ -1252,7 +1221,14 @@ async def broadcast_loop():
                     "heading_deg": np.degrees(imu.get_heading()) if imu else 0,
                     "yaw_rate": imu.get_yaw_rate() if imu else 0
                 } if imu else None,
-                "lidar_points": lidar.get_points_xy()[:360] if lidar else []
+                "imu": {
+                    "pitch": imu.get_tilt()[0] if imu else 0,
+                    "roll": imu.get_tilt()[1] if imu else 0,
+                    "heading_deg": np.degrees(imu.get_heading()) if imu else 0,
+                    "yaw_rate": imu.get_yaw_rate() if imu else 0
+                } if imu else None,
+                "lidar_points": lidar.get_points_xy()[:360] if lidar else [],
+                "fsm_state": fsm.state_summary if fsm else "IDLE"
             }
             
             # Broadcast to all clients
@@ -1307,6 +1283,12 @@ def initialize_hardware():
     # Detection model
     print("\nDetection:")
     initialize_detection()
+    
+    # Initialize Navigation FSM
+    global fsm
+    print("\nNavigation FSM:")
+    fsm = NavigationFSM(left_motor, right_motor)
+    print("✓ FSM initialized")
     
     print("\n" + "="*50)
     print("✓ Hardware initialization complete")
