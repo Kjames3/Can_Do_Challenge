@@ -128,7 +128,7 @@ WHEEL_BASE_CM = WHEEL_BASE_MM / 10
 
 # Motor drift compensation (adjust if rover drifts when driving straight)
 # Positive = reduce right motor power, Negative = reduce left motor power
-DRIFT_COMPENSATION = 0.05  # 5% reduction on right motor (rover was drifting right)
+DRIFT_COMPENSATION = -0.10  # 10% reduction on LEFT motor (left motor is faster, causing right drift)
 
 # Detection Configuration
 KNOWN_HEIGHT_BOTTLE = 20.0  # Standard water bottle height in cm
