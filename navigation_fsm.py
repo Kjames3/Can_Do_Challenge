@@ -282,7 +282,7 @@ class NavigationFSM:
         # MIN_MOVING_POWER ensures we don't stall due to friction.
         
         base_speed = self.config.pivot_speed  # Default 0.25
-        MIN_MOVING_POWER = 0.18
+        MIN_MOVING_POWER = 0.24  # Calibrated value (overcomes friction)
         
         # Simple P-Control: Scale speed based on remaining error 
         dynamic_speed = abs(remaining_turn) * 1.5 
