@@ -63,19 +63,21 @@ except Exception as e:
 # =============================================================================
 # HARDWARE CONFIGURATION (from server_native.py)
 # =============================================================================
+# These are BOARD pin numbers (physical pins on the Pi header)
 
-# Motor pins (BCM numbering)
-LEFT_MOTOR_PIN_A = 23
-LEFT_MOTOR_PIN_B = 24
-LEFT_MOTOR_PWM = 12
+# Left Motor (In1/In2 + PWM)
+LEFT_MOTOR_PIN_A = 35      # Forward/In1
+LEFT_MOTOR_PIN_B = 33      # Backward/In2
+LEFT_MOTOR_PWM = 37        # PWM speed control
 
-RIGHT_MOTOR_PIN_A = 27
-RIGHT_MOTOR_PIN_B = 22
-RIGHT_MOTOR_PWM = 13
+# Right Motor (In1/In2 + PWM) 
+RIGHT_MOTOR_PIN_A = 31     # Forward/In1
+RIGHT_MOTOR_PIN_B = 29     # Backward/In2
+RIGHT_MOTOR_PWM = 15       # PWM speed control
 
-# Encoder pins
-LEFT_ENCODER_PIN = 4
-RIGHT_ENCODER_PIN = 17
+# Encoders (single channel)
+LEFT_ENCODER_PIN = 38
+RIGHT_ENCODER_PIN = 40
 
 
 # =============================================================================
