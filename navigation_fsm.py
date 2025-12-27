@@ -76,9 +76,10 @@ class NavigationFSM:
     Receives detection and lidar data each frame, outputs motor commands.
     """
     
-    def __init__(self, left_motor, right_motor, imu=None, config: NavigationConfig = None):
+    def __init__(self, left_motor, right_motor, camera=None, imu=None, config: NavigationConfig = None):
         self.left_motor = left_motor
         self.right_motor = right_motor
+        self.camera = camera
         self.imu = imu  # IMU for precision turns
         self.config = config or NavigationConfig()
         
@@ -254,6 +255,17 @@ class NavigationFSM:
             return
         
         det_distance = detection['distance_cm']
+
+        # ZONE FOCUSING LOGIC
+        # Only set focus if we have the new camera driver
+        if hasattr(self.camera, 'set_focus'):
+            if det_distance > 80:
+                self.camera.set_focus(0.0)  # Infinity (Search/Far)
+            elif det_distance > 30:
+                self.camera.set_focus(4.0)  # Mid-range
+            else:
+                self.camera.set_focus(8.0)  # Macro (Grab)
+
         det_center_x = detection.get('center_x', self.config.frame_width / 2)
         
         # Calculate bearing from center

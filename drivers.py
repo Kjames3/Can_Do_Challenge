@@ -3,6 +3,15 @@ import threading
 import time
 import numpy as np
 
+
+try:
+    from picamera2 import Picamera2
+    from libcamera import controls
+    HAS_PICAM2 = True
+except ImportError:
+    HAS_PICAM2 = False
+    print("⚠ Picamera2 not found (Run: pip install picamera2)")
+
 def configure_pin_factory():
     """
     Attempt to set up a working GPIO pin factory.
@@ -386,6 +395,99 @@ class NativeIMU:
 # =============================================================================
 # CAMERA CLASS
 # =============================================================================
+
+class Picamera2Driver:
+    """
+    Advanced Camera Driver using Picamera2 for Zone Focusing.
+    """
+    def __init__(self, width=1280, height=720, sim_mode=False):
+        self.width = width
+        self.height = height
+        self.sim_mode = sim_mode
+        self._frame = None
+        self._frame_lock = threading.Lock()
+        self._running = False
+        self._thread = None
+        self.picam2 = None
+        
+        if self.sim_mode or not HAS_PICAM2:
+            print("  ⚠ Picamera2Driver in SIM MODE (Missing lib or --sim)")
+            return
+
+        try:
+            print(f"  ⚡ Initializing Picamera2 ({width}x{height})...")
+            self.picam2 = Picamera2()
+            
+            # Configure for video (BGR format for OpenCV compatibility)
+            config = self.picam2.create_video_configuration(
+                main={"size": (width, height), "format": "BGR888"}
+            )
+            self.picam2.configure(config)
+            self.picam2.start()
+            
+            # Set Initial Focus to Infinity (0.0)
+            self.set_focus(0.0)
+            
+            print(f"  ✓ Picamera2 started")
+            
+            self._running = True
+            self._thread = threading.Thread(target=self._capture_loop, daemon=True)
+            self._thread.start()
+            
+        except Exception as e:
+            print(f"  ✗ Picamera2 init failed: {e}")
+            self.picam2 = None
+
+    def set_focus(self, position):
+        """
+        Set lens position manually (Zone Focusing).
+        0.0 = Infinity
+        1.0 ≈ 1 meter
+        4.0 ≈ 25 cm
+        10.0 = Macro (Closest)
+        """
+        if self.picam2:
+            try:
+                # Set Manual Focus Mode and Position
+                self.picam2.set_controls({
+                    "AfMode": controls.AfModeEnum.Manual,
+                    "LensPosition": float(position)
+                })
+                print(f"  🔍 Focus set to: {position}")
+            except Exception as e:
+                print(f"  ⚠ Focus error: {e}")
+
+    def _capture_loop(self):
+        while self._running and self.picam2:
+            try:
+                # Capture latest frame as numpy array
+                frame = self.picam2.capture_array()
+                if frame is not None:
+                    with self._frame_lock:
+                        self._frame = frame
+            except Exception as e:
+                print(f"Capture error: {e}")
+                time.sleep(0.1)
+
+    def get_frame(self):
+        if self.sim_mode or not self.picam2:
+            # Return dummy frame if sim/failed
+            img = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+            cv2.putText(img, "NO CAM", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,255), 2)
+            return img
+            
+        with self._frame_lock:
+            if self._frame is not None:
+                return self._frame.copy()
+        return None
+
+    def cleanup(self):
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=1.0)
+        if self.picam2:
+            self.picam2.stop()
+            self.picam2.close()
 
 class NativeCamera:
     """

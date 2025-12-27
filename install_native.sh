@@ -53,7 +53,9 @@ apt-get install -y \
     libxvidcore-dev \
     libx264-dev \
     libjpeg-dev \
-    libpng-dev
+    libpng-dev \
+    libcap-dev \
+    python3-picamera2
 
 echo "  ✓ System dependencies installed"
 echo ""
@@ -121,6 +123,9 @@ pip install smbus2
 
 # LIDAR (if using rplidar)
 pip install rplidar-roboticia || echo "Note: rplidar optional"
+
+# Camera (New)
+pip install picamera2
 
 echo "  ✓ Python packages installed"
 EOF

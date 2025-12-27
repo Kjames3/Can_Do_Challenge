@@ -36,7 +36,7 @@ from ultralytics import YOLO
 # Import local modules
 from navigation_fsm import NavigationFSM, NavigationConfig
 from drivers import (
-    NativeMotor, NativeEncoder, NativeIMU, NativeCamera, NativeLidar,
+    NativeMotor, NativeEncoder, NativeIMU, NativeLidar, Picamera2Driver,
     configure_pin_factory,
     IMU_I2C_BUS, IMU_I2C_ADDRESS, IMU_SAMPLE_RATE,
     TILT_SAFETY_ENABLED, STUCK_DETECTION_ENABLED,
@@ -251,7 +251,11 @@ def initialize_hardware():
     
     # Camera
     print("\nCamera:")
-    camera = NativeCamera(CAMERA_PATH, IMAGE_WIDTH, IMAGE_HEIGHT, sim_mode=SIM_MODE)
+    # Camera
+    print("\nCamera:")
+    # camera = NativeCamera(CAMERA_PATH, IMAGE_WIDTH, IMAGE_HEIGHT, sim_mode=SIM_MODE)
+    # Using Picamera2 for Zone Focusing
+    camera = Picamera2Driver(IMAGE_WIDTH, IMAGE_HEIGHT, sim_mode=SIM_MODE)
     
     # LIDAR
     print("\nLIDAR:")
@@ -267,7 +271,7 @@ def initialize_hardware():
     nav_config.camera_hfov_deg = CAMERA_HFOV_DEG
     nav_config.frame_width = IMAGE_WIDTH
     nav_config.drift_compensation = DRIFT_COMPENSATION
-    fsm = NavigationFSM(left_motor, right_motor, imu=imu, config=nav_config)
+    fsm = NavigationFSM(left_motor, right_motor, camera=camera, imu=imu, config=nav_config)
     
     # Wire up callbacks
     def on_arrived():
