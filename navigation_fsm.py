@@ -50,9 +50,9 @@ class NavigationConfig:
     search_speed: float = 0.30            # Search rotation speed (was 0.22)
     backup_speed: float = 0.25            # Backup speed for avoiding
     
-    # Camera
-    camera_hfov_deg: float = 76.5
-    frame_width: int = 640
+    # Camera (IMX708 - Pi Camera Module 3)
+    camera_hfov_deg: float = 66.0  # IMX708 standard FOV (102° for wide version)
+    frame_width: int = 1280        # Must match camera resolution in server_native.py
     
     # Acquire samples
     acquire_count: int = 3
@@ -328,7 +328,8 @@ class NavigationFSM:
             remaining_turn = self.target_imu_rotation + current_heading
             threshold = 0.05  # ~3 degrees precision for IMU
         else:
-            # Fallback: Use camera bearing
+            # Fallback: Use current camera bearing for reactive turn control
+            # The bearing tells us where the target currently is relative to center
             remaining_turn = bearing
             threshold = self.config.bearing_hysteresis
 

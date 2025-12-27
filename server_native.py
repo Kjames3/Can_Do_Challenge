@@ -620,7 +620,6 @@ class NativeCamera:
                 vid_cmd = 'libcamera-vid'
             
             if vid_cmd:
-                # Start streaming raw frames to stdout
                 cmd = [
                     vid_cmd,
                     '-t', '0',  # Run indefinitely
@@ -628,6 +627,8 @@ class NativeCamera:
                     '--height', str(height),
                     '--framerate', '30',
                     '--codec', 'yuv420',  # Raw YUV output
+                    '--autofocus-mode', 'manual',  # Disable autofocus for stable detection
+                    '--lens-position', '0.0',  # Focus at infinity (adjust if needed)
                     '-n',  # No preview window
                     '-o', '-'  # Output to stdout
                 ]
