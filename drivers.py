@@ -458,11 +458,14 @@ class Picamera2Driver:
                 print(f"  ⚠ Focus error: {e}")
 
     def _capture_loop(self):
+        import cv2
         while self._running and self.picam2:
             try:
                 # Capture latest frame as numpy array
                 frame = self.picam2.capture_array()
                 if frame is not None:
+                    # Fix Blue/Red swap (Picamera2 returns RGB, OpenCV expects BGR)
+                    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                     with self._frame_lock:
                         self._frame = frame
             except Exception as e:
