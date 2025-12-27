@@ -306,15 +306,27 @@ async def handle_client(websocket):
                 msg_type = data.get("type")
                 
                 if msg_type == "set_power":
-                    l_pow = float(data.get("left", 0))
-                    r_pow = float(data.get("right", 0))
-                    
-                    # Apply drift compensation
-                    if abs(l_pow) > 0.1:
-                        l_pow *= (1.0 + DRIFT_COMPENSATION)
-                    
-                    if left_motor: left_motor.set_power(l_pow)
-                    if right_motor: right_motor.set_power(r_pow)
+                    if "motor" in data:
+                        # Individual motor control (Sliders/D-Pad)
+                        motor = data.get("motor")
+                        power = float(data.get("power", 0.0))
+                        
+                        if motor == "left" and left_motor:
+                            if abs(power) > 0.1: power *= (1.0 + DRIFT_COMPENSATION)
+                            left_motor.set_power(power)
+                        elif motor == "right" and right_motor:
+                            right_motor.set_power(power)
+                    else:
+                        # Dual motor control (Legacy or Batch)
+                        l_pow = float(data.get("left", 0))
+                        r_pow = float(data.get("right", 0))
+                        
+                        # Apply drift compensation
+                        if abs(l_pow) > 0.1:
+                            l_pow *= (1.0 + DRIFT_COMPENSATION)
+                        
+                        if left_motor: left_motor.set_power(l_pow)
+                        if right_motor: right_motor.set_power(r_pow)
                     
                 elif msg_type == "stop":
                     if left_motor: left_motor.stop()
