@@ -905,6 +905,12 @@
                     </div>
                 </div>
 
+                <!-- Controller Status -->
+                <div id="gamepad-indicator" class="status-indicator" style="background: var(--bg-tertiary);">
+                    <span style="font-size: 1.2rem;">🎮</span>
+                    <span id="gamepad-status-text" style="color: var(--text-muted);">No Controller</span>
+                </div>
+
                 <div class="status-indicator">
                     <span id="status-dot" class="status-dot"></span>
                     <span id="status-text">Disconnected</span>
@@ -1046,106 +1052,107 @@
                                 <div class="controller-info">
                                     <div id="controller-name" class="controller-info-name text-muted">No controller
                                         detected</div>
-                                    <div class="controller-info-hint">Use Right Stick to drive • X button for E-Stop
-                                    </div>
+                                    <div class="controller-info-hint">🕹️ Right Stick: Drive • ✖ E-Stop • ◻ Detection •
+                                        △ Auto-Drive</div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <!-- Right Column: Sidebar -->
-            <div class="sidebar" id="control-area">
-                <!-- Motor Readouts -->
-                <div class="card">
-                    <div class="card-header">
-                        <h2><span class="icon">📊</span> Motor Status</h2>
-                    </div>
-                    <div class="card-body">
-                        <div class="motor-grid">
-                            <div class="motor-card">
-                                <h3>Left Motor</h3>
-                                <div id="left-pos" class="motor-value">0.00</div>
-                                <div class="motor-label">Position (rev)</div>
-                                <div id="left-power" class="motor-value mt-1">0%</div>
-                                <div class="motor-label">Power</div>
-                            </div>
-                            <div class="motor-card">
-                                <h3>Right Motor</h3>
-                                <div id="right-pos" class="motor-value">0.00</div>
-                                <div class="motor-label">Position (rev)</div>
-                                <div id="right-power" class="motor-value mt-1">0%</div>
-                                <div class="motor-label">Power</div>
-                            </div>
-                        </div>
-                    </div>
+        <!-- Right Column: Sidebar -->
+        <div class="sidebar" id="control-area">
+            <!-- Motor Readouts -->
+            <div class="card">
+                <div class="card-header">
+                    <h2><span class="icon">📊</span> Motor Status</h2>
                 </div>
-
-                <!-- Position Display -->
-                <div class="card">
-                    <div class="card-header">
-                        <h2><span class="icon"></span> Position</h2>
-                    </div>
-                    <div class="card-body">
-                        <div class="motor-grid">
-                            <div class="motor-card">
-                                <h3>Robot</h3>
-                                <div id="robot-x" class="motor-value" style="font-size: 1rem;">X: 0.0</div>
-                                <div id="robot-y" class="motor-value" style="font-size: 1rem;">Y: 0.0</div>
-                                <div id="robot-theta" class="motor-value"
-                                    style="font-size: 0.85rem; color: var(--text-secondary);">θ: 0.0°</div>
-                            </div>
-                            <div class="motor-card">
-                                <h3>Target</h3>
-                                <div id="target-x" class="motor-value" style="font-size: 1rem;">X: --</div>
-                                <div id="target-y" class="motor-value" style="font-size: 1rem;">Y: --</div>
-                                <div id="target-dist" class="motor-value"
-                                    style="font-size: 0.85rem; color: var(--accent-green);">Dist: --</div>
-                            </div>
+                <div class="card-body">
+                    <div class="motor-grid">
+                        <div class="motor-card">
+                            <h3>Left Motor</h3>
+                            <div id="left-pos" class="motor-value">0.00</div>
+                            <div class="motor-label">Position (rev)</div>
+                            <div id="left-power" class="motor-value mt-1">0%</div>
+                            <div class="motor-label">Power</div>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Lidar -->
-                <div class="card">
-                    <div class="card-header">
-                        <h2><span class="icon">📡</span> Lidar View</h2>
-                        <div class="toggle-wrapper">
-                            <span class="toggle-label">Enable</span>
-                            <div id="lidar-toggle" class="toggle"></div>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div class="lidar-container">
-                            <canvas id="lidar-canvas" class="lidar-canvas" width="300" height="300"></canvas>
-                            <span class="lidar-scale">100px = 1 meter</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 3D Visualization (Three.js) -->
-                <div id="viewport-3d-card" class="card">
-                    <div class="card-header">
-                        <h2><span class="icon">🎮</span> 3D View</h2>
-                        <div id="nav-phase-display"
-                            style="font-size: 0.75rem; color: var(--accent-cyan); font-family: monospace;">IDLE</div>
-                    </div>
-                    <div class="card-body" style="padding: 0;">
-                        <div id="viewport-3d-container" style="width: 100%; height: 300px; position: relative;">
-                            <canvas id="viewport-3d-canvas" style="width: 100%; height: 100%;"></canvas>
-                        </div>
-                        <div
-                            style="display: flex; gap: 1rem; padding: 0.5rem 1rem; font-size: 0.7rem; color: var(--text-muted); background: var(--bg-tertiary);">
-                            <span>🔵 Robot</span>
-                            <span style="color: #22c55e;">🟢 Start</span>
-                            <span style="color: #ef4444;">🔴 Target</span>
-                            <span style="color: #64748b;">⬜ Grid = 1m</span>
+                        <div class="motor-card">
+                            <h3>Right Motor</h3>
+                            <div id="right-pos" class="motor-value">0.00</div>
+                            <div class="motor-label">Position (rev)</div>
+                            <div id="right-power" class="motor-value mt-1">0%</div>
+                            <div class="motor-label">Power</div>
                         </div>
                     </div>
                 </div>
             </div>
+
+            <!-- Position Display -->
+            <div class="card">
+                <div class="card-header">
+                    <h2><span class="icon"></span> Position</h2>
+                </div>
+                <div class="card-body">
+                    <div class="motor-grid">
+                        <div class="motor-card">
+                            <h3>Robot</h3>
+                            <div id="robot-x" class="motor-value" style="font-size: 1rem;">X: 0.0</div>
+                            <div id="robot-y" class="motor-value" style="font-size: 1rem;">Y: 0.0</div>
+                            <div id="robot-theta" class="motor-value"
+                                style="font-size: 0.85rem; color: var(--text-secondary);">θ: 0.0°</div>
+                        </div>
+                        <div class="motor-card">
+                            <h3>Target</h3>
+                            <div id="target-x" class="motor-value" style="font-size: 1rem;">X: --</div>
+                            <div id="target-y" class="motor-value" style="font-size: 1rem;">Y: --</div>
+                            <div id="target-dist" class="motor-value"
+                                style="font-size: 0.85rem; color: var(--accent-green);">Dist: --</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Lidar -->
+            <div class="card">
+                <div class="card-header">
+                    <h2><span class="icon">📡</span> Lidar View</h2>
+                    <div class="toggle-wrapper">
+                        <span class="toggle-label">Enable</span>
+                        <div id="lidar-toggle" class="toggle"></div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="lidar-container">
+                        <canvas id="lidar-canvas" class="lidar-canvas" width="300" height="300"></canvas>
+                        <span class="lidar-scale">100px = 1 meter</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3D Visualization (Three.js) -->
+            <div id="viewport-3d-card" class="card">
+                <div class="card-header">
+                    <h2><span class="icon">🎮</span> 3D View</h2>
+                    <div id="nav-phase-display"
+                        style="font-size: 0.75rem; color: var(--accent-cyan); font-family: monospace;">IDLE</div>
+                </div>
+                <div class="card-body" style="padding: 0;">
+                    <div id="viewport-3d-container" style="width: 100%; height: 300px; position: relative;">
+                        <canvas id="viewport-3d-canvas" style="width: 100%; height: 100%;"></canvas>
+                    </div>
+                    <div
+                        style="display: flex; gap: 1rem; padding: 0.5rem 1rem; font-size: 0.7rem; color: var(--text-muted); background: var(--bg-tertiary);">
+                        <span>🔵 Robot</span>
+                        <span style="color: #22c55e;">🟢 Start</span>
+                        <span style="color: #ef4444;">🔴 Target</span>
+                        <span style="color: #64748b;">⬜ Grid = 1m</span>
+                    </div>
+                </div>
+            </div>
         </div>
+    </div>
     </div>
 
     <script>
@@ -1920,12 +1927,21 @@
         // Gamepad Support
         // =================================================================
         let gamepadPollingInterval = null;
+        let buttonDebounce = { square: false, triangle: false };
 
         window.addEventListener("gamepadconnected", (e) => {
             state.gamepadIndex = e.gamepad.index;
             elements.controllerName.textContent = e.gamepad.id.substring(0, 30);
             elements.controllerName.classList.remove('text-muted');
             elements.controllerName.style.color = 'var(--accent-green)';
+
+            // Update header indicator
+            const indicator = document.getElementById('gamepad-indicator');
+            const statusText = document.getElementById('gamepad-status-text');
+            indicator.style.background = 'var(--bg-secondary)';
+            indicator.style.border = '1px solid var(--accent-green)';
+            statusText.textContent = '✓ Connected';
+            statusText.style.color = 'var(--accent-green)';
 
             if (!gamepadPollingInterval) {
                 gamepadPollingInterval = setInterval(pollGamepad, 50);
@@ -1937,6 +1953,15 @@
                 state.gamepadIndex = null;
                 elements.controllerName.textContent = 'Controller disconnected';
                 elements.controllerName.style.color = 'var(--accent-red)';
+
+                // Update header indicator
+                const indicator = document.getElementById('gamepad-indicator');
+                const statusText = document.getElementById('gamepad-status-text');
+                indicator.style.background = 'var(--bg-tertiary)';
+                indicator.style.border = 'none';
+                statusText.textContent = 'No Controller';
+                statusText.style.color = 'var(--text-muted)';
+
                 stopMotors();
             }
         });
@@ -1947,41 +1972,85 @@
             const gamepad = navigator.getGamepads()[state.gamepadIndex];
             if (!gamepad) return;
 
-            // E-Stop (X/A button)
+            // Button mappings (PS4/PS5 layout):
+            // 0 = X (Cross) - E-Stop
+            // 1 = Circle
+            // 2 = Square - Toggle Detection
+            // 3 = Triangle - Toggle Auto-Drive
+
+            // E-Stop (X/Cross button)
             if (gamepad.buttons[0].pressed) {
                 stopMotors();
                 return;
             }
 
-            // Right stick for arcade drive
-            const deadzone = 0.1;
-            let rx = gamepad.axes[2];
-            let ry = gamepad.axes[3];
+            // Square button - Toggle Detection
+            if (gamepad.buttons[2].pressed && !buttonDebounce.square) {
+                buttonDebounce.square = true;
+                const newState = !state.detectionEnabled;
+                elements.detectionToggle.classList.toggle('active', newState);
+                state.detectionEnabled = newState;
+                sendMessage({ type: "toggle_detection", enabled: newState });
+                console.log('🎮 Square: Detection', newState ? 'ON' : 'OFF');
+            } else if (!gamepad.buttons[2].pressed) {
+                buttonDebounce.square = false;
+            }
 
-            if (Math.abs(rx) < deadzone) rx = 0;
-            if (Math.abs(ry) < deadzone) ry = 0;
+            // Triangle button - Toggle Auto-Drive (only if detection is enabled)
+            if (gamepad.buttons[3].pressed && !buttonDebounce.triangle) {
+                buttonDebounce.triangle = true;
+                if (state.detectionEnabled) {
+                    if (!state.autoDriveEnabled) {
+                        // Start auto-drive
+                        sendMessage({ type: "start_auto_drive" });
+                        state.autoDriveEnabled = true;
+                        elements.autoDriveToggle.classList.add('active');
+                        console.log('🎮 Triangle: Auto-Drive ON');
+                    } else {
+                        // Stop auto-drive
+                        sendMessage({ type: "stop_auto_drive" });
+                        state.autoDriveEnabled = false;
+                        elements.autoDriveToggle.classList.remove('active');
+                        console.log('🎮 Triangle: Auto-Drive OFF');
+                    }
+                } else {
+                    console.log('🎮 Triangle: Detection must be ON first!');
+                }
+            } else if (!gamepad.buttons[3].pressed) {
+                buttonDebounce.triangle = false;
+            }
 
-            const throttle = -ry;
-            const turn = rx;
+            // Right stick for arcade drive (only if NOT in auto-drive mode)
+            if (!state.autoDriveEnabled) {
+                const deadzone = 0.1;
+                let rx = gamepad.axes[2];
+                let ry = gamepad.axes[3];
 
-            let leftPower = Math.max(-1, Math.min(1, throttle + turn));
-            let rightPower = Math.max(-1, Math.min(1, throttle - turn));
+                if (Math.abs(rx) < deadzone) rx = 0;
+                if (Math.abs(ry) < deadzone) ry = 0;
 
-            // Only send if changed significantly
-            if (Math.abs(leftPower - state.lastLeftPower) > 0.02 ||
-                Math.abs(rightPower - state.lastRightPower) > 0.02) {
+                const throttle = -ry;
+                const turn = rx;
 
-                sendMessage({ type: "set_power", motor: "left", power: leftPower });
-                sendMessage({ type: "set_power", motor: "right", power: rightPower });
+                let leftPower = Math.max(-1, Math.min(1, throttle + turn));
+                let rightPower = Math.max(-1, Math.min(1, throttle - turn));
 
-                state.lastLeftPower = leftPower;
-                state.lastRightPower = rightPower;
+                // Only send if changed significantly
+                if (Math.abs(leftPower - state.lastLeftPower) > 0.02 ||
+                    Math.abs(rightPower - state.lastRightPower) > 0.02) {
 
-                // Update UI
-                elements.leftSlider.value = Math.round(leftPower * 100);
-                elements.rightSlider.value = Math.round(rightPower * 100);
-                elements.leftSliderValue.textContent = elements.leftSlider.value;
-                elements.rightSliderValue.textContent = elements.rightSlider.value;
+                    sendMessage({ type: "set_power", motor: "left", power: leftPower });
+                    sendMessage({ type: "set_power", motor: "right", power: rightPower });
+
+                    state.lastLeftPower = leftPower;
+                    state.lastRightPower = rightPower;
+
+                    // Update UI
+                    elements.leftSlider.value = Math.round(leftPower * 100);
+                    elements.rightSlider.value = Math.round(rightPower * 100);
+                    elements.leftSliderValue.textContent = elements.leftSlider.value;
+                    elements.rightSliderValue.textContent = elements.rightSlider.value;
+                }
             }
         }
 

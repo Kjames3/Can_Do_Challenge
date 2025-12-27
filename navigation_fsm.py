@@ -47,7 +47,7 @@ class NavigationConfig:
     rotate_speed: float = 0.28            # Tank turn speed
     pivot_speed: float = 0.25             # Pivot turn speed
     drive_speed: float = 0.35             # Forward drive speed (increased from 0.22)
-    search_speed: float = 0.22            # Search rotation speed
+    search_speed: float = 0.30            # Search rotation speed (was 0.22)
     backup_speed: float = 0.25            # Backup speed for avoiding
     
     # Camera
@@ -64,6 +64,9 @@ class NavigationConfig:
     # Return navigation
     auto_return: bool = True              # Automatically return after reaching target
     return_distance_threshold: float = 15.0  # cm - close enough to start position
+    
+    # Motor drift compensation (negative = reduce left motor, positive = reduce right motor)
+    drift_compensation: float = -0.10     # 10% reduction on LEFT motor (left is faster)
 
 
 class NavigationFSM:
@@ -510,16 +513,27 @@ class NavigationFSM:
         
         try:
             if self.left_motor and self.right_motor:
+                # Apply drift compensation (reduce one motor to correct for drift)
+                comp = self.config.drift_compensation
+                if comp < 0:
+                    # Negative = reduce LEFT motor
+                    left_adj = left * (1.0 + comp)  # e.g., 0.9 for -0.10
+                    right_adj = right
+                else:
+                    # Positive = reduce RIGHT motor
+                    left_adj = left
+                    right_adj = right * (1.0 - comp)
+                
                 # Handle synchronous motors (server_native)
                 if not asyncio.iscoroutinefunction(self.left_motor.set_power):
-                    self.left_motor.set_power(left)
-                    self.right_motor.set_power(right)
+                    self.left_motor.set_power(left_adj)
+                    self.right_motor.set_power(right_adj)
                 else:
                     # Handle async motors (Viam SDK)
                     await asyncio.wait_for(
                         asyncio.gather(
-                            self.left_motor.set_power(left),
-                            self.right_motor.set_power(right)
+                            self.left_motor.set_power(left_adj),
+                            self.right_motor.set_power(right_adj)
                         ),
                         timeout=self._MOTOR_TIMEOUT
                     )
