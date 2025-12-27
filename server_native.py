@@ -1114,26 +1114,73 @@ async def handle_client(websocket):
                     if camera:
                         frame = camera.get_frame()
                         if frame is not None:
-                            # Create directory if needed
+                            # Create directory structure for organized training data
                             import os
                             from datetime import datetime
-                            capture_dir = "captured_images"
+                            
+                            base_dir = "training_images"
+                            
+                            # Categorize by distance if detection is available
+                            distance_cm = None
+                            detection_info = None
+                            if last_detections and len(last_detections) > 0:
+                                det = last_detections[0]  # Primary detection
+                                distance_cm = det.get('distance_cm')
+                                detection_info = {
+                                    'center_x': det.get('center_x'),
+                                    'center_y': det.get('center_y'),
+                                    'width': det.get('width'),
+                                    'height': det.get('height'),
+                                    'confidence': det.get('confidence'),
+                                    'distance_cm': distance_cm
+                                }
+                            
+                            # Determine subdirectory based on distance
+                            if distance_cm is not None:
+                                if distance_cm < 30:
+                                    subdir = "close"
+                                elif distance_cm < 100:
+                                    subdir = "medium"
+                                else:
+                                    subdir = "far"
+                            else:
+                                subdir = "uncategorized"
+                            
+                            capture_dir = os.path.join(base_dir, subdir)
                             os.makedirs(capture_dir, exist_ok=True)
                             
-                            # Save with timestamp
-                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                            filepath = os.path.join(capture_dir, f"can_{timestamp}.jpg")
+                            # Save image with timestamp
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # milliseconds
+                            img_filename = f"can_{timestamp}.jpg"
+                            filepath = os.path.join(capture_dir, img_filename)
                             cv2.imwrite(filepath, frame)
                             
-                            # Count existing images
-                            count = len([f for f in os.listdir(capture_dir) if f.endswith('.jpg')])
-                            print(f"📸 Captured image: {filepath} (total: {count})")
+                            # Save metadata JSON for easier annotation
+                            if detection_info:
+                                meta_filepath = os.path.join(capture_dir, f"can_{timestamp}.json")
+                                with open(meta_filepath, 'w') as f:
+                                    json.dump({
+                                        'image': img_filename,
+                                        'frame_width': frame.shape[1],
+                                        'frame_height': frame.shape[0],
+                                        'detection': detection_info
+                                    }, f, indent=2)
                             
-                            # Send count back to client
+                            # Count total images across all subdirectories
+                            total_count = 0
+                            for root, dirs, files in os.walk(base_dir):
+                                total_count += len([f for f in files if f.endswith('.jpg')])
+                            
+                            dist_str = f" ({distance_cm:.0f}cm)" if distance_cm else ""
+                            print(f"📸 Captured: {filepath}{dist_str} (total: {total_count})")
+                            
+                            # Send response back to client
                             await websocket.send(json.dumps({
                                 "type": "capture_response",
-                                "count": count,
-                                "filename": filepath
+                                "count": total_count,
+                                "filename": filepath,
+                                "category": subdir,
+                                "distance_cm": distance_cm
                             }))
                 
             except Exception as e:

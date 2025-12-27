@@ -309,7 +309,19 @@ class NavigationFSM:
         """
         
         # 1. Determine how much is left to turn
-        if self.imu:
+        # First check for overshoot: if camera bearing flipped sign from original target,
+        # we've turned too far and need to reverse direction
+        overshot = (np.sign(bearing) != np.sign(self.target_bearing) and 
+                    np.sign(self.target_bearing) != 0 and
+                    abs(bearing) > self.config.bearing_hysteresis)
+        
+        if overshot:
+            # We overshot! Use current camera bearing to correct
+            # This overrides IMU calculation since camera shows actual target position
+            remaining_turn = bearing
+            threshold = self.config.bearing_hysteresis
+            print(f"  ⚠ Overshoot detected! Target now at {np.degrees(bearing):.1f}° - reversing")
+        elif self.imu:
             # IMU: Calculate remaining angle based on gyro integration
             # Sign convention analysis:
             # - Camera bearing: positive = target is RIGHT of center
@@ -333,8 +345,8 @@ class NavigationFSM:
             remaining_turn = bearing
             threshold = self.config.bearing_hysteresis
 
-        # 2. Check if we are done
-        if abs(remaining_turn) <= threshold:
+        # 2. Check if we are done (target is centered)
+        if abs(bearing) <= threshold:  # Use camera bearing for final check, not IMU
             await self._stop_motors()
             self.approach_phase = ApproachPhase.DRIVE
             self.last_turn_dir = 0

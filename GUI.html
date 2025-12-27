@@ -1478,8 +1478,10 @@
                     if (data.type === "readout") {
                         handleReadout(data);
                     } else if (data.type === "capture_response") {
-                        // Update capture count display
-                        elements.captureCount.textContent = `${data.count} saved`;
+                        // Update capture count display with category
+                        const category = data.category || "saved";
+                        const dist = data.distance_cm ? ` (${Math.round(data.distance_cm)}cm)` : "";
+                        elements.captureCount.textContent = `${data.count} total • ${category}${dist}`;
                     }
                 } catch (e) {
                     console.error("Message parse error:", e);
