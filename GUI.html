@@ -71,10 +71,35 @@
            Layout
            ================================================================= */
         .app-container {
-            max-width: 1600px;
+            max-width: 100%;
             margin: 0 auto;
-            padding: 1.5rem;
+            padding: 1rem 2rem;
             min-height: 100%;
+        }
+
+        /* Full-width camera section */
+        .camera-section {
+            width: 100%;
+            margin-bottom: 1.5rem;
+        }
+
+        /* Horizontal controls row */
+        .controls-row {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+        }
+
+        @media (min-width: 992px) {
+            .controls-row {
+                grid-template-columns: 2fr 1fr 1fr;
+            }
+        }
+
+        @media (min-width: 1400px) {
+            .controls-row {
+                grid-template-columns: 1.5fr 1fr 1fr;
+            }
         }
 
         /* =================================================================
@@ -980,87 +1005,90 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
 
-                <!-- Motor Controls -->
-                <div class="card mt-2">
-                    <div class="card-header">
-                        <h2><span class="icon">🎮</span> Motor Control</h2>
-                    </div>
-                    <div class="card-body">
-                        <div class="control-section">
-                            <div class="sliders-container">
-                                <div class="slider-group">
-                                    <span class="slider-label">LEFT</span>
-                                    <div class="slider-wrapper">
-                                        <div class="slider-fill" id="left-fill" style="bottom: 50%; height: 0%;"></div>
-                                        <div class="slider-thumb" id="left-thumb" style="bottom: 50%;"></div>
-                                        <input type="range" id="left-slider" class="slider-input" min="-100" max="100"
-                                            value="0" step="1">
-                                    </div>
-                                    <span id="left-slider-value" class="slider-value">0</span>
+        <!-- Controls Row: Motor Control, Motor Status, Position side by side -->
+        <div class="controls-row">
+            <!-- Motor Controls -->
+            <div class="card">
+                <div class="card-header">
+                    <h2><span class="icon">🎮</span> Motor Control</h2>
+                </div>
+                <div class="card-body">
+                    <div class="control-section">
+                        <div class="sliders-container">
+                            <div class="slider-group">
+                                <span class="slider-label">LEFT</span>
+                                <div class="slider-wrapper">
+                                    <div class="slider-fill" id="left-fill" style="bottom: 50%; height: 0%;"></div>
+                                    <div class="slider-thumb" id="left-thumb" style="bottom: 50%;"></div>
+                                    <input type="range" id="left-slider" class="slider-input" min="-100" max="100"
+                                        value="0" step="1">
+                                </div>
+                                <span id="left-slider-value" class="slider-value">0</span>
+                            </div>
+
+                            <div
+                                style="display: flex; flex-direction: column; gap: 1rem; align-items: center; z-index: 10;">
+                                <button id="stop-btn" class="stop-btn">STOP</button>
+                                <div id="auto-drive-wrapper">
+                                    <button id="auto-drive-btn" class="btn btn-primary" style="width: 100%;">
+                                        Start Auto-Drive
+                                    </button>
                                 </div>
 
-                                <div
-                                    style="display: flex; flex-direction: column; gap: 1rem; align-items: center; z-index: 10;">
-                                    <button id="stop-btn" class="stop-btn">STOP</button>
-                                    <div id="auto-drive-wrapper">
-                                        <button id="auto-drive-btn" class="btn btn-primary" style="width: 100%;">
-                                            Start Auto-Drive
-                                        </button>
-                                    </div>
-
-                                    <!-- WASD Panel -->
-                                    <div class="wasd-panel">
-                                        <div class="control-header">
-                                            <span>Quick move</span>
-                                            <div style="display:flex; gap:0.5rem; align-items:center;">
-                                                <small style="font-size:0.7rem;">WASD</small>
-                                                <label class="switch">
-                                                    <input type="checkbox" id="keyboard-toggle">
-                                                    <span class="slider round"></span>
-                                                </label>
-                                            </div>
-                                        </div>
-
-                                        <div class="d-pad">
-                                            <button class="d-btn" id="btn-w">↑</button>
-                                            <button class="d-btn" id="btn-a">↶</button>
-                                            <button class="d-btn" id="btn-s">↓</button>
-                                            <button class="d-btn" id="btn-d">↷</button>
-                                        </div>
-
-                                        <div class="power-setting">
-                                            <div style="display:flex; justify-content:space-between; font-size:0.8rem;">
-                                                <span>Power</span>
-                                                <span id="key-power-val" class="power-val">0.5</span>
-                                            </div>
-                                            <input type="range" id="key-power" class="h-slider" min="0.1" max="1.0"
-                                                step="0.1" value="0.5">
+                                <!-- WASD Panel -->
+                                <div class="wasd-panel">
+                                    <div class="control-header">
+                                        <span>Quick move</span>
+                                        <div style="display:flex; gap:0.5rem; align-items:center;">
+                                            <small style="font-size:0.7rem;">WASD</small>
+                                            <label class="switch">
+                                                <input type="checkbox" id="keyboard-toggle">
+                                                <span class="slider round"></span>
+                                            </label>
                                         </div>
                                     </div>
-                                </div>
 
-                                <div class="slider-group">
-                                    <span class="slider-label">RIGHT</span>
-                                    <div class="slider-wrapper">
-                                        <div class="slider-fill" id="right-fill" style="bottom: 50%; height: 0%;"></div>
-                                        <div class="slider-thumb" id="right-thumb" style="bottom: 50%;"></div>
-                                        <input type="range" id="right-slider" class="slider-input" min="-100" max="100"
-                                            value="0" step="1">
+                                    <div class="d-pad">
+                                        <button class="d-btn" id="btn-w">↑</button>
+                                        <button class="d-btn" id="btn-a">↶</button>
+                                        <button class="d-btn" id="btn-s">↓</button>
+                                        <button class="d-btn" id="btn-d">↷</button>
                                     </div>
-                                    <span id="right-slider-value" class="slider-value">0</span>
+
+                                    <div class="power-setting">
+                                        <div style="display:flex; justify-content:space-between; font-size:0.8rem;">
+                                            <span>Power</span>
+                                            <span id="key-power-val" class="power-val">0.5</span>
+                                        </div>
+                                        <input type="range" id="key-power" class="h-slider" min="0.1" max="1.0"
+                                            step="0.1" value="0.5">
+                                    </div>
                                 </div>
                             </div>
 
-                            <!-- Controller Status -->
-                            <div id="controller-status" class="controller-status">
-                                <span class="controller-icon">🎮</span>
-                                <div class="controller-info">
-                                    <div id="controller-name" class="controller-info-name text-muted">No controller
-                                        detected</div>
-                                    <div class="controller-info-hint">🕹️ Right Stick: Drive • ✖ E-Stop • ◻ Detection •
-                                        △ Auto-Drive</div>
+                            <div class="slider-group">
+                                <span class="slider-label">RIGHT</span>
+                                <div class="slider-wrapper">
+                                    <div class="slider-fill" id="right-fill" style="bottom: 50%; height: 0%;"></div>
+                                    <div class="slider-thumb" id="right-thumb" style="bottom: 50%;"></div>
+                                    <input type="range" id="right-slider" class="slider-input" min="-100" max="100"
+                                        value="0" step="1">
                                 </div>
+                                <span id="right-slider-value" class="slider-value">0</span>
+                            </div>
+                        </div>
+
+                        <!-- Controller Status -->
+                        <div id="controller-status" class="controller-status">
+                            <span class="controller-icon">🎮</span>
+                            <div class="controller-info">
+                                <div id="controller-name" class="controller-info-name text-muted">No controller
+                                    detected</div>
+                                <div class="controller-info-hint">🕹️ Right Stick: Drive • ✖ E-Stop • ◻ Detection •
+                                    △ Auto-Drive</div>
                             </div>
                         </div>
                     </div>
@@ -1068,37 +1096,34 @@
             </div>
         </div>
 
-        <!-- Right Column: Sidebar -->
-        <div class="sidebar" id="control-area">
-            <!-- Motor Readouts -->
-            <div class="card">
-                <div class="card-header">
-                    <h2><span class="icon">📊</span> Motor Status</h2>
-                </div>
-                <div class="card-body">
-                    <div class="motor-grid">
-                        <div class="motor-card">
-                            <h3>Left Motor</h3>
-                            <div id="left-pos" class="motor-value">0.00</div>
-                            <div class="motor-label">Position (rev)</div>
-                            <div id="left-power" class="motor-value mt-1">0%</div>
-                            <div class="motor-label">Power</div>
-                        </div>
-                        <div class="motor-card">
-                            <h3>Right Motor</h3>
-                            <div id="right-pos" class="motor-value">0.00</div>
-                            <div class="motor-label">Position (rev)</div>
-                            <div id="right-power" class="motor-value mt-1">0%</div>
-                            <div class="motor-label">Power</div>
-                        </div>
+        <!-- Motor Status (now in controls-row) -->
+        <div class="card">
+            <div class="card-header">
+                <h2><span class="icon">📊</span> Motor Status</h2>
+            </div>
+            <div class="card-body">
+                <div class="motor-grid">
+                    <div class="motor-card">
+                        <h3>Left Motor</h3>
+                        <div id="left-pos" class="motor-value">0.00</div>
+                        <div class="motor-label">Position (rev)</div>
+                        <div id="left-power" class="motor-value mt-1">0%</div>
+                        <div class="motor-label">Power</div>
+                    </div>
+                    <div class="motor-card">
+                        <h3>Right Motor</h3>
+                        <div id="right-pos" class="motor-value">0.00</div>
+                        <div class="motor-label">Position (rev)</div>
+                        <div id="right-power" class="motor-value mt-1">0%</div>
+                        <div class="motor-label">Power</div>
                     </div>
                 </div>
             </div>
 
-            <!-- Position Display -->
+            <!-- Position Display (now in controls-row) -->
             <div class="card">
                 <div class="card-header">
-                    <h2><span class="icon"></span> Position</h2>
+                    <h2><span class="icon">📍</span> Position</h2>
                 </div>
                 <div class="card-body">
                     <div class="motor-grid">
@@ -1119,7 +1144,10 @@
                     </div>
                 </div>
             </div>
+        </div>
 
+        <!-- Bottom Row: Lidar and 3D View side by side -->
+        <div class="controls-row" style="margin-top: 1rem;">
             <!-- Lidar -->
             <div class="card">
                 <div class="card-header">
@@ -1158,7 +1186,6 @@
                 </div>
             </div>
         </div>
-    </div>
     </div>
 
     <script>
