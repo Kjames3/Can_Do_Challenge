@@ -583,13 +583,13 @@ class NativeIMU:
 
 
 # =============================================================================
-# CAMERA CLASS (picamera2 for CSI cameras, OpenCV fallback for USB)
+# CAMERA CLASS (libcamera subprocess for CSI, OpenCV for USB)
 # =============================================================================
 
 class NativeCamera:
     """
-    Camera access supporting both CSI (picamera2) and USB (OpenCV) cameras.
-    Automatically detects which to use based on availability.
+    Camera access supporting both CSI (libcamera-vid) and USB (OpenCV) cameras.
+    Uses libcamera-vid subprocess for Pi Camera Module 3 (IMX708) on Pi 5.
     """
     
     def __init__(self, device=0, width=1280, height=720):
@@ -599,31 +599,47 @@ class NativeCamera:
         self._frame_lock = threading.Lock()
         self._running = False
         self._thread = None
-        self._use_picamera2 = False
-        self.picam2 = None
+        self._use_libcamera = False
+        self._libcamera_proc = None
         self.cap = None
         
         if SIM_MODE:
             return
         
-        # Try picamera2 first (for CSI cameras like IMX708)
+        # Try libcamera-vid first (for CSI cameras like IMX708 on Pi 5)
         try:
-            from picamera2 import Picamera2
-            self.picam2 = Picamera2()
+            import subprocess
+            import shutil
             
-            # Configure for video capture
-            config = self.picam2.create_preview_configuration(
-                main={"size": (width, height), "format": "RGB888"},
-                buffer_count=2
-            )
-            self.picam2.configure(config)
-            self.picam2.start()
-            
-            self._use_picamera2 = True
-            print(f"  ✓ Camera (picamera2): {width}x{height}")
-            
+            # Check if libcamera-vid is available
+            if shutil.which('libcamera-vid'):
+                # Start libcamera-vid streaming raw frames to stdout
+                cmd = [
+                    'libcamera-vid',
+                    '-t', '0',  # Run indefinitely
+                    '--width', str(width),
+                    '--height', str(height),
+                    '--framerate', '30',
+                    '--codec', 'yuv420',  # Raw YUV output
+                    '-n',  # No preview window
+                    '-o', '-'  # Output to stdout
+                ]
+                
+                self._libcamera_proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    bufsize=width * height * 3 // 2  # YUV420 buffer
+                )
+                
+                self._use_libcamera = True
+                self._yuv_size = width * height * 3 // 2
+                print(f"  ✓ Camera (libcamera-vid): {width}x{height}")
+            else:
+                raise Exception("libcamera-vid not found")
+                
         except Exception as e:
-            print(f"  ⚠ picamera2 failed: {e}")
+            print(f"  ⚠ libcamera failed: {e}")
             print(f"  → Trying OpenCV fallback...")
             
             # Fallback to OpenCV for USB cameras
@@ -665,16 +681,25 @@ class NativeCamera:
         
         while self._running:
             try:
-                if self._use_picamera2 and self.picam2:
-                    # picamera2 capture (returns RGB, need to convert to BGR for OpenCV)
-                    frame_rgb = self.picam2.capture_array()
-                    frame = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-                    with self._frame_lock:
-                        self._frame = frame
-                    frame_ok_count += 1
-                    frame_errors = 0
-                    if frame_ok_count == 1:
-                        print(f"  ✓ Camera: First frame captured successfully")
+                if self._use_libcamera and self._libcamera_proc:
+                    # Read YUV420 frame from libcamera-vid
+                    yuv_data = self._libcamera_proc.stdout.read(self._yuv_size)
+                    if len(yuv_data) == self._yuv_size:
+                        # Convert YUV420 to BGR
+                        yuv_array = np.frombuffer(yuv_data, dtype=np.uint8).reshape(
+                            (self.height * 3 // 2, self.width)
+                        )
+                        frame = cv2.cvtColor(yuv_array, cv2.COLOR_YUV2BGR_I420)
+                        with self._frame_lock:
+                            self._frame = frame
+                        frame_ok_count += 1
+                        frame_errors = 0
+                        if frame_ok_count == 1:
+                            print(f"  ✓ Camera: First frame captured successfully")
+                    else:
+                        frame_errors += 1
+                        if frame_errors == 10:
+                            print(f"  ⚠ Camera: Failed to read frame from libcamera")
                         
                 elif self.cap:
                     # OpenCV capture
@@ -728,12 +753,15 @@ class NativeCamera:
         self._running = False
         if self._thread:
             self._thread.join(timeout=1.0)
-        if self.picam2:
+        if self._libcamera_proc:
             try:
-                self.picam2.stop()
-                self.picam2.close()
+                self._libcamera_proc.terminate()
+                self._libcamera_proc.wait(timeout=2.0)
             except:
-                pass
+                try:
+                    self._libcamera_proc.kill()
+                except:
+                    pass
         if self.cap:
             self.cap.release()
 
