@@ -110,10 +110,10 @@ RIGHT_ENCODER_PIN = 40
 # I2C Devices
 I2C_BUS = 1                # I2C bus number
 
-# Camera
-# TODO: If camera path is different, change it here. Check if camera is connected by running `ls /dev/v4l/by-id/` in the terminal.
-CAMERA_PATH = "/dev/v4l/by-id/usb-Jieli_Technology_USB_PHY_2.0-video-index0"
-CAMERA_INDEX = 0           # Fallback to index if path fails
+# Camera (IMX708 - Pi Camera Module 3 via CSI)
+# The IMX708 appears at /dev/video0 via rp1-cfe driver
+CAMERA_PATH = "/dev/video0"    # CSI camera (IMX708)
+CAMERA_INDEX = 0               # Fallback to index if path fails
 
 # LIDAR
 LIDAR_PORT = "/dev/ttyUSB0"
@@ -136,10 +136,10 @@ KNOWN_HEIGHT_CAN = 12.0     # Standard soda can height in cm
 FOCAL_LENGTH = 600          # Webcam focal length (calibrate for accuracy)
 TARGET_CLASSES = [0]        # Custom model: 0=can
 
-# Camera Settings
-CAMERA_HFOV_DEG = 76.5
-IMAGE_WIDTH = 640
-IMAGE_HEIGHT = 480
+# Camera Settings (IMX708 uses 16:9 aspect ratio)
+CAMERA_HFOV_DEG = 102         # IMX708 has wider FOV (~102 degrees)
+IMAGE_WIDTH = 1280            # 16:9 aspect ratio
+IMAGE_HEIGHT = 720
 
 # Performance Settings
 VIDEO_FPS_CAP = 20          # Reduced to avoid camera buffer issues
@@ -150,8 +150,10 @@ CONFIDENCE_THRESHOLD = 0.25 # Lower threshold for longer range detection
 # Detection inference size
 INFERENCE_SIZE = 640        # Larger = better long-range detection, slower
 
-# YOLO Model (YOLO11 preferred, fallback to YOLOv8)
-YOLO_MODEL = 'yolo11n_cans.pt'  # Will fallback to yolov8n_cans.pt if not found
+# YOLO Model (prefer ONNX for better CPU performance)
+# Order of preference: .onnx > yolo11n > yolov8n
+YOLO_MODEL = 'yolo11n_cans.onnx'  # ONNX format for faster inference
+YOLO_FALLBACK = 'yolo11n_cans.pt'  # Fallback to PyTorch if ONNX fails
 
 # =============================================================================
 # IMU CONFIGURATION (MPU6050)
@@ -896,15 +898,24 @@ connected_clients = set()
 # =============================================================================
 
 def initialize_detection():
-    """Load YOLO model."""
+    """Load YOLO model (prefers ONNX, falls back to PyTorch)."""
     global detection_model
-    try:
-        detection_model = YOLO(YOLO_MODEL)
-        print(f"✓ YOLO model loaded: {YOLO_MODEL}")
-        return True
-    except Exception as e:
-        print(f"✗ YOLO load failed: {e}")
-        return False
+    import os
+    
+    models_to_try = [YOLO_MODEL, YOLO_FALLBACK, 'yolov8n_cans.pt', 'yolov8n.pt']
+    
+    for model_path in models_to_try:
+        if os.path.exists(model_path):
+            try:
+                detection_model = YOLO(model_path)
+                print(f"✓ YOLO model loaded: {model_path}")
+                return True
+            except Exception as e:
+                print(f"  ⚠ Failed to load {model_path}: {e}")
+                continue
+    
+    print("✗ No YOLO model could be loaded")
+    return False
 
 
 def process_detection(frame):
