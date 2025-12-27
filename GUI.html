@@ -71,7 +71,7 @@
            Layout
            ================================================================= */
         .app-container {
-            max-width: 1200px;
+            max-width: 1600px;
             margin: 0 auto;
             padding: 1.5rem;
             min-height: 100%;
@@ -439,6 +439,12 @@
 
         @media (min-width: 992px) {
             .main-grid {
+                grid-template-columns: 3fr 2fr;
+            }
+        }
+
+        @media (min-width: 1400px) {
+            .main-grid {
                 grid-template-columns: 2fr 1fr;
             }
         }
@@ -454,7 +460,7 @@
            ================================================================= */
         .camera-feed {
             width: 100%;
-            aspect-ratio: 4 / 3;
+            aspect-ratio: 16 / 9;
             object-fit: contain;
             background: #000;
             border-radius: var(--radius-md);
@@ -462,7 +468,7 @@
 
         .camera-placeholder {
             width: 100%;
-            aspect-ratio: 4 / 3;
+            aspect-ratio: 16 / 9;
             display: flex;
             align-items: center;
             justify-content: center;
