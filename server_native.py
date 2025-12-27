@@ -91,7 +91,7 @@ DRIFT_COMPENSATION = -0.10
 # Detection Configuration
 KNOWN_HEIGHT_BOTTLE = 20.0
 KNOWN_HEIGHT_CAN = 12.0
-FOCAL_LENGTH = 600
+FOCAL_LENGTH = 1298
 TARGET_CLASSES = [0]  # 0=can
 
 # Camera Settings
@@ -263,7 +263,11 @@ def initialize_hardware():
     
     # Initialize Navigation FSM
     print("\nNavigation FSM:")
-    fsm = NavigationFSM(left_motor, right_motor, imu=imu)
+    nav_config = NavigationConfig()
+    nav_config.camera_hfov_deg = CAMERA_HFOV_DEG
+    nav_config.frame_width = IMAGE_WIDTH
+    nav_config.drift_compensation = DRIFT_COMPENSATION
+    fsm = NavigationFSM(left_motor, right_motor, imu=imu, config=nav_config)
     
     # Wire up callbacks
     def on_arrived():
@@ -343,9 +347,7 @@ async def handle_client(websocket):
                     print("🚀 AUTO-DRIVE ENGAGED")
                     if fsm:
                         # Reset FSM state
-                        fsm.reset()
-                        fsm.approach_phase = fsm.ApproachPhase.SEARCH
-                        fsm.state_summary = "SEARCHING (Initial)"
+                        await fsm.start()
                         
                 elif msg_type == "stop_auto_drive":
                     is_auto_driving = False
