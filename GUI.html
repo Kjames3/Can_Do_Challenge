@@ -2188,6 +2188,59 @@
             updateVisuals(0, elements.rightFill, elements.rightThumb);
         });
 
+        // D-Pad Button Handlers
+        const DPAD_POWER = 0.4; // 40% power for d-pad moves
+
+        function sendDpadMove(leftPower, rightPower) {
+            if (!state.connected || state.isAutoDriving) return;
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify({ type: "set_power", motor: "left", power: leftPower }));
+                state.ws.send(JSON.stringify({ type: "set_power", motor: "right", power: rightPower }));
+            }
+        }
+
+        function stopDpadMove() {
+            if (!state.connected) return;
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify({ type: "stop" }));
+            }
+        }
+
+        // Forward (W) - both motors forward
+        if (elements.btnW) {
+            elements.btnW.addEventListener('mousedown', () => sendDpadMove(DPAD_POWER, DPAD_POWER));
+            elements.btnW.addEventListener('mouseup', stopDpadMove);
+            elements.btnW.addEventListener('mouseleave', stopDpadMove);
+            elements.btnW.addEventListener('touchstart', (e) => { e.preventDefault(); sendDpadMove(DPAD_POWER, DPAD_POWER); });
+            elements.btnW.addEventListener('touchend', stopDpadMove);
+        }
+
+        // Backward (S) - both motors backward
+        if (elements.btnS) {
+            elements.btnS.addEventListener('mousedown', () => sendDpadMove(-DPAD_POWER, -DPAD_POWER));
+            elements.btnS.addEventListener('mouseup', stopDpadMove);
+            elements.btnS.addEventListener('mouseleave', stopDpadMove);
+            elements.btnS.addEventListener('touchstart', (e) => { e.preventDefault(); sendDpadMove(-DPAD_POWER, -DPAD_POWER); });
+            elements.btnS.addEventListener('touchend', stopDpadMove);
+        }
+
+        // Turn Left (A) - pivot left
+        if (elements.btnA) {
+            elements.btnA.addEventListener('mousedown', () => sendDpadMove(-DPAD_POWER, DPAD_POWER));
+            elements.btnA.addEventListener('mouseup', stopDpadMove);
+            elements.btnA.addEventListener('mouseleave', stopDpadMove);
+            elements.btnA.addEventListener('touchstart', (e) => { e.preventDefault(); sendDpadMove(-DPAD_POWER, DPAD_POWER); });
+            elements.btnA.addEventListener('touchend', stopDpadMove);
+        }
+
+        // Turn Right (D) - pivot right
+        if (elements.btnD) {
+            elements.btnD.addEventListener('mousedown', () => sendDpadMove(DPAD_POWER, -DPAD_POWER));
+            elements.btnD.addEventListener('mouseup', stopDpadMove);
+            elements.btnD.addEventListener('mouseleave', stopDpadMove);
+            elements.btnD.addEventListener('touchstart', (e) => { e.preventDefault(); sendDpadMove(DPAD_POWER, -DPAD_POWER); });
+            elements.btnD.addEventListener('touchend', stopDpadMove);
+        }
 
         // Auto Drive Button
         elements.autoDriveBtn.addEventListener('click', () => {

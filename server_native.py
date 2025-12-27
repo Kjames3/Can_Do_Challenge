@@ -1155,6 +1155,13 @@ async def broadcast_loop():
     last_imu_time = 0
     imu_interval = 1.0 / IMU_SAMPLE_RATE
     
+    # FPS tracking
+    fps_frame_count = 0
+    fps_detection_count = 0
+    fps_last_time = time.time()
+    fps_camera = 0.0
+    fps_detection = 0.0
+    
     # Auto-drive control parameters
     TARGET_DISTANCE_CM = 25.0  # Stop when this close to target
     CENTER_THRESHOLD_PX = 80   # Acceptable centering error
@@ -1251,15 +1258,26 @@ async def broadcast_loop():
             
             if frame is not None:
                 frame_count += 1
+                fps_frame_count += 1
                 
                 # Run detection on interval
                 if detection_enabled and frame_count % DETECTION_INTERVAL == 0:
                     frame, last_detections = process_detection(frame)
+                    fps_detection_count += 1
                 elif detection_enabled:
                     # Draw previous detections
                     for d in last_detections:
                         x1, y1, x2, y2 = d['bbox']
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
+                
+                # Calculate FPS every second
+                fps_elapsed = current_time - fps_last_time
+                if fps_elapsed >= 1.0:
+                    fps_camera = fps_frame_count / fps_elapsed
+                    fps_detection = fps_detection_count / fps_elapsed
+                    fps_frame_count = 0
+                    fps_detection_count = 0
+                    fps_last_time = current_time
                 
                 # === AUTO-DRIVE CONTROL (FSM) ===
                 if is_auto_driving and fsm:
@@ -1306,6 +1324,8 @@ async def broadcast_loop():
                 "is_auto_driving": is_auto_driving,
                 "is_stuck": is_stuck,
                 "is_tilted": is_tilted,
+                "fps_camera": fps_camera,
+                "fps_detection": fps_detection,
                 "robot_pose": {
                     "x": robot_state.x,
                     "y": robot_state.y,

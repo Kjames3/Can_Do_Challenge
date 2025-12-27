@@ -290,12 +290,13 @@ class NavigationFSM:
                 # IMU Pre-calculation: Lock in turn amount
                 if self.imu:
                     # Reset IMU "zero" to now. We want to turn exactly 'avg_bearing' amount.
-                    # NOTE: Camera bearing is positive when target is RIGHT
-                    # BUT IMU heading increases for counterclockwise (LEFT) rotation
-                    # So we NEGATE the bearing to get the correct turn direction
+                    # Camera bearing: positive = target is RIGHT
+                    # Motor logic: positive remaining_turn = turn RIGHT
+                    # IMU heading: positive = counterclockwise (LEFT) rotation
+                    # So target_imu_rotation should match bearing sign
                     self.imu.reset_heading()
-                    self.target_imu_rotation = -avg_bearing  # Negate for correct direction!
-                    print(f"  → ROTATE (IMU Precision Turn: {np.degrees(avg_bearing):.1f}° camera, {np.degrees(-avg_bearing):.1f}° IMU target)")
+                    self.target_imu_rotation = avg_bearing
+                    print(f"  → ROTATE (IMU Precision Turn: {np.degrees(avg_bearing):.1f}°)")
                 else:
                     print(f"  → ROTATE (Camera Reactive Turn: {np.degrees(avg_bearing):.1f}°)")
             else:
@@ -310,8 +311,21 @@ class NavigationFSM:
         # 1. Determine how much is left to turn
         if self.imu:
             # IMU: Calculate remaining angle based on gyro integration
+            # Sign convention analysis:
+            # - Camera bearing: positive = target is RIGHT of center
+            # - Motor logic: positive remaining_turn = turn RIGHT (left wheel forward)
+            # - IMU heading: positive = counterclockwise (LEFT), negative = clockwise (RIGHT)
+            # 
+            # When target is RIGHT (positive bearing), we turn RIGHT (clockwise).
+            # Turning RIGHT makes heading go NEGATIVE.
+            # We want remaining_turn to approach 0 as we reach the target.
+            # 
+            # remaining_turn = target + heading
+            # - Start: target = +X, heading = 0, remaining = +X (turn right)
+            # - Mid:   target = +X, heading = -X/2, remaining = +X/2 (keep turning)
+            # - End:   target = +X, heading = -X, remaining = 0 (done!)
             current_heading = self.imu.get_heading()
-            remaining_turn = self.target_imu_rotation - current_heading
+            remaining_turn = self.target_imu_rotation + current_heading
             threshold = 0.05  # ~3 degrees precision for IMU
         else:
             # Fallback: Use camera bearing
