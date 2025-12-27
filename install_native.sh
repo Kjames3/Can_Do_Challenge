@@ -36,15 +36,13 @@ apt-get install -y \
     libopencv-dev \
     i2c-tools \
     libi2c-dev \
-    libatlas-base-dev \
+    libopenblas-dev \
     libhdf5-dev \
-    libhdf5-serial-dev \
     libharfbuzz0b \
     libwebp-dev \
     libtiff5-dev \
-    libjasper-dev \
-    libilmbase-dev \
     libopenexr-dev \
+    libimath-dev \
     libgstreamer1.0-dev \
     libavcodec-dev \
     libavformat-dev \
@@ -55,7 +53,8 @@ apt-get install -y \
     libjpeg-dev \
     libpng-dev \
     libcap-dev \
-    python3-picamera2
+    python3-picamera2 \
+    python3-kms++
 
 echo "  ✓ System dependencies installed"
 echo ""
@@ -88,7 +87,7 @@ VENV_PATH="/home/$REAL_USER/Can_Do_Challenge/.venv"
 
 echo "[3/5] Setting up Python virtual environment..."
 if [ ! -d "$VENV_PATH" ]; then
-    sudo -u $REAL_USER python3 -m venv "$VENV_PATH"
+    sudo -u $REAL_USER python3 -m venv --system-site-packages "$VENV_PATH"
     echo "  ✓ Virtual environment created at $VENV_PATH"
 else
     echo "  ✓ Virtual environment already exists"
