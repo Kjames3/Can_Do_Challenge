@@ -290,9 +290,12 @@ class NavigationFSM:
                 # IMU Pre-calculation: Lock in turn amount
                 if self.imu:
                     # Reset IMU "zero" to now. We want to turn exactly 'avg_bearing' amount.
+                    # NOTE: Camera bearing is positive when target is RIGHT
+                    # BUT IMU heading increases for counterclockwise (LEFT) rotation
+                    # So we NEGATE the bearing to get the correct turn direction
                     self.imu.reset_heading()
-                    self.target_imu_rotation = avg_bearing
-                    print(f"  → ROTATE (IMU Precision Turn: {np.degrees(avg_bearing):.1f}°)")
+                    self.target_imu_rotation = -avg_bearing  # Negate for correct direction!
+                    print(f"  → ROTATE (IMU Precision Turn: {np.degrees(avg_bearing):.1f}° camera, {np.degrees(-avg_bearing):.1f}° IMU target)")
                 else:
                     print(f"  → ROTATE (Camera Reactive Turn: {np.degrees(avg_bearing):.1f}°)")
             else:

@@ -71,34 +71,55 @@
            Layout
            ================================================================= */
         .app-container {
-            max-width: 100%;
-            margin: 0 auto;
-            padding: 1rem 2rem;
-            min-height: 100%;
-        }
-
-        /* Full-width camera section */
-        .camera-section {
             width: 100%;
-            margin-bottom: 1.5rem;
+            max-width: 100%;
+            margin: 0;
+            padding: 0.5rem;
+            min-height: 100%;
+            box-sizing: border-box;
         }
 
-        /* Horizontal controls row */
-        .controls-row {
-            display: grid;
-            grid-template-columns: 1fr;
+        /* Combined controls card with 3 sections */
+        .combined-controls {
+            display: flex;
+            flex-direction: column;
             gap: 1rem;
         }
 
         @media (min-width: 992px) {
-            .controls-row {
-                grid-template-columns: 2fr 1fr 1fr;
+            .combined-controls {
+                flex-direction: row;
+            }
+
+            .combined-controls>.control-section-item {
+                flex: 1;
+            }
+
+            .combined-controls>.control-section-item.motor-control-section {
+                flex: 1.5;
             }
         }
 
-        @media (min-width: 1400px) {
+        .control-section-item {
+            padding: 1rem;
+            border-right: 1px solid var(--border-color);
+        }
+
+        .control-section-item:last-child {
+            border-right: none;
+        }
+
+        /* Horizontal controls row for bottom items */
+        .controls-row {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        @media (min-width: 992px) {
             .controls-row {
-                grid-template-columns: 1.5fr 1fr 1fr;
+                grid-template-columns: 1fr 1fr;
             }
         }
 
@@ -955,68 +976,68 @@
             </div>
         </header>
 
-        <!-- Main Content -->
-        <div class="main-grid">
-            <!-- Left Column: Camera & Detection -->
-            <div>
-                <div class="card">
-                    <div class="card-header">
-                        <h2><span class="icon">📹</span> Camera Feed</h2>
-                        <div style="display: flex; align-items: center; gap: 1rem;">
-                            <button id="capture-btn" class="btn btn-primary"
-                                style="padding: 0.4rem 0.8rem; font-size: 0.75rem;" title="Capture image for training">
-                                📸 Capture
-                            </button>
-                            <span id="capture-count" style="font-size: 0.75rem; color: var(--text-secondary);">0
-                                saved</span>
-                            <div class="toggle-wrapper">
-                                <span class="toggle-label">Detection</span>
-                                <div id="detection-toggle" class="toggle" title="Toggle object detection"></div>
-                            </div>
-                        </div>
+        <!-- Camera Feed (Full Width) -->
+        <div class="card">
+            <div class="card-header">
+                <h2><span class="icon">📹</span> Camera Feed</h2>
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <button id="capture-btn" class="btn btn-primary" style="padding: 0.4rem 0.8rem; font-size: 0.75rem;"
+                        title="Capture image for training">
+                        📸 Capture
+                    </button>
+                    <span id="capture-count" style="font-size: 0.75rem; color: var(--text-secondary);">0
+                        saved</span>
+                    <div class="toggle-wrapper">
+                        <span class="toggle-label">Detection</span>
+                        <div id="detection-toggle" class="toggle" title="Toggle object detection"></div>
                     </div>
-                    <div class="card-body">
-                        <img id="camera-feed" class="camera-feed" alt="Camera feed" style="display: none;">
-                        <div id="camera-placeholder" class="camera-placeholder">
-                            Waiting for camera feed...
-                        </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <img id="camera-feed" class="camera-feed" alt="Camera feed" style="display: none;">
+                <div id="camera-placeholder" class="camera-placeholder">
+                    Waiting for camera feed...
+                </div>
 
-                        <!-- FPS Display Overlay -->
-                        <div id="fps-display" class="fps-display"
-                            style="display: none; margin-top: 0.5rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: var(--radius-sm); font-family: monospace;">
-                            <span style="color: var(--success);">📷 Camera: <strong id="fps-camera">0</strong>
-                                FPS</span>
-                            <span id="fps-detection-wrapper" style="margin-left: 1rem; display: none;">
-                                <span style="color: var(--warning);">🔍 YOLO: <strong id="fps-detection">0</strong>
-                                    FPS</span>
-                            </span>
-                        </div>
+                <!-- FPS Display Overlay -->
+                <div id="fps-display" class="fps-display"
+                    style="display: none; margin-top: 0.5rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: var(--radius-sm); font-family: monospace;">
+                    <span style="color: var(--success);">📷 Camera: <strong id="fps-camera">0</strong>
+                        FPS</span>
+                    <span id="fps-detection-wrapper" style="margin-left: 1rem; display: none;">
+                        <span style="color: var(--warning);">🔍 YOLO: <strong id="fps-detection">0</strong>
+                            FPS</span>
+                    </span>
+                </div>
 
-                        <!-- Detection Results -->
-                        <div id="detection-panel" class="detection-panel" style="display: none;">
-                            <div class="detection-header">
-                                <span class="detection-count">
-                                    <strong id="detection-count">0</strong> objects detected
-                                </span>
-                            </div>
-                            <div id="detection-list" class="detection-list">
-                                <div class="no-detections">No objects detected</div>
-                            </div>
-                        </div>
+                <!-- Detection Results -->
+                <div id="detection-panel" class="detection-panel" style="display: none;">
+                    <div class="detection-header">
+                        <span class="detection-count">
+                            <strong id="detection-count">0</strong> objects detected
+                    </div>
+                    <div id="detection-list" class="detection-list">
+                        <div class="no-detections">No objects detected</div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Controls Row: Motor Control, Motor Status, Position side by side -->
-        <div class="controls-row">
-            <!-- Motor Controls -->
-            <div class="card">
-                <div class="card-header">
-                    <h2><span class="icon">🎮</span> Motor Control</h2>
+        <!-- Combined Controls Card: Motor Control + Status + Position all in one -->
+        <div class="card" style="margin-top: 0.5rem;">
+            <div class="card-header">
+                <h2><span class="icon">🎮</span> Controls & Status</h2>
+                <!-- Controller Status inline -->
+                <div id="controller-status"
+                    style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">
+                    <span>🎮</span>
+                    <span id="controller-name">No controller</span>
                 </div>
-                <div class="card-body">
-                    <div class="control-section">
+            </div>
+            <div class="card-body">
+                <div class="combined-controls">
+                    <!-- Motor Control Section -->
+                    <div class="control-section-item motor-control-section">
                         <div class="sliders-container">
                             <div class="slider-group">
                                 <span class="slider-label">LEFT</span>
@@ -1029,43 +1050,18 @@
                                 <span id="left-slider-value" class="slider-value">0</span>
                             </div>
 
-                            <div
-                                style="display: flex; flex-direction: column; gap: 1rem; align-items: center; z-index: 10;">
+                            <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center;">
                                 <button id="stop-btn" class="stop-btn">STOP</button>
-                                <div id="auto-drive-wrapper">
-                                    <button id="auto-drive-btn" class="btn btn-primary" style="width: 100%;">
-                                        Start Auto-Drive
-                                    </button>
-                                </div>
-
-                                <!-- WASD Panel -->
-                                <div class="wasd-panel">
-                                    <div class="control-header">
-                                        <span>Quick move</span>
-                                        <div style="display:flex; gap:0.5rem; align-items:center;">
-                                            <small style="font-size:0.7rem;">WASD</small>
-                                            <label class="switch">
-                                                <input type="checkbox" id="keyboard-toggle">
-                                                <span class="slider round"></span>
-                                            </label>
-                                        </div>
-                                    </div>
-
-                                    <div class="d-pad">
-                                        <button class="d-btn" id="btn-w">↑</button>
-                                        <button class="d-btn" id="btn-a">↶</button>
-                                        <button class="d-btn" id="btn-s">↓</button>
-                                        <button class="d-btn" id="btn-d">↷</button>
-                                    </div>
-
-                                    <div class="power-setting">
-                                        <div style="display:flex; justify-content:space-between; font-size:0.8rem;">
-                                            <span>Power</span>
-                                            <span id="key-power-val" class="power-val">0.5</span>
-                                        </div>
-                                        <input type="range" id="key-power" class="h-slider" min="0.1" max="1.0"
-                                            step="0.1" value="0.5">
-                                    </div>
+                                <button id="auto-drive-btn" class="btn btn-primary"
+                                    style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                                    Auto-Drive
+                                </button>
+                                <!-- Compact WASD -->
+                                <div class="d-pad" style="transform: scale(0.8);">
+                                    <button class="d-btn" id="btn-w">↑</button>
+                                    <button class="d-btn" id="btn-a">↶</button>
+                                    <button class="d-btn" id="btn-s">↓</button>
+                                    <button class="d-btn" id="btn-d">↷</button>
                                 </div>
                             </div>
 
@@ -1080,66 +1076,56 @@
                                 <span id="right-slider-value" class="slider-value">0</span>
                             </div>
                         </div>
+                    </div>
 
-                        <!-- Controller Status -->
-                        <div id="controller-status" class="controller-status">
-                            <span class="controller-icon">🎮</span>
-                            <div class="controller-info">
-                                <div id="controller-name" class="controller-info-name text-muted">No controller
-                                    detected</div>
-                                <div class="controller-info-hint">🕹️ Right Stick: Drive • ✖ E-Stop • ◻ Detection •
-                                    △ Auto-Drive</div>
+                    <!-- Motor Status Section -->
+                    <div class="control-section-item">
+                        <h3 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; color: var(--text-secondary);">📊 Status
+                        </h3>
+                        <div class="motor-grid">
+                            <div class="motor-card">
+                                <h3>Left</h3>
+                                <div id="left-pos" class="motor-value">0.00</div>
+                                <div class="motor-label">rev</div>
+                                <div id="left-power" class="motor-value mt-1">0%</div>
+                            </div>
+                            <div class="motor-card">
+                                <h3>Right</h3>
+                                <div id="right-pos" class="motor-value">0.00</div>
+                                <div class="motor-label">rev</div>
+                                <div id="right-power" class="motor-value mt-1">0%</div>
+                            </div>
+                        </div>
+                        <!-- FPS Stats -->
+                        <div
+                            style="margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid var(--border-color);">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.8rem;">
+                                <span style="color: var(--accent-green);">📷 <span id="fps-camera-inline">0</span>
+                                    FPS</span>
+                                <span style="color: var(--warning);">🔍 <span id="fps-yolo-inline">0</span> FPS</span>
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
-        </div>
 
-        <!-- Motor Status (now in controls-row) -->
-        <div class="card">
-            <div class="card-header">
-                <h2><span class="icon">📊</span> Motor Status</h2>
-            </div>
-            <div class="card-body">
-                <div class="motor-grid">
-                    <div class="motor-card">
-                        <h3>Left Motor</h3>
-                        <div id="left-pos" class="motor-value">0.00</div>
-                        <div class="motor-label">Position (rev)</div>
-                        <div id="left-power" class="motor-value mt-1">0%</div>
-                        <div class="motor-label">Power</div>
-                    </div>
-                    <div class="motor-card">
-                        <h3>Right Motor</h3>
-                        <div id="right-pos" class="motor-value">0.00</div>
-                        <div class="motor-label">Position (rev)</div>
-                        <div id="right-power" class="motor-value mt-1">0%</div>
-                        <div class="motor-label">Power</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Position Display (now in controls-row) -->
-            <div class="card">
-                <div class="card-header">
-                    <h2><span class="icon">📍</span> Position</h2>
-                </div>
-                <div class="card-body">
-                    <div class="motor-grid">
-                        <div class="motor-card">
-                            <h3>Robot</h3>
-                            <div id="robot-x" class="motor-value" style="font-size: 1rem;">X: 0.0</div>
-                            <div id="robot-y" class="motor-value" style="font-size: 1rem;">Y: 0.0</div>
-                            <div id="robot-theta" class="motor-value"
-                                style="font-size: 0.85rem; color: var(--text-secondary);">θ: 0.0°</div>
-                        </div>
-                        <div class="motor-card">
-                            <h3>Target</h3>
-                            <div id="target-x" class="motor-value" style="font-size: 1rem;">X: --</div>
-                            <div id="target-y" class="motor-value" style="font-size: 1rem;">Y: --</div>
-                            <div id="target-dist" class="motor-value"
-                                style="font-size: 0.85rem; color: var(--accent-green);">Dist: --</div>
+                    <!-- Position Section -->
+                    <div class="control-section-item">
+                        <h3 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; color: var(--text-secondary);">📍 Position
+                        </h3>
+                        <div class="motor-grid">
+                            <div class="motor-card">
+                                <h3>Robot</h3>
+                                <div id="robot-x" class="motor-value" style="font-size: 0.9rem;">X: 0.0</div>
+                                <div id="robot-y" class="motor-value" style="font-size: 0.9rem;">Y: 0.0</div>
+                                <div id="robot-theta" class="motor-value"
+                                    style="font-size: 0.75rem; color: var(--text-secondary);">θ: 0.0°</div>
+                            </div>
+                            <div class="motor-card">
+                                <h3>Target</h3>
+                                <div id="target-x" class="motor-value" style="font-size: 0.9rem;">X: --</div>
+                                <div id="target-y" class="motor-value" style="font-size: 0.9rem;">Y: --</div>
+                                <div id="target-dist" class="motor-value"
+                                    style="font-size: 0.75rem; color: var(--accent-green);">Dist: --</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1559,17 +1545,24 @@
             const fpsCameraEl = document.getElementById('fps-camera');
             const fpsDetectionEl = document.getElementById('fps-detection');
             const fpsDetectionWrapper = document.getElementById('fps-detection-wrapper');
+            const fpsCameraInline = document.getElementById('fps-camera-inline');
+            const fpsYoloInline = document.getElementById('fps-yolo-inline');
 
             if (data.fps_camera !== undefined && fpsDisplay) {
                 fpsDisplay.style.display = 'block';
                 fpsCameraEl.textContent = data.fps_camera.toFixed(1);
 
+                // Also update inline FPS in Status section
+                if (fpsCameraInline) fpsCameraInline.textContent = data.fps_camera.toFixed(0);
+
                 // Show YOLO FPS only when detection is enabled
                 if (data.detection_enabled && data.fps_detection !== undefined) {
                     fpsDetectionWrapper.style.display = 'inline';
                     fpsDetectionEl.textContent = data.fps_detection.toFixed(1);
+                    if (fpsYoloInline) fpsYoloInline.textContent = data.fps_detection.toFixed(0);
                 } else {
                     fpsDetectionWrapper.style.display = 'none';
+                    if (fpsYoloInline) fpsYoloInline.textContent = '--';
                 }
             }
 
@@ -2244,14 +2237,13 @@
             state.detectionEnabled = newState;
             elements.detectionToggle.classList.toggle('active', newState);
 
-            // Toggle Auto-Drive Button
-            if (newState) {
-                elements.autoDriveWrapper.classList.add('visible');
-            } else {
-                elements.autoDriveWrapper.classList.remove('visible');
-                // Also stop auto-drive if we disabled detection?
-                // Typically yes, but user might want manual control.
-                // Let's leave state alone but hide button.
+            // Toggle Auto-Drive Button visibility (if wrapper exists)
+            if (elements.autoDriveWrapper) {
+                if (newState) {
+                    elements.autoDriveWrapper.classList.add('visible');
+                } else {
+                    elements.autoDriveWrapper.classList.remove('visible');
+                }
             }
 
             state.ws.send(JSON.stringify({
