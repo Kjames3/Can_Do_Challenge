@@ -583,86 +583,122 @@ class NativeIMU:
 
 
 # =============================================================================
-# CAMERA CLASS (OpenCV)
+# CAMERA CLASS (picamera2 for CSI cameras, OpenCV fallback for USB)
 # =============================================================================
 
 class NativeCamera:
     """
-    Direct camera access via OpenCV VideoCapture.
-    Much faster than Viam's network-based approach.
+    Camera access supporting both CSI (picamera2) and USB (OpenCV) cameras.
+    Automatically detects which to use based on availability.
     """
     
-    def __init__(self, device=0, width=640, height=480):
+    def __init__(self, device=0, width=1280, height=720):
         self.width = width
         self.height = height
-        self.cap = None
         self._frame = None
         self._frame_lock = threading.Lock()
         self._running = False
         self._thread = None
+        self._use_picamera2 = False
+        self.picam2 = None
+        self.cap = None
         
         if SIM_MODE:
             return
         
-        # Try device path first, then index
-        if isinstance(device, str):
-            self.cap = cv2.VideoCapture(device)
+        # Try picamera2 first (for CSI cameras like IMX708)
+        try:
+            from picamera2 import Picamera2
+            self.picam2 = Picamera2()
+            
+            # Configure for video capture
+            config = self.picam2.create_preview_configuration(
+                main={"size": (width, height), "format": "RGB888"},
+                buffer_count=2
+            )
+            self.picam2.configure(config)
+            self.picam2.start()
+            
+            self._use_picamera2 = True
+            print(f"  ✓ Camera (picamera2): {width}x{height}")
+            
+        except Exception as e:
+            print(f"  ⚠ picamera2 failed: {e}")
+            print(f"  → Trying OpenCV fallback...")
+            
+            # Fallback to OpenCV for USB cameras
+            if isinstance(device, str):
+                self.cap = cv2.VideoCapture(device)
+                if not self.cap.isOpened():
+                    print(f"  ⚠ Camera path {device} failed, trying index 0")
+                    self.cap = cv2.VideoCapture(0)
+            else:
+                self.cap = cv2.VideoCapture(device)
+            
             if not self.cap.isOpened():
-                print(f"  ⚠ Camera path {device} failed, trying index 0")
-                self.cap = cv2.VideoCapture(0)
-        else:
-            self.cap = cv2.VideoCapture(device)
+                print("  ✗ Failed to open camera")
+                return
+            
+            # Use MJPEG format for faster capture
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            self.cap.set(cv2.CAP_PROP_FOURCC, fourcc)
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+            self.cap.set(cv2.CAP_PROP_FPS, 30)
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            
+            # Flush initial stale frames
+            for _ in range(5):
+                self.cap.grab()
+            
+            print(f"  ✓ Camera (OpenCV): {width}x{height}")
         
-        if not self.cap.isOpened():
-            print("  ✗ Failed to open camera")
-            return
-        
-        # Use MJPEG format for faster capture and less tearing
-        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        self.cap.set(cv2.CAP_PROP_FOURCC, fourcc)
-        
-        # Set resolution
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        self.cap.set(cv2.CAP_PROP_FPS, 30)
-        
-        # Reduce buffer size to minimize tearing (only keep 1 frame in buffer)
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        
-        # Flush initial stale frames from the buffer
-        for _ in range(5):
-            self.cap.grab()
-        
-        # Start capture thread for non-blocking reads
+        # Start capture thread
         self._running = True
         self._thread = threading.Thread(target=self._capture_loop, daemon=True)
         self._thread.start()
-        
-        print(f"  ✓ Camera: {width}x{height} (MJPEG, buffer=1)")
     
     def _capture_loop(self):
         """Background thread that continuously captures frames."""
         frame_errors = 0
         frame_ok_count = 0
+        
         while self._running:
             try:
-                ret, frame = self.cap.read()
-                if ret:
+                if self._use_picamera2 and self.picam2:
+                    # picamera2 capture (returns RGB, need to convert to BGR for OpenCV)
+                    frame_rgb = self.picam2.capture_array()
+                    frame = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
                     with self._frame_lock:
                         self._frame = frame
                     frame_ok_count += 1
-                    frame_errors = 0  # Reset on success
-                    # Log first successful frame
+                    frame_errors = 0
                     if frame_ok_count == 1:
                         print(f"  ✓ Camera: First frame captured successfully")
+                        
+                elif self.cap:
+                    # OpenCV capture
+                    ret, frame = self.cap.read()
+                    if ret:
+                        with self._frame_lock:
+                            self._frame = frame
+                        frame_ok_count += 1
+                        frame_errors = 0
+                        if frame_ok_count == 1:
+                            print(f"  ✓ Camera: First frame captured successfully")
+                    else:
+                        frame_errors += 1
+                        if frame_errors == 10:
+                            print(f"  ⚠ Camera: Failed to read frame (10 consecutive failures)")
                 else:
-                    frame_errors += 1
-                    if frame_errors == 10:
-                        print(f"  ⚠ Camera: Failed to read frame (10 consecutive failures)")
+                    time.sleep(0.1)
+                    continue
+                    
             except Exception as e:
                 frame_errors += 1
                 if frame_errors == 1:
                     print(f"  ⚠ Camera capture error: {e}")
+            
             time.sleep(0.001)  # Small sleep to prevent CPU spinning
     
     def get_frame(self):
@@ -692,6 +728,12 @@ class NativeCamera:
         self._running = False
         if self._thread:
             self._thread.join(timeout=1.0)
+        if self.picam2:
+            try:
+                self.picam2.stop()
+                self.picam2.close()
+            except:
+                pass
         if self.cap:
             self.cap.release()
 
