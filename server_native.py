@@ -606,16 +606,23 @@ class NativeCamera:
         if SIM_MODE:
             return
         
-        # Try libcamera-vid first (for CSI cameras like IMX708 on Pi 5)
+        # Try rpicam-vid first (for CSI cameras like IMX708 on Pi 5)
+        # Note: Pi 5 uses 'rpicam-vid', older Pi uses 'libcamera-vid'
         try:
             import subprocess
             import shutil
             
-            # Check if libcamera-vid is available
-            if shutil.which('libcamera-vid'):
-                # Start libcamera-vid streaming raw frames to stdout
+            # Check for rpicam-vid (Pi 5) or libcamera-vid (older Pi)
+            vid_cmd = None
+            if shutil.which('rpicam-vid'):
+                vid_cmd = 'rpicam-vid'
+            elif shutil.which('libcamera-vid'):
+                vid_cmd = 'libcamera-vid'
+            
+            if vid_cmd:
+                # Start streaming raw frames to stdout
                 cmd = [
-                    'libcamera-vid',
+                    vid_cmd,
                     '-t', '0',  # Run indefinitely
                     '--width', str(width),
                     '--height', str(height),
@@ -634,9 +641,9 @@ class NativeCamera:
                 
                 self._use_libcamera = True
                 self._yuv_size = width * height * 3 // 2
-                print(f"  ✓ Camera (libcamera-vid): {width}x{height}")
+                print(f"  ✓ Camera ({vid_cmd}): {width}x{height}")
             else:
-                raise Exception("libcamera-vid not found")
+                raise Exception("rpicam-vid/libcamera-vid not found")
                 
         except Exception as e:
             print(f"  ⚠ libcamera failed: {e}")
