@@ -433,6 +433,60 @@ async def handle_client(websocket):
                                 "distance_cm": distance_cm
                             }))
                             
+                elif msg_type == "download_images":
+                    # Zip all training images and send to client
+                    import zipfile
+                    import io
+                    from datetime import datetime
+                    
+                    base_dir = "training_images"
+                    
+                    if not os.path.exists(base_dir):
+                        await websocket.send(json.dumps({
+                            "type": "download_images_response",
+                            "success": False,
+                            "error": "No training_images folder found"
+                        }))
+                    else:
+                        # Create zip in memory
+                        zip_buffer = io.BytesIO()
+                        image_count = 0
+                        
+                        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+                            for root, dirs, files in os.walk(base_dir):
+                                for file in files:
+                                    if file.endswith(('.jpg', '.jpeg', '.png', '.json')):
+                                        filepath = os.path.join(root, file)
+                                        # Preserve folder structure in zip
+                                        arcname = os.path.relpath(filepath, base_dir)
+                                        zf.write(filepath, arcname)
+                                        if file.endswith(('.jpg', '.jpeg', '.png')):
+                                            image_count += 1
+                        
+                        if image_count == 0:
+                            await websocket.send(json.dumps({
+                                "type": "download_images_response",
+                                "success": False,
+                                "error": "No images found in training_images folder"
+                            }))
+                        else:
+                            # Convert to base64
+                            zip_buffer.seek(0)
+                            zip_b64 = base64.b64encode(zip_buffer.read()).decode('utf-8')
+                            
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                            filename = f"training_images_{timestamp}.zip"
+                            
+                            print(f"📦 Sending {image_count} images as {filename}")
+                            
+                            await websocket.send(json.dumps({
+                                "type": "download_images_response",
+                                "success": True,
+                                "zip_data": zip_b64,
+                                "filename": filename,
+                                "image_count": image_count
+                            }))
+                            
             except Exception as e:
                 print(f"Message handling error: {e}")
                 

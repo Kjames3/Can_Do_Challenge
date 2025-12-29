@@ -987,6 +987,11 @@
                     </button>
                     <span id="capture-count" style="font-size: 0.75rem; color: var(--text-secondary);">0
                         saved</span>
+                    <button id="download-images-btn" class="btn"
+                        style="padding: 0.4rem 0.8rem; font-size: 0.75rem; background: var(--bg-tertiary); border: 1px solid var(--border-color);"
+                        title="Download all captured images as ZIP">
+                        💾 Download All
+                    </button>
                     <div class="toggle-wrapper">
                         <span class="toggle-label">Detection</span>
                         <div id="detection-toggle" class="toggle" title="Toggle object detection"></div>
@@ -1384,6 +1389,7 @@
             // Image Capture
             captureBtn: document.getElementById('capture-btn'),
             captureCount: document.getElementById('capture-count'),
+            downloadImagesBtn: document.getElementById('download-images-btn'),
 
             autoDriveWrapper: document.getElementById('auto-drive-wrapper'),
 
@@ -1482,6 +1488,35 @@
                         const category = data.category || "saved";
                         const dist = data.distance_cm ? ` (${Math.round(data.distance_cm)}cm)` : "";
                         elements.captureCount.textContent = `${data.count} total • ${category}${dist}`;
+                    } else if (data.type === "download_images_response") {
+                        // Reset button state
+                        elements.downloadImagesBtn.disabled = false;
+                        elements.downloadImagesBtn.textContent = '💾 Download All';
+
+                        if (data.success && data.zip_data) {
+                            // Convert base64 to blob and trigger download
+                            const byteCharacters = atob(data.zip_data);
+                            const byteNumbers = new Array(byteCharacters.length);
+                            for (let i = 0; i < byteCharacters.length; i++) {
+                                byteNumbers[i] = byteCharacters.charCodeAt(i);
+                            }
+                            const byteArray = new Uint8Array(byteNumbers);
+                            const blob = new Blob([byteArray], { type: 'application/zip' });
+
+                            // Create download link
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = data.filename || 'training_images.zip';
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+
+                            console.log(`Downloaded ${data.image_count} images`);
+                        } else {
+                            alert(data.error || 'No images to download');
+                        }
                     }
                 } catch (e) {
                     console.error("Message parse error:", e);
@@ -2263,6 +2298,16 @@
                 elements.captureBtn.disabled = false;
                 elements.captureBtn.textContent = '📸 Capture';
             }, 500);
+        });
+
+        // Download Images Button
+        elements.downloadImagesBtn.addEventListener('click', () => {
+            if (!state.connected) return;
+
+            // Request image download from server
+            elements.downloadImagesBtn.disabled = true;
+            elements.downloadImagesBtn.textContent = '⏳ Preparing...';
+            state.ws.send(JSON.stringify({ type: "download_images" }));
         });
 
         // Disconnect Button
