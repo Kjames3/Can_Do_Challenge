@@ -96,8 +96,8 @@ TARGET_CLASSES = [0]  # 0=can
 
 # Camera Settings
 CAMERA_HFOV_DEG = 66.0  # IMX708 Standard FOV
-IMAGE_WIDTH = 1280
-IMAGE_HEIGHT = 720
+IMAGE_WIDTH = 1536
+IMAGE_HEIGHT = 864
 
 # Performance Settings
 VIDEO_FPS_CAP = 20

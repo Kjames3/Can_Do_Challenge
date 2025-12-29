@@ -25,8 +25,9 @@ KNOWN_HEIGHT_CAN_CM = 12.0  # Standard 12oz/355ml Coke can
 DEFAULT_TEST_DIST_CM = 50.0 # Standard calibration distance
 
 # Camera Settings (Must match server_native.py)
-IMAGE_WIDTH = 1280
-IMAGE_HEIGHT = 720
+# NEW (Update to match your target resolution)
+IMAGE_WIDTH = 1536
+IMAGE_HEIGHT = 864
 
 def main():
     parser = argparse.ArgumentParser(description='Calibrate Camera Focal Length')
