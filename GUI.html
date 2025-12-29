@@ -2520,11 +2520,22 @@
         const keysPressed = {};
 
         window.addEventListener('keydown', (e) => {
-            if (!state.connected || state.isAutoDriving) return;
-            // Only if toggle is ON
-            if (!elements.keyboardToggle.checked) return;
+            if (!state.connected) return;
 
             const key = e.key.toLowerCase();
+
+            // Spacebar = Capture Image
+            if (key === ' ' || e.code === 'Space') {
+                e.preventDefault(); // Prevent page scroll
+                if (!elements.captureBtn.disabled) {
+                    elements.captureBtn.click();
+                }
+                return;
+            }
+
+            // Movement keys - ignore if auto-driving
+            if (state.isAutoDriving) return;
+
             if (keysPressed[key]) return; // Ignore repeat
             keysPressed[key] = true;
 
@@ -2555,23 +2566,20 @@
             if (key === 'a' || key === 'arrowleft') elements.btnA.classList.remove('active');
             if (key === 'd' || key === 'arrowright') elements.btnD.classList.remove('active');
 
-            // If toggle is off, ignore
-            if (!elements.keyboardToggle.checked) return;
+            // Ignore spacebar (handled in keydown)
+            if (key === ' ' || e.code === 'Space') return;
 
-            // Simple stop on key up logic might be glitchy if multiple keys held.
-            // For robust WASD, usually check state of all keys.
-            // But for simple "Quick move", we usually just stop if the primary key is lifted.
-            // Or check if ANY move keys are still down?
+            // Ignore if auto-driving
+            if (state.isAutoDriving) return;
 
+            // Check if ANY move keys are still down
             const moveKeys = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'];
             const anyPressed = moveKeys.some(k => keysPressed[k]);
 
             if (!anyPressed) {
                 stopMove();
             } else {
-                // Re-evaluate?
-                // E.g. Holding W and A, release A -> Should continue W?
-                // For now, Keep it simple. If I release A but W is held, I might want to go back to Forward.
+                // Re-evaluate which direction to go based on remaining held keys
                 if (keysPressed['w'] || keysPressed['arrowup']) sendMove(1, 1);
                 else if (keysPressed['s'] || keysPressed['arrowdown']) sendMove(-1, -1);
                 else if (keysPressed['a'] || keysPressed['arrowleft']) sendMove(-1, 1);
