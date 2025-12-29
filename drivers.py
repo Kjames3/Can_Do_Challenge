@@ -731,7 +731,7 @@ class NativePowerSensor:
     
     # Battery voltage thresholds (4S LiPo)
     VOLTAGE_FULL = 16.0  # 4.0V per cell
-    VOLTAGE_EMPTY = 13.9  # 3.475V per cell (safe cutoff)
+    VOLTAGE_EMPTY = 12.5  # ~3.1V per cell (safe cutoff)
     
     def __init__(self, sim_mode=False, name="power"):
         self.name = name
