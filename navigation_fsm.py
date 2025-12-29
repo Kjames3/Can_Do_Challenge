@@ -127,6 +127,9 @@ class NavigationFSM:
         self.BLIND_THRESHOLD_CM = 20.0  # If lost within this distance, drive blind
         self.target_lost_time = 0.0  # When we lost the target
         self.COAST_TIME_LIMIT = 0.3  # How long to wait before blind approach
+        
+        # Dynamic focus tracking (prevents flooding camera with identical commands)
+        self.last_focus_val = -1.0
     
     @property
     def state_summary(self) -> str:
@@ -303,15 +306,23 @@ class NavigationFSM:
         det_distance = detection['distance_cm']
         self.last_valid_distance = det_distance
 
-        # ZONE FOCUSING LOGIC
+        # DYNAMIC FOCUSING LOGIC
         # Only set focus if we have the new camera driver
         if hasattr(self.camera, 'set_focus'):
-            if det_distance > 80:
-                self.camera.set_focus(0.0)  # Infinity (Search/Far)
-            elif det_distance > 30:
-                self.camera.set_focus(4.0)  # Mid-range
+            # Approximate relationship: LensPosition = 100 / distance_cm
+            # 100cm -> 1.0, 25cm -> 4.0, 10cm -> 10.0
+            
+            # Calculate ideal focus value
+            if det_distance > 100:
+                new_focus = 0.0  # Infinity
             else:
-                self.camera.set_focus(8.0)  # Macro (Grab)
+                # Constrain between 0.0 and 12.0 to be safe
+                new_focus = max(0.0, min(12.0, 100.0 / det_distance))
+            
+            # Only apply if value changed significantly (0.2 tolerance) to prevent driver flooding
+            if abs(new_focus - self.last_focus_val) > 0.2:
+                self.camera.set_focus(new_focus)
+                self.last_focus_val = new_focus
 
         det_center_x = detection.get('center_x', self.config.frame_width / 2)
         

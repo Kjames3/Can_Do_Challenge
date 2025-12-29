@@ -120,6 +120,9 @@ pip install pigpio || echo "Note: pigpio install optional"
 # I2C for IMU
 pip install smbus2
 
+# Power sensor (INA219)
+pip install pi-ina219
+
 # LIDAR (if using rplidar)
 pip install rplidar-roboticia || echo "Note: rplidar optional"
 
