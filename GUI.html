@@ -2548,10 +2548,12 @@
         // WASD / D-PAD LOGIC
         // =================================================================
 
-        // Power Slider
-        elements.keyPower.addEventListener('input', (e) => {
-            elements.keyPowerVal.textContent = e.target.value;
-        });
+        // Power Slider (optional - may not exist in all layouts)
+        if (elements.keyPower) {
+            elements.keyPower.addEventListener('input', (e) => {
+                if (elements.keyPowerVal) elements.keyPowerVal.textContent = e.target.value;
+            });
+        }
 
         // Helper to send move command
         function sendMove(leftMult, rightMult) {

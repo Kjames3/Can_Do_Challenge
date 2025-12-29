@@ -46,8 +46,8 @@ class NavigationConfig:
     # Motor speeds (higher = fewer small movements = fewer API calls)
     rotate_speed: float = 0.28            # Tank turn speed
     pivot_speed: float = 0.25             # Pivot turn speed
-    drive_speed: float = 0.35             # Forward drive speed (increased from 0.22)
-    search_speed: float = 0.30            # Search rotation speed (was 0.22)
+    drive_speed: float = 0.50             # Forward drive speed (increased for faster approach)
+    search_speed: float = 0.20            # Search rotation speed (slowed to not miss objects)
     backup_speed: float = 0.25            # Backup speed for avoiding
     
     # Camera (IMX708 - Pi Camera Module 3)
