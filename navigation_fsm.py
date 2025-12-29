@@ -35,8 +35,8 @@ class ApproachPhase:
 class NavigationConfig:
     """Configuration for navigation behavior"""
     # Target distance
-    target_distance_cm: float = 15.0
-    dist_threshold_cm: float = 3.0
+    target_distance_cm: float = 5.0   # Stop this close to target (gripper range)
+    dist_threshold_cm: float = 2.0    # Tolerance (+/- 2cm)
     
     # Bearing thresholds (radians)
     bearing_threshold: float = 0.20       # ~11.5° - relaxed to reduce oscillation
@@ -119,6 +119,14 @@ class NavigationFSM:
         self.on_state_change = None
         self.on_arrived = None
         self.on_returned = None  # Called when returned to start
+        
+        # Blind drive mode (for when target is lost at close range)
+        self.blind_drive_start_pos = None  # (x, y) when blind drive started
+        self.blind_drive_target_dist = 0.0  # How far to drive blindly
+        self.last_valid_distance = 0.0  # Last known target distance
+        self.BLIND_THRESHOLD_CM = 20.0  # If lost within this distance, drive blind
+        self.target_lost_time = 0.0  # When we lost the target
+        self.COAST_TIME_LIMIT = 0.3  # How long to wait before blind approach
     
     @property
     def state_summary(self) -> str:
@@ -249,12 +257,51 @@ class NavigationFSM:
     
     async def _handle_approaching(self, detection: dict):
         """APPROACHING: 3-phase approach (ACQUIRE → ROTATE → DRIVE)"""
+        
+        # Check if we have a valid detection
         if not detection or not detection.get('distance_cm'):
-            # Lost target - stop motors but don't change state yet
+            # Lost target!
+            time_since_loss = time.time() - self.target_lost_time if self.target_lost_time else 0
+            
+            # If we just lost it, start timing
+            if self.target_lost_time == 0:
+                self.target_lost_time = time.time()
+                await self._stop_motors()
+                return
+            
+            # Wait a short time before deciding (target might reappear)
+            if time_since_loss < self.COAST_TIME_LIMIT:
+                await self._stop_motors()
+                return
+            
+            # Target lost for too long - check if we should blind drive
+            if self.last_valid_distance > 0 and self.last_valid_distance < self.BLIND_THRESHOLD_CM:
+                print(f"  🙈 Blind Approach Activated! Target too close to see (was {self.last_valid_distance:.1f}cm)")
+                
+                # Calculate how much further we need to go
+                # e.g. Last saw it at 18cm, we want to stop at 10cm. Drive 8cm more.
+                remaining_dist = self.last_valid_distance - self.config.target_distance_cm
+                
+                if remaining_dist > 0:
+                    await self._execute_blind_drive(remaining_dist)
+                    return
+                else:
+                    # Already close enough!
+                    print(f"✓ TARGET REACHED (blind)! Last distance: {self.last_valid_distance:.1f}cm")
+                    self._set_state(NavigationState.ARRIVED)
+                    await self._stop_motors()
+                    if self.on_arrived:
+                        self.on_arrived()
+                    return
+            
+            # Not close enough for blind drive, just stop
             await self._stop_motors()
             return
         
+        # We have a detection - reset lost timer and update last known distance
+        self.target_lost_time = 0
         det_distance = detection['distance_cm']
+        self.last_valid_distance = det_distance
 
         # ZONE FOCUSING LOGIC
         # Only set focus if we have the new camera driver
@@ -414,6 +461,39 @@ class NavigationFSM:
         
         # Drive forward
         await self._set_motor_power(self.config.drive_speed, self.config.drive_speed)
+    
+    async def _execute_blind_drive(self, distance_cm: float):
+        """
+        Blind Drive: Use odometry to drive forward a specified distance without camera.
+        Called when target is lost at close range (under our camera's view).
+        """
+        # 1. Initialize start position if this is the first blind frame
+        if self.blind_drive_start_pos is None:
+            # Save current robot X/Y from odometry
+            self.blind_drive_start_pos = (self.current_x, self.current_y)
+            self.blind_drive_target_dist = distance_cm
+            print(f"  🙈 Blind Drive: Starting from ({self.current_x:.1f}, {self.current_y:.1f}), target {distance_cm:.1f}cm")
+        
+        # 2. Calculate distance traveled since start
+        dx = self.current_x - self.blind_drive_start_pos[0]
+        dy = self.current_y - self.blind_drive_start_pos[1]
+        traveled = np.sqrt(dx*dx + dy*dy)
+        
+        remaining = self.blind_drive_target_dist - traveled
+        print(f"  🙈 Blind Drive: {remaining:.1f}cm to go")
+        
+        # 3. Check if we arrived
+        if remaining <= 0:
+            print("  ✓ Blind Arrival Complete!")
+            self._set_state(NavigationState.ARRIVED)
+            await self._stop_motors()
+            self.blind_drive_start_pos = None  # Reset for next time
+            self.last_valid_distance = 0.0
+            if self.on_arrived:
+                self.on_arrived()
+        else:
+            # Drive straight forward
+            await self._set_motor_power(self.config.drive_speed, self.config.drive_speed)
     
     async def _handle_avoiding(self):
         """AVOIDING: Back up from obstacle"""
