@@ -1068,6 +1068,12 @@
                                     <button class="d-btn" id="btn-s">↓</button>
                                     <button class="d-btn" id="btn-d">↷</button>
                                 </div>
+                                <!-- Keyboard Toggle -->
+                                <label
+                                    style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.7rem; color: var(--text-secondary); cursor: pointer; margin-top: 0.3rem;">
+                                    <input type="checkbox" id="keyboard-toggle" style="cursor: pointer;">
+                                    <span>⌨️ Keyboard</span>
+                                </label>
                             </div>
 
                             <div class="slider-group">
@@ -2549,12 +2555,24 @@
 
         // Helper to send move command
         function sendMove(leftMult, rightMult) {
-            if (!state.connected || state.isAutoDriving) return;
+            console.log(`sendMove called: leftMult=${leftMult}, rightMult=${rightMult}`);
+            console.log(`  state.connected=${state.connected}, state.isAutoDriving=${state.isAutoDriving}`);
+
+            if (!state.connected) {
+                console.log('  ❌ Not connected, aborting');
+                return;
+            }
+            if (state.isAutoDriving) {
+                console.log('  ❌ Auto-driving, aborting');
+                return;
+            }
 
             // Default power level for keyboard controls (50% = 0.5)
             const basePower = (elements.keyPower && elements.keyPower.value) ? parseFloat(elements.keyPower.value) : 0.5;
             const lPwr = basePower * leftMult;
             const rPwr = basePower * rightMult;
+
+            console.log(`  basePower=${basePower}, lPwr=${lPwr}, rPwr=${rPwr}`);
 
             // Update UI sliders to reflect what's happening
             const lVal = Math.round(lPwr * 100);
@@ -2575,6 +2593,9 @@
             if (state.ws && state.ws.readyState === WebSocket.OPEN) {
                 state.ws.send(JSON.stringify(msg1));
                 state.ws.send(JSON.stringify(msg2));
+                console.log(`  ✅ Sent: L=${lPwr.toFixed(2)}, R=${rPwr.toFixed(2)}`);
+            } else {
+                console.log(`  ❌ WebSocket not open: readyState=${state.ws?.readyState}`);
             }
         }
 
@@ -2601,6 +2622,7 @@
         ];
 
         dPadButtons.forEach(btn => {
+            if (!btn.el) return; // Skip if element doesn't exist
             // Mouse
             btn.el.addEventListener('mousedown', () => sendMove(btn.l, btn.r));
             btn.el.addEventListener('mouseup', stopMove);
@@ -2615,11 +2637,14 @@
         const keysPressed = {};
 
         window.addEventListener('keydown', (e) => {
+            // Debug: Log ALL keydown events
+            console.log(`🔑 keydown: key="${e.key}" connected=${state.connected} toggleChecked=${elements.keyboardToggle?.checked}`);
+
             if (!state.connected) return;
 
             const key = e.key.toLowerCase();
 
-            // Spacebar = Capture Image
+            // Spacebar = Capture Image (always works)
             if (key === ' ' || e.code === 'Space') {
                 e.preventDefault(); // Prevent page scroll
                 if (elements.captureBtn && !elements.captureBtn.disabled) {
@@ -2629,7 +2654,10 @@
                 return;
             }
 
-            // Movement keys - ignore if auto-driving
+            // Movement keys - require keyboard toggle enabled
+            if (!elements.keyboardToggle || !elements.keyboardToggle.checked) return;
+
+            // Ignore if auto-driving
             if (state.isAutoDriving) return;
 
             if (keysPressed[key]) return; // Ignore repeat

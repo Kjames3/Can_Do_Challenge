@@ -664,6 +664,7 @@ async def broadcast_loop():
                     "y": robot_state.y,
                     "theta": robot_state.theta
                 },
+                "target_pose": None,  # Will be populated below if detection exists
                 "imu": {
                     "pitch": imu.get_tilt()[0] if imu else 0,
                     "roll": imu.get_tilt()[1] if imu else 0,
@@ -674,6 +675,33 @@ async def broadcast_loop():
                 "fsm_state": fsm.state_summary if fsm else "IDLE",
                 "power": power_sensor.get_all() if power_sensor else None
             }
+            
+            # Calculate target_pose from best detection
+            if last_detections and len(last_detections) > 0:
+                best_det = last_detections[0]  # Assuming sorted by confidence
+                det_distance = best_det.get('distance_cm', 0)
+                det_center_x = best_det.get('center_x', IMAGE_WIDTH / 2)
+                
+                # Calculate target position in robot's local frame
+                # Convert center_x to bearing angle
+                pixel_offset = det_center_x - (IMAGE_WIDTH / 2)
+                bearing = pixel_offset * (CAMERA_HFOV_DEG / IMAGE_WIDTH) * (np.pi / 180.0)
+                
+                # Target in robot's local frame (forward = +X)
+                target_local_x = det_distance * np.cos(bearing)
+                target_local_y = det_distance * np.sin(bearing)
+                
+                # Transform to world frame
+                cos_theta = np.cos(robot_state.theta)
+                sin_theta = np.sin(robot_state.theta)
+                target_world_x = robot_state.x + target_local_x * cos_theta - target_local_y * sin_theta
+                target_world_y = robot_state.y + target_local_x * sin_theta + target_local_y * cos_theta
+                
+                data["target_pose"] = {
+                    "x": target_world_x,
+                    "y": target_world_y,
+                    "distance_cm": det_distance
+                }
             # Wait, get_yaw_rate() existed in server_native.py original NativeIMU class.
             # I must check if I included it in drivers.py NativeIMU.
             
