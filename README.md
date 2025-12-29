@@ -20,12 +20,15 @@ Build an autonomous rover capable of:
 
 | Component | Model | Purpose |
 |-----------|-------|---------|
-| **SBC** | Raspberry Pi 5 (8GB) | Main compute |
+| **SBC** | Raspberry Pi 5 (16GB) | Main compute |
 | **Camera** | IMX708 (Pi Camera Module 3) | 1536×864 @ 20fps |
 | **Motors** | Viam Rover 2 DC Motors | Differential drive |
 | **Encoders** | Hall effect (1000 PPR) | Odometry |
 | **IMU** | MPU6050 | Heading & tilt detection |
 | **LiDAR** | RPLiDAR A1M8 (optional) | Obstacle detection |
+| **Battery** | (4) 12V 18640 batteries | Power supply |
+| **Power Monitor** | INA219 | Current & voltage monitoring |
+| **Converter** | OKY3502-4 DC-DC converter| Power management |
 
 ### GPIO Pin Mapping
 
