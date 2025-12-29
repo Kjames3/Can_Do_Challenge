@@ -36,7 +36,7 @@ from ultralytics import YOLO
 # Import local modules
 from navigation_fsm import NavigationFSM, NavigationConfig
 from drivers import (
-    NativeMotor, NativeEncoder, NativeIMU, NativeLidar, Picamera2Driver,
+    NativeMotor, NativeEncoder, NativeIMU, NativeLidar, Picamera2Driver, NativePowerSensor,
     configure_pin_factory,
     IMU_I2C_BUS, IMU_I2C_ADDRESS, IMU_SAMPLE_RATE,
     TILT_SAFETY_ENABLED, STUCK_DETECTION_ENABLED,
@@ -122,6 +122,7 @@ right_encoder = None
 camera = None
 lidar = None
 imu = None
+power_sensor = None
 robot_state = RobotState()
 
 # Navigation
@@ -224,7 +225,7 @@ def process_detection(frame):
 # =============================================================================
 def initialize_hardware():
     """Initialize all hardware components."""
-    global left_motor, right_motor, left_encoder, right_encoder, camera, lidar, imu, fsm
+    global left_motor, right_motor, left_encoder, right_encoder, camera, lidar, imu, power_sensor, fsm
     
     print("\n" + "="*50)
     print("Initializing Hardware (Native GPIO)")
@@ -260,6 +261,10 @@ def initialize_hardware():
     # LIDAR
     print("\nLIDAR:")
     lidar = NativeLidar(LIDAR_PORT, sim_mode=SIM_MODE)
+    
+    # Power Sensor (INA219)
+    print("\nPower Sensor:")
+    power_sensor = NativePowerSensor(sim_mode=SIM_MODE)
     
     # Detection model
     print("\nDetection:")
@@ -666,7 +671,8 @@ async def broadcast_loop():
                     "yaw_rate": imu.get_gyro()[2] if imu else 0
                 } if imu else None,
                 "lidar_points": lidar.get_points_xy()[:360] if lidar else [],
-                "fsm_state": fsm.state_summary if fsm else "IDLE"
+                "fsm_state": fsm.state_summary if fsm else "IDLE",
+                "power": power_sensor.get_all() if power_sensor else None
             }
             # Wait, get_yaw_rate() existed in server_native.py original NativeIMU class.
             # I must check if I included it in drivers.py NativeIMU.

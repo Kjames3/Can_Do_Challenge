@@ -1132,6 +1132,44 @@
                                     style="font-size: 0.75rem; color: var(--accent-green);">Dist: --</div>
                             </div>
                         </div>
+
+                        <!-- Power Readout Section -->
+                        <div
+                            style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color);">
+                            <h3 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; color: var(--text-secondary);">🔋 Power
+                            </h3>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.8rem;">
+                                <div
+                                    style="background: var(--bg-tertiary); padding: 0.4rem; border-radius: var(--radius-sm); text-align: center;">
+                                    <div style="color: var(--text-muted); font-size: 0.65rem;">VOLTAGE</div>
+                                    <div id="power-voltage" style="font-weight: 700; color: var(--accent-cyan);">-- V
+                                    </div>
+                                </div>
+                                <div
+                                    style="background: var(--bg-tertiary); padding: 0.4rem; border-radius: var(--radius-sm); text-align: center;">
+                                    <div style="color: var(--text-muted); font-size: 0.65rem;">CURRENT</div>
+                                    <div id="power-current" style="font-weight: 700; color: var(--accent-cyan);">-- A
+                                    </div>
+                                </div>
+                                <div
+                                    style="background: var(--bg-tertiary); padding: 0.4rem; border-radius: var(--radius-sm); text-align: center;">
+                                    <div style="color: var(--text-muted); font-size: 0.65rem;">POWER</div>
+                                    <div id="power-watts" style="font-weight: 700; color: var(--accent-cyan);">-- W
+                                    </div>
+                                </div>
+                                <div
+                                    style="background: var(--bg-tertiary); padding: 0.4rem; border-radius: var(--radius-sm); text-align: center;">
+                                    <div style="color: var(--text-muted); font-size: 0.65rem;">BATTERY</div>
+                                    <div id="power-battery-pct" style="font-weight: 700; color: var(--accent-green);">
+                                        --%</div>
+                                </div>
+                            </div>
+                            <div style="margin-top: 0.5rem; text-align: center; font-size: 0.75rem;">
+                                <span style="color: var(--text-muted);">Est. Time:</span>
+                                <span id="power-time-remaining"
+                                    style="font-weight: 700; color: var(--accent-green);">--</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1717,6 +1755,62 @@
                 elements.targetX.textContent = 'X: --';
                 elements.targetY.textContent = 'Y: --';
                 elements.targetDist.textContent = 'Dist: --';
+            }
+
+            // Update Power Display (from INA219)
+            if (data.power) {
+                const pwr = data.power;
+                const powerVoltage = document.getElementById('power-voltage');
+                const powerCurrent = document.getElementById('power-current');
+                const powerWatts = document.getElementById('power-watts');
+                const powerBatteryPct = document.getElementById('power-battery-pct');
+                const powerTimeRemaining = document.getElementById('power-time-remaining');
+
+                if (powerVoltage) powerVoltage.textContent = pwr.voltage.toFixed(2) + ' V';
+                if (powerCurrent) powerCurrent.textContent = pwr.current.toFixed(2) + ' A';
+                if (powerWatts) powerWatts.textContent = pwr.power.toFixed(1) + ' W';
+
+                if (powerBatteryPct) {
+                    const pct = pwr.battery_pct;
+                    powerBatteryPct.textContent = pct.toFixed(0) + '%';
+
+                    // Color based on battery level
+                    if (pct > 50) {
+                        powerBatteryPct.style.color = 'var(--accent-green)';
+                    } else if (pct > 20) {
+                        powerBatteryPct.style.color = 'var(--accent-yellow)';
+                    } else {
+                        powerBatteryPct.style.color = 'var(--accent-red)';
+                    }
+                }
+
+                // Calculate estimated time remaining
+                // Battery capacity: ~5000mAh (5Ah) typical for rover
+                if (powerTimeRemaining && pwr.current > 0.1) {
+                    const BATTERY_CAPACITY_AH = 5.0;
+                    const remainingCapacity = (pwr.battery_pct / 100.0) * BATTERY_CAPACITY_AH;
+                    const hoursRemaining = remainingCapacity / pwr.current;
+                    const totalMinutes = Math.floor(hoursRemaining * 60);
+                    const hours = Math.floor(totalMinutes / 60);
+                    const mins = totalMinutes % 60;
+
+                    if (hours > 0) {
+                        powerTimeRemaining.textContent = `${hours}h ${mins}m`;
+                    } else {
+                        powerTimeRemaining.textContent = `${mins} min`;
+                    }
+
+                    // Color based on time remaining
+                    if (totalMinutes > 60) {
+                        powerTimeRemaining.style.color = 'var(--accent-green)';
+                    } else if (totalMinutes > 20) {
+                        powerTimeRemaining.style.color = 'var(--accent-yellow)';
+                    } else {
+                        powerTimeRemaining.style.color = 'var(--accent-red)';
+                    }
+                } else if (powerTimeRemaining) {
+                    powerTimeRemaining.textContent = '--';
+                }
             }
         }
 
@@ -2457,7 +2551,8 @@
         function sendMove(leftMult, rightMult) {
             if (!state.connected || state.isAutoDriving) return;
 
-            const basePower = parseFloat(elements.keyPower.value);
+            // Default power level for keyboard controls (50% = 0.5)
+            const basePower = (elements.keyPower && elements.keyPower.value) ? parseFloat(elements.keyPower.value) : 0.5;
             const lPwr = basePower * leftMult;
             const rPwr = basePower * rightMult;
 
@@ -2527,8 +2622,9 @@
             // Spacebar = Capture Image
             if (key === ' ' || e.code === 'Space') {
                 e.preventDefault(); // Prevent page scroll
-                if (!elements.captureBtn.disabled) {
+                if (elements.captureBtn && !elements.captureBtn.disabled) {
                     elements.captureBtn.click();
+                    console.log('📸 Spacebar: Capture triggered');
                 }
                 return;
             }
@@ -2539,20 +2635,23 @@
             if (keysPressed[key]) return; // Ignore repeat
             keysPressed[key] = true;
 
-            // Prioritize: W/S > A/D
-            // Simple mapping for verification
+            // Arrow keys and WASD
             if (key === 'w' || key === 'arrowup') {
-                elements.btnW.classList.add('active');
+                if (elements.btnW) elements.btnW.classList.add('active');
                 sendMove(1, 1);
+                console.log('⬆️ Forward');
             } else if (key === 's' || key === 'arrowdown') {
-                elements.btnS.classList.add('active');
+                if (elements.btnS) elements.btnS.classList.add('active');
                 sendMove(-1, -1);
+                console.log('⬇️ Backward');
             } else if (key === 'a' || key === 'arrowleft') {
-                elements.btnA.classList.add('active');
+                if (elements.btnA) elements.btnA.classList.add('active');
                 sendMove(-1, 1); // Pivot Left
+                console.log('⬅️ Pivot Left');
             } else if (key === 'd' || key === 'arrowright') {
-                elements.btnD.classList.add('active');
+                if (elements.btnD) elements.btnD.classList.add('active');
                 sendMove(1, -1); // Pivot Right
+                console.log('➡️ Pivot Right');
             }
         });
 

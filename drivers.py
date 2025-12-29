@@ -719,3 +719,117 @@ class NativeLidar:
                 self._lidar.disconnect()
             except:
                 pass
+
+# =============================================================================
+# POWER SENSOR CLASS (INA219)
+# =============================================================================
+
+class NativePowerSensor:
+    """
+    INA219 voltage/current sensor via pi_ina219 library.
+    """
+    
+    # Battery voltage thresholds (4S LiPo)
+    VOLTAGE_FULL = 16.0  # 4.0V per cell
+    VOLTAGE_EMPTY = 13.9  # 3.475V per cell (safe cutoff)
+    
+    def __init__(self, sim_mode=False, name="power"):
+        self.name = name
+        self.sim_mode = sim_mode
+        self._ina = None
+        self._initialized = False
+        
+        # Cached values
+        self._voltage = 0.0
+        self._current = 0.0
+        self._power = 0.0
+        self._last_update = 0
+        self._update_interval = 0.5  # Update every 500ms
+        
+        if self.sim_mode:
+            print(f"  ⚠ {name}: SIM MODE")
+            return
+        
+        try:
+            from ina219 import INA219
+            from ina219 import DeviceRangeError
+            
+            SHUNT_OHMS = 0.1  # Standard INA219 shunt resistor
+            MAX_EXPECTED_AMPS = 3.2
+            
+            self._ina = INA219(SHUNT_OHMS, MAX_EXPECTED_AMPS)
+            self._ina.configure()
+            
+            self._initialized = True
+            print(f"  ✓ {name}: INA219 initialized")
+            
+            # Initial read
+            self._update()
+            
+        except ImportError:
+            print(f"  ⚠ {name}: pi_ina219 not installed (pip install pi-ina219)")
+        except Exception as e:
+            print(f"  ⚠ {name}: Init failed - {e}")
+    
+    def _update(self):
+        """Read current sensor values."""
+        if not self._initialized:
+            return
+        
+        try:
+            self._voltage = self._ina.voltage()
+            self._current = self._ina.current() / 1000.0  # mA to A
+            self._power = self._ina.power() / 1000.0  # mW to W
+            self._last_update = time.time()
+        except Exception as e:
+            pass  # Silently ignore read errors
+    
+    def get_voltage(self):
+        """Get battery voltage (V)."""
+        if self.sim_mode:
+            return 15.2  # Simulated ~60% battery
+        
+        if time.time() - self._last_update > self._update_interval:
+            self._update()
+        return self._voltage
+    
+    def get_current(self):
+        """Get current draw (A)."""
+        if self.sim_mode:
+            return 0.8
+        
+        if time.time() - self._last_update > self._update_interval:
+            self._update()
+        return self._current
+    
+    def get_power(self):
+        """Get power consumption (W)."""
+        if self.sim_mode:
+            return 12.0
+        
+        if time.time() - self._last_update > self._update_interval:
+            self._update()
+        return self._power
+    
+    def get_battery_percentage(self):
+        """Calculate battery percentage based on voltage."""
+        voltage = self.get_voltage()
+        if voltage >= self.VOLTAGE_FULL:
+            return 100.0
+        elif voltage <= self.VOLTAGE_EMPTY:
+            return 0.0
+        else:
+            return ((voltage - self.VOLTAGE_EMPTY) / (self.VOLTAGE_FULL - self.VOLTAGE_EMPTY)) * 100.0
+    
+    def get_all(self):
+        """Get all power readings as a dict."""
+        return {
+            "voltage": self.get_voltage(),
+            "current": self.get_current(),
+            "power": self.get_power(),
+            "battery_pct": self.get_battery_percentage()
+        }
+    
+    def cleanup(self):
+        pass  # No cleanup needed for I2C
+
