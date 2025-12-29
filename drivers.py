@@ -754,12 +754,14 @@ class NativePowerSensor:
             from ina219 import INA219
             from ina219 import DeviceRangeError
             
-            SHUNT_OHMS = 0.1  # Standard INA219 shunt resistor
-            MAX_EXPECTED_AMPS = 3.2
+            # Viam Rover 2 uses 0.1 ohm shunt
+            # Use lower max_expected_amps to avoid calibration errors
+            SHUNT_OHMS = 0.1
+            MAX_EXPECTED_AMPS = 2.0  # Lowered from 3.2 for compatibility
             I2C_BUS = 1  # Raspberry Pi uses bus 1
             
             self._ina = INA219(SHUNT_OHMS, MAX_EXPECTED_AMPS, busnum=I2C_BUS)
-            self._ina.configure()
+            self._ina.configure()  # Auto-gain for best accuracy
             
             self._initialized = True
             print(f"  ✓ {name}: INA219 initialized")
