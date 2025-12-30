@@ -4,7 +4,12 @@ import numpy as np
 # =============================================================================
 # ROBOT PARAMETERS (from Viam config)
 # =============================================================================
-WHEEL_CIRCUMFERENCE_MM = 381    # mm
+# CALIBRATION NOTE: If robot stops short of target:
+#   - Increase WHEEL_CIRCUMFERENCE_MM (odometry undercounts)
+# If robot goes past target:
+#   - Decrease WHEEL_CIRCUMFERENCE_MM (odometry overcounts)
+# Current: Reduced from 381 to 110 because odometry was overcounting by ~3.5x
+WHEEL_CIRCUMFERENCE_MM = 110    # mm per encoder revolution (calibrate this!)
 WHEEL_BASE_MM = 356             # mm (width between wheels)
 WHEEL_DIAMETER_CM = WHEEL_CIRCUMFERENCE_MM / (np.pi * 10)  # Convert to cm
 WHEEL_BASE_CM = WHEEL_BASE_MM / 10
