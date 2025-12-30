@@ -619,11 +619,35 @@ async def broadcast_loop():
                 # === AUTO-DRIVE CONTROL (FSM) ===
                 if is_auto_driving and fsm:
                     detection = None
+                    target_pose = None
+                    
                     if last_detections:
                         target = min(last_detections, key=lambda d: d['distance_cm'])
                         detection = {
                             'distance_cm': target['distance_cm'],
                             'center_x': target['center_x']
+                        }
+                        
+                        # Calculate target_pose (world coordinates) for map-based navigation
+                        det_distance = target['distance_cm']
+                        det_center_x = target['center_x']
+                        pixel_offset = det_center_x - (IMAGE_WIDTH / 2)
+                        bearing = pixel_offset * (CAMERA_HFOV_DEG / IMAGE_WIDTH) * (np.pi / 180.0)
+                        
+                        # Local frame (Y-forward)
+                        target_local_x = det_distance * np.sin(bearing)
+                        target_local_y = det_distance * np.cos(bearing)
+                        
+                        # World frame
+                        cos_theta = np.cos(robot_state.theta)
+                        sin_theta = np.sin(robot_state.theta)
+                        target_world_x = robot_state.x + (target_local_x * cos_theta + target_local_y * sin_theta)
+                        target_world_y = robot_state.y + (-target_local_x * sin_theta + target_local_y * cos_theta)
+                        
+                        target_pose = {
+                            'x': target_world_x,
+                            'y': target_world_y,
+                            'distance_cm': det_distance
                         }
                     
                     lidar_min = None
@@ -633,11 +657,16 @@ async def broadcast_loop():
                         if front_dists:
                             lidar_min = min(front_dists) * 100.0
                     
-                    await fsm.update(detection, lidar_min, current_pose={
-                        'x': robot_state.x,
-                        'y': robot_state.y,
-                        'theta': robot_state.theta
-                    })
+                    await fsm.update(
+                        detection,
+                        target_pose=target_pose,
+                        lidar_min_distance_cm=lidar_min,
+                        current_pose={
+                            'x': robot_state.x,
+                            'y': robot_state.y,
+                            'theta': robot_state.theta
+                        }
+                    )
                 
                 # Encode to JPEG
                 _, buffer = cv2.imencode('.jpg', frame, 
