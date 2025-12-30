@@ -392,7 +392,8 @@ class NavigationFSM:
 
         # 3. Calculate Curvature steering adjustment
         # Pure Pursuit: curvature = 2 * sin(alpha) / L
-        steering = np.sin(bearing) * self.config.curvature_gain
+        # FIXED: Reduced gain and flipped sign for correct turn direction
+        steering = -np.sin(bearing) * self.config.curvature_gain * 0.5
         
         # 4. Calculate Differential Speeds
         base_speed = self.config.drive_speed
@@ -408,6 +409,9 @@ class NavigationFSM:
         max_pwr = max(abs(left_power), abs(right_power), 1.0)
         left_power /= max_pwr
         right_power /= max_pwr
+        
+        # Debug logging
+        print(f"  🚗 Curved: dist={distance:.1f}cm, bear={np.degrees(bearing):.1f}°, L={left_power:.2f}, R={right_power:.2f}")
 
         # 5. Execute
         await self._set_motor_power(left_power, right_power)
