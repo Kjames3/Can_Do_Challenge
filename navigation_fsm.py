@@ -473,38 +473,70 @@ class NavigationFSM:
         # Drive forward
         await self._set_motor_power(self.config.drive_speed, self.config.drive_speed)
     
-    async def _execute_blind_drive(self, distance_cm: float):
+    async def _execute_blind_drive(self, target_distance_cm: float):
         """
-        Blind Drive: Use odometry to drive forward a specified distance without camera.
-        Called when target is lost at close range (under our camera's view).
+        Blind Drive with ACTIVE Heading Correction.
+        Uses IMU to maintain straight-line driving while using encoders for distance.
+        This is true sensor fusion - IMU corrects drift, encoders measure progress.
         """
-        # 1. Initialize start position if this is the first blind frame
-        if self.blind_drive_start_pos is None:
-            # Save current robot X/Y from odometry
-            self.blind_drive_start_pos = (self.current_x, self.current_y)
-            self.blind_drive_target_dist = distance_cm
-            print(f"  🙈 Blind Drive: Starting from ({self.current_x:.1f}, {self.current_y:.1f}), target {distance_cm:.1f}cm")
+        print(f"  🙈 Blind Drive Start: {target_distance_cm:.1f}cm")
         
-        # 2. Calculate distance traveled since start
-        dx = self.current_x - self.blind_drive_start_pos[0]
-        dy = self.current_y - self.blind_drive_start_pos[1]
-        traveled = np.sqrt(dx*dx + dy*dy)
-        
-        remaining = self.blind_drive_target_dist - traveled
-        print(f"  🙈 Blind Drive: {remaining:.1f}cm to go")
-        
-        # 3. Check if we arrived
-        if remaining <= 0:
-            print("  ✓ Blind Arrival Complete!")
-            self._set_state(NavigationState.ARRIVED)
-            await self._stop_motors()
-            self.blind_drive_start_pos = None  # Reset for next time
-            self.last_valid_distance = 0.0
-            if self.on_arrived:
-                self.on_arrived()
+        # 1. LOCK THE HEADING: "This is the direction I want to go"
+        if self.imu:
+            target_heading = self.imu.get_heading()
+            print(f"  🧭 Locked heading: {np.degrees(target_heading):.1f}°")
         else:
-            # Drive straight forward
-            await self._set_motor_power(self.config.drive_speed, self.config.drive_speed)
+            target_heading = 0  # Fallback (less accurate)
+        
+        # 2. Record Start Position (from fused robot_state)
+        start_pos = (self.current_x, self.current_y)
+        
+        # 3. P-Controller gain for heading correction
+        kP = 0.5  # Correction strength (tune this if robot oscillates)
+        
+        # 4. Drive Loop
+        while True:
+            # --- A. CHECK DISTANCE (Using Encoders via robot_state) ---
+            dx = self.current_x - start_pos[0]
+            dy = self.current_y - start_pos[1]
+            traveled = np.sqrt(dx*dx + dy*dy)
+            
+            remaining = target_distance_cm - traveled
+            if remaining <= 0:
+                break  # We arrived!
+            
+            # --- B. CALCULATE BASE POWER ---
+            left_power = self.config.drive_speed
+            right_power = self.config.drive_speed
+            
+            # --- C. ACTIVE HEADING CORRECTION (Using IMU) ---
+            if self.imu:
+                current_heading = self.imu.get_heading()
+                # Calculate Error: Positive = drifted LEFT, Negative = drifted RIGHT
+                error = current_heading - target_heading
+                
+                # Apply P-Controller correction
+                # If we drifted LEFT (positive error), slow RIGHT / speed up LEFT
+                correction = error * kP
+                
+                # Clamp correction to prevent wild swings
+                correction = max(-0.2, min(0.2, correction))
+                
+                left_power += correction
+                right_power -= correction
+            
+            # --- D. SEND CORRECTED POWER ---
+            await self._set_motor_power(left_power, right_power)
+            await asyncio.sleep(0.02)  # 50Hz control loop
+        
+        # 5. Stop and signal arrival
+        await self._stop_motors()
+        print("  ✓ Blind Arrival Complete!")
+        self._set_state(NavigationState.ARRIVED)
+        self.blind_drive_start_pos = None  # Reset for next time
+        self.last_valid_distance = 0.0
+        if self.on_arrived:
+            self.on_arrived()
     
     async def _handle_avoiding(self):
         """AVOIDING: Back up from obstacle"""
