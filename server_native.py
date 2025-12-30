@@ -90,7 +90,7 @@ DRIFT_COMPENSATION = -0.10
 
 # Detection Configuration
 KNOWN_HEIGHT_BOTTLE = 20.0
-KNOWN_HEIGHT_CAN = 12.0
+KNOWN_HEIGHT_CAN = 12.5  # Increased from 12.5 to fix distance underestimation (robot was stopping short)
 FOCAL_LENGTH = 1298
 TARGET_CLASSES = [0]  # 0=can
 
@@ -735,8 +735,45 @@ async def broadcast_loop():
                     "y": target_world_y,
                     "distance_cm": det_distance
                 }
-            # Wait, get_yaw_rate() existed in server_native.py original NativeIMU class.
-            # I must check if I included it in drivers.py NativeIMU.
+            
+            # Calculate trajectory arc for 3D visualization
+            trajectory_points = []
+            if fsm and fsm.goal_x is not None and fsm.goal_y is not None:
+                # Generate arc points from robot to goal
+                rx, ry = robot_state.x, robot_state.y
+                gx, gy = fsm.goal_x, fsm.goal_y
+                
+                # Simple interpolation with curve based on bearing
+                dx = gx - rx
+                dy = gy - ry
+                dist = np.sqrt(dx*dx + dy*dy)
+                
+                if dist > 5:  # Only show trajectory if far enough
+                    # Calculate bearing for arc curvature
+                    cos_t = np.cos(robot_state.theta)
+                    sin_t = np.sin(robot_state.theta)
+                    local_x = -(dx * cos_t - dy * sin_t)
+                    local_y = dx * sin_t + dy * cos_t
+                    bearing = np.arctan2(local_x, local_y)
+                    
+                    # Generate 5 points along a curved path
+                    for i in range(6):
+                        t = i / 5.0  # 0 to 1
+                        # Quadratic Bezier curve for smooth arc
+                        # Control point offset based on bearing
+                        ctrl_offset = dist * 0.3 * np.sin(bearing)
+                        
+                        # Control point perpendicular to direct line
+                        mid_x = (rx + gx) / 2 + ctrl_offset * cos_t
+                        mid_y = (ry + gy) / 2 + ctrl_offset * sin_t
+                        
+                        # Quadratic Bezier: B(t) = (1-t)²*P0 + 2(1-t)*t*P1 + t²*P2
+                        px = (1-t)**2 * rx + 2*(1-t)*t * mid_x + t**2 * gx
+                        py = (1-t)**2 * ry + 2*(1-t)*t * mid_y + t**2 * gy
+                        
+                        trajectory_points.append({"x": px, "y": py})
+            
+            data["trajectory"] = trajectory_points
             
             message = json.dumps(data)
             await asyncio.gather(

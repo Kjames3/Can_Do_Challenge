@@ -1258,6 +1258,7 @@
         let scene3D, camera3D, renderer3D, controls3D;
         let robotMesh, targetMarker, startMarker;
         let robotTrailPoints = [];
+        let trajectoryLine = null;  // Pure Pursuit trajectory arc
         const MAX_TRAIL_POINTS = 200;
 
         function init3DViewport() {
@@ -1354,7 +1355,7 @@
             console.log('✓ 3D Viewport initialized');
         }
 
-        function update3DScene(robotPose, targetPose, navPhase) {
+        function update3DScene(robotPose, targetPose, navPhase, trajectory) {
             if (!robotMesh) return;
 
             // Update robot position (convert cm to meters)
@@ -1371,6 +1372,30 @@
                 targetMarker.visible = true;
             } else {
                 targetMarker.visible = false;
+            }
+
+            // Update trajectory line (Pure Pursuit arc)
+            if (trajectoryLine) {
+                scene3D.remove(trajectoryLine);
+                trajectoryLine.geometry.dispose();
+                trajectoryLine.material.dispose();
+                trajectoryLine = null;
+            }
+
+            if (trajectory && trajectory.length > 1 && scene3D) {
+                const points = trajectory.map(p => new THREE.Vector3(
+                    p.x / 100,   // Convert cm to meters
+                    0.02,        // Slightly above ground
+                    p.y / 100
+                ));
+
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                const material = new THREE.LineBasicMaterial({
+                    color: 0x00ff88,  // Cyan-green for trajectory
+                    linewidth: 2
+                });
+                trajectoryLine = new THREE.Line(geometry, material);
+                scene3D.add(trajectoryLine);
             }
 
             // Update nav phase display
@@ -1742,8 +1767,8 @@
                     console.log('robot_pose:', rp.x.toFixed(1), rp.y.toFixed(1), thetaDeg + '°');
                 }
 
-                // Update 3D viewport with robot pose
-                update3DScene(rp, data.target_pose, data.nav_phase);
+                // Update 3D viewport with robot pose and trajectory
+                update3DScene(rp, data.target_pose, data.nav_phase, data.trajectory);
             }
             if (data.target_pose && data.target_pose.x !== null) {
                 const tp = data.target_pose;

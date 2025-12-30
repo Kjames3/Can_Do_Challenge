@@ -139,9 +139,12 @@ viam_projects/
 
 ### Autonomous Navigation
 - **FSM States**: IDLE → SEARCHING → APPROACHING → ARRIVED
+- **Pure Pursuit** curved path control (smooth arcs to target)
+- **Map-Based Navigation** using world coordinates
 - **IMU-precision turns** using gyroscope
 - **Obstacle avoidance** with backup behavior
 - **Auto-return** to starting position
+- **3D Trajectory visualization** in GUI
 
 ### Telemetry
 - Encoder positions (revolutions)

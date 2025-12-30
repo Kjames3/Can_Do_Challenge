@@ -67,6 +67,10 @@ class NavigationConfig:
     
     # Motor drift compensation (negative = reduce left motor, positive = reduce right motor)
     drift_compensation: float = -0.10     # 10% reduction on LEFT motor (left is faster)
+    
+    # Pure Pursuit / Curved Drive Settings
+    curvature_gain: float = 1.2           # Controls sharpness of turns (higher = sharper)
+    min_drive_speed: float = 0.25         # Minimum speed to keep moving while turning
 
 
 class NavigationFSM:
@@ -314,8 +318,9 @@ class NavigationFSM:
         cos_t = np.cos(self.current_theta)
         sin_t = np.sin(self.current_theta)
         
-        local_x = dx * cos_t - dy * sin_t   # Lateral offset (Right)
-        local_y = dx * sin_t + dy * cos_t   # Forward distance
+        # FIXED: Negate local_x to correct turn direction (was spinning away from target)
+        local_x = -(dx * cos_t - dy * sin_t)   # Lateral offset (Right, negated for correct steering)
+        local_y = dx * sin_t + dy * cos_t      # Forward distance
         
         # In Y-Forward system: local_y is forward, local_x is right
         # Bearing error = atan2(x, y) - angle from forward axis
@@ -339,8 +344,9 @@ class NavigationFSM:
             if time_since_loss > self.COAST_TIME_LIMIT:
                 print(f"  🙈 Blind Nav: MapDist={map_dist:.1f}cm, MapBear={np.degrees(map_bearing):.1f}°")
         
-        # 5. CHECK ARRIVAL (using map distance, more reliable than camera at close range)
-        if map_dist <= self.config.target_distance_cm + self.config.dist_threshold_cm:
+        # 5. CHECK ARRIVAL - Increased threshold to 15cm to prevent 180 spins at close range
+        # When very close, small coordinate jitter can flip bearing from "front" to "behind"
+        if map_dist <= 15.0:
             print(f"✓ TARGET REACHED! Map distance: {map_dist:.1f}cm")
             self._set_state(NavigationState.ARRIVED)
             await self._stop_motors()
@@ -350,16 +356,61 @@ class NavigationFSM:
                 self.on_arrived()
             return
         
-        # 6. SUB-PHASE LOGIC using map-based values
+        # 6. SUB-PHASE LOGIC - Use Pure Pursuit (curved approach)
         if self.approach_phase == ApproachPhase.ACQUIRE:
-            # Skip acquire phase - go straight to rotate (we already have goal)
-            self.approach_phase = ApproachPhase.ROTATE
-            print(f"  🗺️ Map Nav: Goal=({self.goal_x:.1f}, {self.goal_y:.1f}), Dist={map_dist:.1f}cm")
+            # Skip acquire phase - go straight to curved driving
+            self.approach_phase = ApproachPhase.DRIVE
+            print(f"  ⚡ Switching to Curved Approach: Goal=({self.goal_x:.1f}, {self.goal_y:.1f}), Dist={map_dist:.1f}cm")
         
-        if self.approach_phase == ApproachPhase.ROTATE:
-            await self._handle_rotate(map_bearing)
-        elif self.approach_phase == ApproachPhase.DRIVE:
-            await self._handle_drive(map_dist, map_bearing)
+        # Combine ROTATE and DRIVE into a single "Curved Drive" phase
+        if self.approach_phase == ApproachPhase.DRIVE or self.approach_phase == ApproachPhase.ROTATE:
+            await self._handle_pure_pursuit(map_dist, map_bearing)
+    
+    async def _handle_pure_pursuit(self, distance: float, bearing: float):
+        """
+        Pure Pursuit (Curvature Drive) Logic.
+        Calculates a constant curvature arc to the target point.
+        """
+        
+        # 1. Check if we are close enough to stop
+        if distance <= 15.0:  # Increased threshold to prevent 180 spins
+            print(f"✓ TARGET REACHED (Curved)! Dist: {distance:.1f}cm")
+            self._set_state(NavigationState.ARRIVED)
+            await self._stop_motors()
+            self.goal_x = None
+            self.goal_y = None
+            if self.on_arrived:
+                self.on_arrived()
+            return
+
+        # 2. Check for sharp turns (> 45 degrees)
+        # If target is behind or far to the side, pivot first
+        if abs(bearing) > 0.8:  # ~45 degrees
+            print(f"  ↺ Angle too steep ({np.degrees(bearing):.1f}°) - Pivoting")
+            await self._handle_rotate(bearing)
+            return
+
+        # 3. Calculate Curvature steering adjustment
+        # Pure Pursuit: curvature = 2 * sin(alpha) / L
+        steering = np.sin(bearing) * self.config.curvature_gain
+        
+        # 4. Calculate Differential Speeds
+        base_speed = self.config.drive_speed
+        
+        # Slow down when very close for precision
+        if distance < 30.0:
+            base_speed = max(self.config.min_drive_speed, base_speed * (distance / 30.0))
+
+        left_power = base_speed + steering
+        right_power = base_speed - steering
+
+        # Clamp values to valid motor range (-1.0 to 1.0)
+        max_pwr = max(abs(left_power), abs(right_power), 1.0)
+        left_power /= max_pwr
+        right_power /= max_pwr
+
+        # 5. Execute
+        await self._set_motor_power(left_power, right_power)
     
     async def _handle_acquire(self, distance: float, bearing: float):
         """ACQUIRE sub-phase: Collect samples, average, and LOCK IN IMU TARGET"""

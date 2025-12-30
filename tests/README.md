@@ -6,6 +6,8 @@ This folder contains test and verification scripts for various hardware componen
 
 | File | Description |
 |------|-------------|
+| `test_navigation.py` | **Navigation unit tests** (coordinate transforms, Pure Pursuit) |
+| `test_navigation_visual.py` | **Graphical path simulation** (matplotlib animation) |
 | `test.py` | General hardware test script |
 | `test_astra.py` | Orbbec Astra camera testing |
 | `test_camera_detection.py` | Camera + YOLO detection testing |
@@ -51,6 +53,34 @@ python verify_astra_depth_local.py
 # Full Astra test
 python test_astra.py
 ```
+
+---
+
+## 🧭 Navigation Tests (NEW)
+
+### Unit Tests
+
+```bash
+# Install pytest if needed
+pip install pytest
+
+# Run all navigation tests
+pytest test_navigation.py -v
+```
+
+Tests coordinate transforms, Pure Pursuit math, and arrival detection.
+
+### Visual Simulation
+
+```bash
+# Animated simulation (requires matplotlib)
+python test_navigation_visual.py
+
+# Static path result
+python test_navigation_visual.py --static
+```
+
+Shows robot navigating to a target with curved Pure Pursuit path.
 
 ---
 
