@@ -307,10 +307,15 @@ class NavigationFSM:
         map_dist = np.sqrt(dx*dx + dy*dy)
         self.goal_distance = map_dist
         
-        # Transform goal vector into robot's local frame to get bearing error
-        # Rotate by -robot_theta
-        local_x = dx * np.cos(-self.current_theta) - dy * np.sin(-self.current_theta)
-        local_y = dx * np.sin(-self.current_theta) + dy * np.cos(-self.current_theta)
+        # Vector to target (Corrected Inverse Transform for Y-Forward System)
+        # We un-rotate the World Vector (dx, dy) by the Robot's Heading (theta)
+        # x_local (Right)   = dx * cos(theta) - dy * sin(theta)
+        # y_local (Forward) = dx * sin(theta) + dy * cos(theta)
+        cos_t = np.cos(self.current_theta)
+        sin_t = np.sin(self.current_theta)
+        
+        local_x = dx * cos_t - dy * sin_t   # Lateral offset (Right)
+        local_y = dx * sin_t + dy * cos_t   # Forward distance
         
         # In Y-Forward system: local_y is forward, local_x is right
         # Bearing error = atan2(x, y) - angle from forward axis
