@@ -23,8 +23,8 @@ import yaml
 
 
 def get_project_root():
-    """Get the project root directory."""
-    return Path(__file__).parent
+    """Get the project root directory (viam_projects, not training/)."""
+    return Path(__file__).parent.parent  # Go up from training/ to viam_projects/
 
 
 def prepare_combined_dataset(project_root: Path, force_rebuild: bool = False):
