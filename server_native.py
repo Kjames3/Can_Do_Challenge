@@ -682,20 +682,24 @@ async def broadcast_loop():
                 det_distance = best_det.get('distance_cm', 0)
                 det_center_x = best_det.get('center_x', IMAGE_WIDTH / 2)
                 
-                # Calculate target position in robot's local frame
-                # Convert center_x to bearing angle
+                # Calculate bearing angle from center of frame
                 pixel_offset = det_center_x - (IMAGE_WIDTH / 2)
                 bearing = pixel_offset * (CAMERA_HFOV_DEG / IMAGE_WIDTH) * (np.pi / 180.0)
                 
-                # Target in robot's local frame (forward = +X)
-                target_local_x = det_distance * np.cos(bearing)
-                target_local_y = det_distance * np.sin(bearing)
+                # 1. Calculate Local Position (Robot Frame)
+                # FIX: Align with robot_state.py where Y is Forward, X is Right
+                # Bearing 0 (Center) -> sin(0)=0 (X=0), cos(0)=1 (Y=Dist) -> Correct!
+                target_local_x = det_distance * np.sin(bearing)   # X is Right
+                target_local_y = det_distance * np.cos(bearing)   # Y is Forward
                 
-                # Transform to world frame
+                # 2. Transform to World Frame
+                # Since robot_state uses Y-Forward (North) and standard angles:
                 cos_theta = np.cos(robot_state.theta)
                 sin_theta = np.sin(robot_state.theta)
-                target_world_x = robot_state.x + target_local_x * cos_theta - target_local_y * sin_theta
-                target_world_y = robot_state.y + target_local_x * sin_theta + target_local_y * cos_theta
+                
+                # Transformation for Y-Forward system:
+                target_world_x = robot_state.x + (target_local_x * cos_theta + target_local_y * sin_theta)
+                target_world_y = robot_state.y + (-target_local_x * sin_theta + target_local_y * cos_theta)
                 
                 data["target_pose"] = {
                     "x": target_world_x,
