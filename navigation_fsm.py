@@ -128,6 +128,11 @@ class NavigationFSM:
         self.target_lost_time = 0.0  # When we lost the target
         self.COAST_TIME_LIMIT = 0.3  # How long to wait before blind approach
         
+        # Map-based navigation: Persistent goal coordinates (world frame)
+        self.goal_x = None  # Target X in world coordinates
+        self.goal_y = None  # Target Y in world coordinates
+        self.goal_distance = 0.0  # Distance to goal (from map, not camera)
+        
         # Dynamic focus tracking (prevents flooding camera with identical commands)
         self.last_focus_val = -1.0
     
@@ -200,20 +205,36 @@ class NavigationFSM:
         self._last_motor_time = 0.0
         print("✓ NavigationFSM motors updated")
     
-    async def update(self, detection: dict = None, lidar_min_distance_cm: float = None, current_pose: dict = None):
+    async def update(self, detection: dict = None, target_pose: dict = None, 
+                     lidar_min_distance_cm: float = None, current_pose: dict = None):
         """
         Called each frame to update navigation.
         
         Args:
             detection: Dict with 'distance_cm' and 'center_x' from YOLO
+            target_pose: Dict with 'x', 'y', 'distance_cm' - world coordinates of target
             lidar_min_distance_cm: Minimum distance from lidar (for obstacle avoidance)
-            current_pose: Dict with 'x', 'y', 'theta' for return navigation
+            current_pose: Dict with 'x', 'y', 'theta' for robot position
         """
-        # Update current pose for RETURNING
+        # Update current pose
         if current_pose:
             self.current_x = current_pose.get('x', 0.0)
             self.current_y = current_pose.get('y', 0.0)
             self.current_theta = current_pose.get('theta', 0.0)
+        
+        # MAP-BASED NAVIGATION: Update persistent goal from target_pose
+        if target_pose and target_pose.get('x') is not None:
+            self.goal_x = target_pose['x']
+            self.goal_y = target_pose['y']
+            self.last_valid_distance = target_pose.get('distance_cm', 0)
+            self.target_lost_time = 0  # Reset lost timer - we see the target
+        elif detection:
+            # Fallback: if only detection passed (legacy), reset lost timer
+            self.target_lost_time = 0
+        else:
+            # Target lost! Start timer if not already started
+            if self.target_lost_time == 0:
+                self.target_lost_time = time.time()
         
         if self.state == NavigationState.IDLE:
             return
@@ -259,85 +280,81 @@ class NavigationFSM:
             await self._set_motor_power(self.config.search_speed, -self.config.search_speed)
     
     async def _handle_approaching(self, detection: dict):
-        """APPROACHING: 3-phase approach (ACQUIRE → ROTATE → DRIVE)"""
+        """
+        APPROACHING: Map-Based Navigation with Visual Refinement
         
-        # Check if we have a valid detection
-        if not detection or not detection.get('distance_cm'):
-            # Lost target!
-            time_since_loss = time.time() - self.target_lost_time if self.target_lost_time else 0
-            
-            # If we just lost it, start timing
-            if self.target_lost_time == 0:
-                self.target_lost_time = time.time()
+        Uses persistent goal coordinates (self.goal_x, self.goal_y) instead of
+        chasing camera detections. Camera updates the goal when visible, but
+        navigation continues using odometry when target is lost.
+        """
+        
+        # 1. Do we have a goal? (Must have seen target at least once)
+        if self.goal_x is None or self.goal_y is None:
+            # No goal yet - need to acquire target first
+            if detection and detection.get('distance_cm'):
+                # Wait for target_pose to be set by server
                 await self._stop_motors()
-                return
-            
-            # Wait a short time before deciding (target might reappear)
-            if time_since_loss < self.COAST_TIME_LIMIT:
+                print("  ⏳ Waiting for goal coordinates...")
+            else:
                 await self._stop_motors()
-                return
-            
-            # Target lost for too long - check if we should blind drive
-            if self.last_valid_distance > 0 and self.last_valid_distance < self.BLIND_THRESHOLD_CM:
-                print(f"  🙈 Blind Approach Activated! Target too close to see (was {self.last_valid_distance:.1f}cm)")
-                
-                # Calculate how much further we need to go
-                # e.g. Last saw it at 18cm, we want to stop at 10cm. Drive 8cm more.
-                remaining_dist = self.last_valid_distance - self.config.target_distance_cm
-                
-                if remaining_dist > 0:
-                    await self._execute_blind_drive(remaining_dist)
-                    return
-                else:
-                    # Already close enough!
-                    print(f"✓ TARGET REACHED (blind)! Last distance: {self.last_valid_distance:.1f}cm")
-                    self._set_state(NavigationState.ARRIVED)
-                    await self._stop_motors()
-                    if self.on_arrived:
-                        self.on_arrived()
-                    return
-            
-            # Not close enough for blind drive, just stop
-            await self._stop_motors()
             return
         
-        # We have a detection - reset lost timer and update last known distance
-        self.target_lost_time = 0
-        det_distance = detection['distance_cm']
-        self.last_valid_distance = det_distance
-
-        # DYNAMIC FOCUSING LOGIC
-        # Only set focus if we have the new camera driver
-        if hasattr(self.camera, 'set_focus'):
-            # Approximate relationship: LensPosition = 100 / distance_cm
-            # 100cm -> 1.0, 25cm -> 4.0, 10cm -> 10.0
-            
-            # Calculate ideal focus value
-            if det_distance > 100:
-                new_focus = 0.0  # Infinity
-            else:
-                # Constrain between 0.0 and 12.0 to be safe
-                new_focus = max(0.0, min(12.0, 100.0 / det_distance))
-            
-            # Only apply if value changed significantly (0.2 tolerance) to prevent driver flooding
-            if abs(new_focus - self.last_focus_val) > 0.2:
-                self.camera.set_focus(new_focus)
-                self.last_focus_val = new_focus
-
-        det_center_x = detection.get('center_x', self.config.frame_width / 2)
+        # 2. Calculate MAP-BASED bearing and distance (Source of Truth)
+        dx = self.goal_x - self.current_x
+        dy = self.goal_y - self.current_y
         
-        # Calculate bearing from center
-        frame_center = self.config.frame_width / 2
-        pixel_offset = det_center_x - frame_center
-        det_bearing = pixel_offset * (self.config.camera_hfov_deg / self.config.frame_width) * (np.pi / 180.0)
+        # Distance to goal coordinate (from map, not camera)
+        map_dist = np.sqrt(dx*dx + dy*dy)
+        self.goal_distance = map_dist
         
-        # Sub-phase logic
+        # Transform goal vector into robot's local frame to get bearing error
+        # Rotate by -robot_theta
+        local_x = dx * np.cos(-self.current_theta) - dy * np.sin(-self.current_theta)
+        local_y = dx * np.sin(-self.current_theta) + dy * np.cos(-self.current_theta)
+        
+        # In Y-Forward system: local_y is forward, local_x is right
+        # Bearing error = atan2(x, y) - angle from forward axis
+        map_bearing = np.arctan2(local_x, local_y)
+        
+        # 3. DYNAMIC FOCUS (if camera available and target visible)
+        if detection and detection.get('distance_cm'):
+            det_distance = detection['distance_cm']
+            if hasattr(self.camera, 'set_focus'):
+                if det_distance > 100:
+                    new_focus = 0.0
+                else:
+                    new_focus = max(0.0, min(12.0, 100.0 / det_distance))
+                if abs(new_focus - self.last_focus_val) > 0.2:
+                    self.camera.set_focus(new_focus)
+                    self.last_focus_val = new_focus
+        
+        # 4. BLIND SPOT LOGGING (for debugging)
+        if not detection or not detection.get('distance_cm'):
+            time_since_loss = time.time() - self.target_lost_time if self.target_lost_time > 0 else 0
+            if time_since_loss > self.COAST_TIME_LIMIT:
+                print(f"  🙈 Blind Nav: MapDist={map_dist:.1f}cm, MapBear={np.degrees(map_bearing):.1f}°")
+        
+        # 5. CHECK ARRIVAL (using map distance, more reliable than camera at close range)
+        if map_dist <= self.config.target_distance_cm + self.config.dist_threshold_cm:
+            print(f"✓ TARGET REACHED! Map distance: {map_dist:.1f}cm")
+            self._set_state(NavigationState.ARRIVED)
+            await self._stop_motors()
+            self.goal_x = None  # Clear goal for next target
+            self.goal_y = None
+            if self.on_arrived:
+                self.on_arrived()
+            return
+        
+        # 6. SUB-PHASE LOGIC using map-based values
         if self.approach_phase == ApproachPhase.ACQUIRE:
-            await self._handle_acquire(det_distance, det_bearing)
-        elif self.approach_phase == ApproachPhase.ROTATE:
-            await self._handle_rotate(det_bearing)
+            # Skip acquire phase - go straight to rotate (we already have goal)
+            self.approach_phase = ApproachPhase.ROTATE
+            print(f"  🗺️ Map Nav: Goal=({self.goal_x:.1f}, {self.goal_y:.1f}), Dist={map_dist:.1f}cm")
+        
+        if self.approach_phase == ApproachPhase.ROTATE:
+            await self._handle_rotate(map_bearing)
         elif self.approach_phase == ApproachPhase.DRIVE:
-            await self._handle_drive(det_distance, det_bearing)
+            await self._handle_drive(map_dist, map_bearing)
     
     async def _handle_acquire(self, distance: float, bearing: float):
         """ACQUIRE sub-phase: Collect samples, average, and LOCK IN IMU TARGET"""
