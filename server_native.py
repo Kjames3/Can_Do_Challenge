@@ -350,6 +350,11 @@ async def handle_client(websocket):
                     detection_enabled = data.get("enabled", False)
                     print(f"Detection {'Enabled' if detection_enabled else 'Disabled'}")
                     
+                    # Reset to autofocus when detection is disabled
+                    if not detection_enabled and camera and hasattr(camera, 'set_focus'):
+                        camera.set_focus(0.0)
+                        print("  📷 Camera set to autofocus")
+                    
                 elif msg_type == "start_auto_drive":
                     global is_auto_driving
                     is_auto_driving = True
