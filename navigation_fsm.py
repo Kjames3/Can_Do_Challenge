@@ -169,6 +169,7 @@ class NavigationFSM:
         self.target_distance = 0.0
         self.target_bearing = 0.0
         self.last_turn_dir = 0
+        self._goal_frozen = False  # Reset goal freeze for new navigation
         
         # Store start position for RETURNING
         if start_pose:
@@ -227,10 +228,28 @@ class NavigationFSM:
             self.current_theta = current_pose.get('theta', 0.0)
         
         # MAP-BASED NAVIGATION: Update persistent goal from target_pose
+        # GOAL FREEZING: Only update goal if we're farther than 30cm
+        # Close-range depth estimation is noisy and can push goal behind object
+        GOAL_FREEZE_THRESHOLD = 30.0  # cm
+        
+        # Calculate current distance to goal (if we have one)
+        current_map_dist = None
+        if self.goal_x is not None and self.goal_y is not None:
+            dx = self.goal_x - self.current_x
+            dy = self.goal_y - self.current_y
+            current_map_dist = np.sqrt(dx*dx + dy*dy)
+        
         if target_pose and target_pose.get('x') is not None:
-            self.goal_x = target_pose['x']
-            self.goal_y = target_pose['y']
-            self.last_valid_distance = target_pose.get('distance_cm', 0)
+            # Only update goal if we're far enough away (or don't have a goal yet)
+            if current_map_dist is None or current_map_dist > GOAL_FREEZE_THRESHOLD:
+                self.goal_x = target_pose['x']
+                self.goal_y = target_pose['y']
+                self.last_valid_distance = target_pose.get('distance_cm', 0)
+            else:
+                # Goal frozen - trust odometry for final approach
+                if not hasattr(self, '_goal_frozen') or not self._goal_frozen:
+                    print(f"  🔒 Goal frozen at {current_map_dist:.1f}cm - trusting odometry")
+                    self._goal_frozen = True
             self.target_lost_time = 0  # Reset lost timer - we see the target
         elif detection:
             # Fallback: if only detection passed (legacy), reset lost timer
