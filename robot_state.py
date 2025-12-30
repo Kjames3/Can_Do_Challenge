@@ -8,10 +8,10 @@ import numpy as np
 #   - Increase WHEEL_CIRCUMFERENCE_MM (odometry undercounts)
 # If robot goes past target:
 #   - Decrease WHEEL_CIRCUMFERENCE_MM (odometry overcounts)
-# Wheel diameter: 55mm -> Actual circumference: 172.8mm
+# Wheel diameter: 68mm -> Actual circumference: 213.6mm
 # Encoder appears to give ~12 ticks per wheel rotation
-# So: 172.8 / 12 ≈ 15mm per encoder "revolution"
-WHEEL_CIRCUMFERENCE_MM = 15     # mm per encoder revolution (55mm wheel / ~12 ticks)
+# So: 213.6 / 12 ≈ 18mm per encoder "revolution"
+WHEEL_CIRCUMFERENCE_MM = 18     # mm per encoder revolution (68mm wheel / ~12 ticks)
 WHEEL_BASE_MM = 356             # mm (width between wheels)
 WHEEL_DIAMETER_CM = WHEEL_CIRCUMFERENCE_MM / (np.pi * 10)  # Convert to cm
 WHEEL_BASE_CM = WHEEL_BASE_MM / 10
