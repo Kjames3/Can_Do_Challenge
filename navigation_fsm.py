@@ -352,10 +352,11 @@ class NavigationFSM:
                 if det_distance > 100:
                     new_focus = 0.0
                 else:
-                    new_focus = max(0.0, min(12.0, 100.0 / det_distance))
+                    new_focus = max(0.0, min(20.0, 100.0 / det_distance))
                 if abs(new_focus - self.last_focus_val) > 0.2:
                     self.camera.set_focus(new_focus)
                     self.last_focus_val = new_focus
+                    print(f"DEBUG: Focus set to {new_focus:.2f} for dist {det_distance:.1f}cm")
         
         # 4. BLIND SPOT LOGGING (for debugging)
         if not detection or not detection.get('distance_cm'):
