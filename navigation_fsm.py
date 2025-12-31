@@ -35,7 +35,7 @@ class ApproachPhase:
 class NavigationConfig:
     """Configuration for navigation behavior"""
     # Target distance
-    target_distance_cm: float = 18.0   # Stop this close to target (gripper range)
+    target_distance_cm: float = 5.0   # Stop this close to target (gripper range)
     dist_threshold_cm: float = 2.0    # Tolerance (+/- 2cm)
     
     # Bearing thresholds (radians)
@@ -230,7 +230,7 @@ class NavigationFSM:
         # MAP-BASED NAVIGATION: Update persistent goal from target_pose
         # GOAL FREEZING: Only update goal if we're farther than 30cm
         # Close-range depth estimation is noisy and can push goal behind object
-        GOAL_FREEZE_THRESHOLD = 30.0  # cm
+        GOAL_FREEZE_THRESHOLD = 22.0  # cm
         
         # Calculate current distance to goal (if we have one)
         current_map_dist = None
@@ -365,7 +365,8 @@ class NavigationFSM:
         
         # 5. CHECK ARRIVAL - Increased threshold to 15cm to prevent 180 spins at close range
         # When very close, small coordinate jitter can flip bearing from "front" to "behind"
-        if map_dist <= 20.0:
+        print(f"DEBUG: Check {map_dist:.2f} <= 10.0? {map_dist <= 10.0}")
+        if map_dist <= 10.0:
             print(f"✓ TARGET REACHED! Map distance: {map_dist:.1f}cm")
             self._set_state(NavigationState.ARRIVED)
             await self._stop_motors()
@@ -392,7 +393,8 @@ class NavigationFSM:
         """
         
         # 1. Check if we are close enough to stop
-        if distance <= 20.0:  # Increased threshold to prevent 180 spins
+        print(f"DEBUG: Check {distance:.2f} <= 10.0? {distance <= 10.0}")
+        if distance <= 10.0:  # Increased threshold to prevent 180 spins
             print(f"✓ TARGET REACHED (Curved)! Dist: {distance:.1f}cm")
             self._set_state(NavigationState.ARRIVED)
             await self._stop_motors()
