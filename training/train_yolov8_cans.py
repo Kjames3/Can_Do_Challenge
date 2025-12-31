@@ -444,7 +444,7 @@ def main():
         description="Train YOLO11n for soda can detection"
     )
     parser.add_argument(
-        "--epochs", type=int, default=100,
+        "--epochs", type=int, default=150,
         help="Number of training epochs (default: 100)"
     )
     parser.add_argument(
