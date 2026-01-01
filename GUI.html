@@ -992,6 +992,11 @@
                         title="Download all captured images as ZIP">
                         💾 Download All
                     </button>
+                    <button id="blur-sweep-btn" class="btn"
+                        style="padding: 0.4rem 0.8rem; font-size: 0.75rem; background: linear-gradient(135deg, #a855f7, #7c3aed); color: white; border: none; box-shadow: 0 4px 12px rgba(168, 85, 247, 0.3);"
+                        title="Capture 25 images with focus 0.0-12.0 (step 0.5)">
+                        🌊 Blur Sweep
+                    </button>
                     <div class="toggle-wrapper">
                         <span class="toggle-label">Detection</span>
                         <div id="detection-toggle" class="toggle" title="Toggle object detection"></div>
@@ -1459,6 +1464,7 @@
             captureBtn: document.getElementById('capture-btn'),
             captureCount: document.getElementById('capture-count'),
             downloadImagesBtn: document.getElementById('download-images-btn'),
+            blurSweepBtn: document.getElementById('blur-sweep-btn'),
 
             autoDriveWrapper: document.getElementById('auto-drive-wrapper'),
 
@@ -1585,6 +1591,21 @@
                             console.log(`Downloaded ${data.image_count} images`);
                         } else {
                             alert(data.error || 'No images to download');
+                        }
+                    } else if (data.type === "blur_dataset_response") {
+                        if (data.status === "started") {
+                            elements.blurSweepBtn.disabled = true;
+                            elements.blurSweepBtn.textContent = "📸 Sweeping...";
+                        } else if (data.status === "complete") {
+                            elements.blurSweepBtn.disabled = false;
+                            elements.blurSweepBtn.textContent = "🌊 Blur Sweep";
+                            console.log(`Blur sweep complete. Captured ${data.count} images.`);
+                            // Optionally update capture count if the server combines them? 
+                            // The server script returns 'count' for the sweep. 
+                        } else if (data.status === "error") {
+                            elements.blurSweepBtn.disabled = false;
+                            elements.blurSweepBtn.textContent = "🌊 Blur Sweep";
+                            alert("Sweep failed: " + data.message);
                         }
                     }
                 } catch (e) {
@@ -2433,6 +2454,14 @@
             elements.downloadImagesBtn.disabled = true;
             elements.downloadImagesBtn.textContent = '⏳ Preparing...';
             state.ws.send(JSON.stringify({ type: "download_images" }));
+        });
+
+        // Blur Dataset Sweep
+        elements.blurSweepBtn.addEventListener('click', () => {
+            if (!state.connected) return;
+            if (confirm("Ensure the can is placed at a fixed distance.\nThe robot will capture ~25 images with varying focus.\nStart sweep?")) {
+                sendMessage({ type: "collect_blur_dataset" });
+            }
         });
 
         // Disconnect Button

@@ -22,7 +22,7 @@ import argparse
 
 ROBOT_IP = "192.168.1.161"             # Replace with your Pi's IP address
 ROBOT_USER = "besto"                   # Your Pi username
-REMOTE_PATH = "~/viam_projects/training_images"  # Folder on Pi with captured images
+REMOTE_PATH = "~/viam_projects/viam_projects/training_images"  # Folder on Pi with captured images
 LOCAL_PATH = "./downloaded_images"     # Folder on your laptop to save images
 GUI_FILE_PATH = "GUI.html"             # Path to your local GUI file
 

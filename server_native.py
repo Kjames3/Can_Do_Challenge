@@ -42,6 +42,7 @@ from drivers import (
     TILT_SAFETY_ENABLED, STUCK_DETECTION_ENABLED,
     STUCK_MOTOR_THRESHOLD, STUCK_TIME_THRESHOLD, STUCK_ENCODER_THRESHOLD
 )
+from training.capture_blur_dataset import capture_sweep, DEFAULT_SAVE_DIR
 from robot_state import RobotState
 
 # =============================================================================
@@ -505,6 +506,47 @@ async def handle_client(websocket):
                                 "filename": filename,
                                 "image_count": image_count
                             }))
+                            
+                elif msg_type == "collect_blur_dataset":
+                    if camera:
+                        print("  📸 Starting Blur Dataset Sweep...")
+                        
+                        # Determine efficient index
+                        import os
+                        dataset_index = 0
+                        if os.path.exists(DEFAULT_SAVE_DIR):
+                            existing_files = [f for f in os.listdir(DEFAULT_SAVE_DIR) if f.startswith("sweep_")]
+                            if existing_files:
+                                try:
+                                    indices = [int(f.split('_')[1]) for f in existing_files]
+                                    if indices:
+                                        dataset_index = max(indices) + 1
+                                except:
+                                    pass
+
+                        await websocket.send(json.dumps({
+                            "type": "blur_dataset_response",
+                            "status": "started",
+                            "index": dataset_index
+                        }))
+                        
+                        # Run sweep in thread
+                        count = await asyncio.to_thread(capture_sweep, camera, DEFAULT_SAVE_DIR, dataset_index)
+                        
+                        await websocket.send(json.dumps({
+                            "type": "blur_dataset_response",
+                            "status": "complete",
+                            "count": count,
+                            "index": dataset_index
+                        }))
+                        print(f"  ✓ Sweep #{dataset_index} complete ({count} images)")
+                    else:
+                         await websocket.send(json.dumps({
+                            "type": "blur_dataset_response",
+                            "status": "error",
+                            "message": "Camera not initialized"
+                        }))
+
                             
             except Exception as e:
                 print(f"Message handling error: {e}")
