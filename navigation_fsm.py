@@ -140,8 +140,9 @@ class NavigationFSM:
         # Dynamic focus tracking (prevents flooding camera with identical commands)
         self.last_focus_val = -1.0
 
-        # Return timer
+        # Return timer / Backup
         self.arrived_time = 0.0
+        self.backup_start_pos = None  # (x, y) where backup started
     
     @property
     def state_summary(self) -> str:
@@ -683,24 +684,12 @@ class NavigationFSM:
                 self.on_returned()
             return
         
-        # Calculate target heading (angle to start)
-        self.return_target_heading = np.arctan2(dy, dx)
-        self.return_phase = "ROTATE"
-        
-        # Reset IMU for precision turn
-        if self.imu:
-            self.imu.reset_heading()
-            # Calculate how much we need to turn
-            heading_diff = self.return_target_heading - self.current_theta
-            # Normalize to [-pi, pi]
-            while heading_diff > np.pi:
-                heading_diff -= 2 * np.pi
-            while heading_diff < -np.pi:
-                heading_diff += 2 * np.pi
-            self.target_imu_rotation = heading_diff
+        # Start with BACKUP to clear the object
+        self.return_phase = "BACKUP"
+        self.backup_start_pos = (self.current_x, self.current_y)
         
         self._set_state(NavigationState.RETURNING)
-        print(f"↩ RETURNING to start (dist={distance_to_start:.1f}cm, heading={np.degrees(self.return_target_heading):.1f}°)")
+        print(f"↩ RETURNING triggered. Starting BACKUP 20cm from ({self.current_x:.1f}, {self.current_y:.1f})")
     
     async def _handle_returning(self):
         """RETURNING: Navigate back to start position"""
@@ -718,6 +707,35 @@ class NavigationFSM:
                 self.on_returned()
             return
         
+        if self.return_phase == "BACKUP":
+            # Backup 20cm to clear the object
+            bx, by = self.backup_start_pos
+            dist_backed = np.sqrt((self.current_x - bx)**2 + (self.current_y - by)**2)
+            
+            if dist_backed < 20.0:  # Back up 20cm
+                await self._set_motor_power(-0.3, -0.3)
+                return
+            else:
+                # Backup complete
+                await self._stop_motors()
+                print(f"  ✓ Backup complete ({dist_backed:.1f}cm). Calculating return path...")
+                self.return_phase = "ROTATE"
+                
+                # NOW calculate return heading from this new safe position
+                dx = self.start_x - self.current_x
+                dy = self.start_y - self.current_y
+                self.return_target_heading = np.arctan2(dy, dx)
+                
+                if self.imu:
+                    self.imu.reset_heading()
+                    heading_diff = self.return_target_heading - self.current_theta
+                    while heading_diff > np.pi: heading_diff -= 2 * np.pi
+                    while heading_diff < -np.pi: heading_diff += 2 * np.pi
+                    self.target_imu_rotation = heading_diff
+                
+                print(f"  ↪ New Heading to Start: {np.degrees(self.return_target_heading):.1f}°")
+                return
+
         if self.return_phase == "ROTATE":
             # Rotate to face start position
             if self.imu:
