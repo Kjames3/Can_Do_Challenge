@@ -11,8 +11,11 @@ import numpy as np
 # Wheel diameter: 68mm -> Actual circumference: 213.6mm
 # Encoder appears to give ~12 ticks per wheel rotation
 # So: 213.6 / 12 ≈ 18mm per encoder "revolution"
-WHEEL_DIAMETER_CM = 6.8  # Convert to cm
-WHEEL_CIRCUMFERENCE_MM = WHEEL_DIAMETER_CM * np.pi     # mm per encoder revolution (68mm wheel / ~12 ticks)
+# CALIBRATED VALUE (Effective Circumference)
+# This represents the distance traveled per 1000 encoder ticks.
+# Derived from calibration (1.36mm/12 ticks) -> 113.3mm/1000 ticks.
+WHEEL_CIRCUMFERENCE_MM = 113.3
+# WHEEL_DIAMETER_CM = 6.8  # Physical diameter (kept for reference, do not use for calc)
 WHEEL_BASE_MM = 356             # mm (width between wheels)
 WHEEL_BASE_CM = WHEEL_BASE_MM / 10
 

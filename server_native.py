@@ -238,8 +238,8 @@ def initialize_hardware():
     
     # Encoders
     print("\nEncoders:")
-    left_encoder = NativeEncoder(LEFT_ENCODER_PIN, sim_mode=SIM_MODE, name="left_encoder", ppr=12)
-    right_encoder = NativeEncoder(RIGHT_ENCODER_PIN, sim_mode=SIM_MODE, name="right_encoder", ppr=12)
+    left_encoder = NativeEncoder(LEFT_ENCODER_PIN, sim_mode=SIM_MODE, name="left_encoder")
+    right_encoder = NativeEncoder(RIGHT_ENCODER_PIN, sim_mode=SIM_MODE, name="right_encoder")
     
     # Link motors to encoders
     left_motor.set_encoder(left_encoder)
