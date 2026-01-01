@@ -139,6 +139,9 @@ class NavigationFSM:
         
         # Dynamic focus tracking (prevents flooding camera with identical commands)
         self.last_focus_val = -1.0
+
+        # Return timer
+        self.arrived_time = 0.0
     
     @property
     def state_summary(self) -> str:
@@ -156,6 +159,11 @@ class NavigationFSM:
         
         if old_state != new_state:
             print(f"Nav: {old_state} → {new_state}")
+            
+            # Start timer when arriving
+            if new_state == NavigationState.ARRIVED:
+                self.arrived_time = time.time()
+                
             if self.on_state_change:
                 self.on_state_change(old_state, new_state)
     
@@ -265,7 +273,13 @@ class NavigationFSM:
         if self.state == NavigationState.ARRIVED:
             # Check if auto-return is enabled
             if self.config.auto_return:
-                self._start_return()
+                # Wait 5 seconds before returning
+                time_since_arrival = time.time() - self.arrived_time
+                if time_since_arrival > 5.0:
+                    self._start_return()
+                elif time_since_arrival > 0.5 and int(time_since_arrival) != int(time_since_arrival - 0.1):
+                     # Print countdown roughly every second (avoid spam)
+                     print(f"  ⏳ Returning in {5.0 - time_since_arrival:.0f}s...")
             return
         
         # Check for obstacles first (safety) - but not during RETURNING
@@ -352,7 +366,9 @@ class NavigationFSM:
                 if det_distance > 100:
                     new_focus = 0.0
                 else:
-                    new_focus = max(0.0, min(20.0, 100.0 / det_distance))
+                    # Calibrated formula based on user data:
+                    # 10cm->6.5 (65), 20cm->3.5 (70), 50cm->1.5 (75) => Avg constant ~70
+                    new_focus = max(0.0, min(14.0, 70.0 / det_distance))
                 if abs(new_focus - self.last_focus_val) > 0.2:
                     self.camera.set_focus(new_focus)
                     self.last_focus_val = new_focus
