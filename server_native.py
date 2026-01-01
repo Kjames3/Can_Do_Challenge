@@ -281,10 +281,19 @@ def initialize_hardware():
     # Wire up callbacks
     def on_arrived():
         global is_auto_driving
-        print("🎉 FSM Callback: TARGET REACHED! Disengaging auto-drive.")
+        if fsm.config.auto_return:
+            print("🎉 FSM Callback: TARGET REACHED! Waiting 5s before return...")
+        else:
+            print("🎉 FSM Callback: TARGET REACHED! Disengaging auto-drive.")
+            is_auto_driving = False
+
+    def on_returned():
+        global is_auto_driving
+        print("🎉 FSM Callback: RETURNED TO START! Disengaging auto-drive.")
         is_auto_driving = False
     
     fsm.on_arrived = on_arrived
+    fsm.on_returned = on_returned
     print("✓ FSM initialized (IMU enabled)" if imu else "✓ FSM initialized (Camera only)")
     
     print("\n" + "="*50)
