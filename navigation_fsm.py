@@ -727,11 +727,11 @@ class NavigationFSM:
                 self.return_target_heading = np.arctan2(dy, dx)
                 
                 if self.imu:
-                    self.imu.reset_heading()
-                    heading_diff = self.return_target_heading - self.current_theta
-                    while heading_diff > np.pi: heading_diff -= 2 * np.pi
-                    while heading_diff < -np.pi: heading_diff += 2 * np.pi
-                    self.target_imu_rotation = heading_diff
+                    # DO NOT reset heading - maintains global coordinate consistency
+                    # self.imu.reset_heading() 
+                    
+                    # Target is the absolute heading we want to face
+                    self.target_imu_rotation = self.return_target_heading
                 
                 print(f"  ↪ New Heading to Start: {np.degrees(self.return_target_heading):.1f}°")
                 return
@@ -741,6 +741,11 @@ class NavigationFSM:
             if self.imu:
                 current_heading = self.imu.get_heading()
                 remaining_turn = self.target_imu_rotation - current_heading
+                
+                # Normalize remaining turn to [-pi, pi]
+                while remaining_turn > np.pi: remaining_turn -= 2 * np.pi
+                while remaining_turn < -np.pi: remaining_turn += 2 * np.pi
+                
                 threshold = 0.08  # ~5 degrees
             else:
                 # Fallback: use odometry heading
@@ -759,8 +764,9 @@ class NavigationFSM:
                 await asyncio.sleep(0.2)
                 return
             
+            
             # Turn toward start
-            MIN_MOVING_POWER = 0.24
+            MIN_MOVING_POWER = 0.30  # Increased from 0.24 for reliable turning
             target_speed = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(remaining_turn) * 1.5))
             
             if remaining_turn > 0:
