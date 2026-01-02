@@ -37,6 +37,7 @@ class ReturnPhase:
     WAITING = "WAITING"      # Wait 5 seconds
     BACKING = "BACKING"      # Back up 20cm
     NAVIGATING = "NAVIGATING" # Pure Pursuit to start
+    ALIGNING = "ALIGNING"     # Final rotation to start_theta
 
 
 class NavigationConfig:
@@ -750,11 +751,14 @@ class NavigationFSM:
             
             # Check arrival
             if map_dist < self.config.return_distance_threshold:
-                print(f"✓ RETURNED to start! (Dist: {map_dist:.1f}cm)")
+                print(f"✓ Arrived at start ({map_dist:.1f}cm). Aligning to {np.degrees(self.start_theta):.1f}°...")
                 await self._stop_motors()
-                self._set_state(NavigationState.IDLE)
-                if self.on_returned:
-                    self.on_returned()
+                self.return_phase = ReturnPhase.ALIGNING
+                self.return_target_heading = self.start_theta # Cache target
+                # Pre-lock IMU target if available
+                if self.imu:
+                    self.target_imu_rotation = self.start_theta
+                await asyncio.sleep(0.5) # Settle
                 return
 
             # 2. Coordinate Transform (World -> Robot Frame)
@@ -772,6 +776,39 @@ class NavigationFSM:
             # 3. Use Pure Pursuit
             # This handles smooth driving and pivoting > 45 deg
             await self._handle_pure_pursuit(map_dist, map_bearing)
+
+        # --- PHASE 4: ALIGNING TO START ORIENTATION ---
+        elif self.return_phase == ReturnPhase.ALIGNING:
+            # Use cached target (should be start_theta)
+            target_heading = self.return_target_heading
+            
+            # Calculate heading error
+            heading_error = target_heading - self.current_theta
+            while heading_error > np.pi: heading_error -= 2 * np.pi
+            while heading_error < -np.pi: heading_error += 2 * np.pi
+            
+            # Threshold to finish (5 degrees)
+            THRESHOLD = np.radians(5)
+            
+            if abs(heading_error) <= THRESHOLD:
+                await self._stop_motors()
+                self._set_state(NavigationState.IDLE)
+                print(f"✓ RETURN COMPLETED! Aligned to {np.degrees(self.current_theta):.1f}°")
+                if self.on_returned:
+                    self.on_returned()
+                return
+            
+            # Execute Pivot Turn
+            # Use same strong power settings from ROTATE
+            MIN_MOVING_POWER = 0.32
+            pivot_power = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(heading_error) * 2.0))
+            
+            if heading_error > 0:
+                # Target is LEFT -> Turn LEFT (CCW)
+                await self._set_motor_power(-pivot_power, pivot_power) 
+            else:
+                # Target is RIGHT -> Turn RIGHT (CW)
+                await self._set_motor_power(pivot_power, -pivot_power)
 
     
     # =========================================================================
