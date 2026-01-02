@@ -97,9 +97,6 @@ TARGET_CLASSES = [0]  # 0=can
 
 # Camera Settings
 CAMERA_HFOV_DEG = 66.0  # IMX708 Standard FOV
-CAMERA_VFOV_DEG = 40.1  # Calculated for 16:9 aspect ratio
-CAMERA_HEIGHT_CM = 8.5  # ESTIMATED height from floor to lens center (User to measure!)
-CAMERA_TILT_DEG = 1.0   # 0-2 degrees down from horizontal
 IMAGE_WIDTH = 1536
 IMAGE_HEIGHT = 864
 
@@ -198,39 +195,12 @@ def process_detection(frame):
                 center_x = (x1 + x2) / 2
                 center_y = (y1 + y2) / 2
                 
-                # HYBRID DISTANCE LOGIC
-                # ---------------------
-                # Method A: Height-based (Best for FAR objects, avoids floor clamp issues)
+                # Height-based distance estimation
                 height_px = y2 - y1
-                dist_height = (KNOWN_HEIGHT_CAN * FOCAL_LENGTH) / height_px
+                # Distance = (Real Height * Focal Length) / Image Height
+                distance_cm = (KNOWN_HEIGHT_CAN * FOCAL_LENGTH) / height_px
                 
-                # Method B: Base-of-Object Triangulation (Best for CLOSE objects, handles cropping)
-                y_bottom = float(y2)
-                image_center_y = IMAGE_HEIGHT / 2.0
-                vertical_angle_offset_deg = (y_bottom - image_center_y) * (CAMERA_VFOV_DEG / IMAGE_HEIGHT)
-                total_angle_deg = CAMERA_TILT_DEG + vertical_angle_offset_deg
-                
-                if total_angle_deg <= 0.1:
-                    dist_floor = 999.0
-                else:
-                    dist_floor = CAMERA_HEIGHT_CM / np.tan(np.radians(total_angle_deg))
-                
-                # Dynamic Switch
-                # If the box is small (< 50px), it's far away -> Use Height method
-                # If the box is large (>= 50px), it's close -> Use Floor method
-                SWITCH_THRESHOLD_PX = 50
-                
-                if height_px < SWITCH_THRESHOLD_PX:
-                    distance_cm = dist_height
-                    method_tag = "H" # Height
-                else:
-                    distance_cm = dist_floor
-                    method_tag = "F" # Floor
-                
-                # Clamp minimal distance
-                distance_cm = max(5.0, distance_cm)
-                
-                label = f"Can: {distance_cm:.1f}cm ({method_tag})"
+                label = f"Can: {distance_cm:.1f}cm ({conf:.2f})"
                 cv2.putText(frame, label, (int(x1), int(y1) - 10), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
                 
