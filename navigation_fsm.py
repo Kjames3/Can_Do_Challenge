@@ -32,6 +32,13 @@ class ApproachPhase:
     DRIVE = "DRIVE"
 
 
+class ReturnPhase:
+    """Sub-phases for RETURNING state"""
+    WAITING = "WAITING"      # Wait 5 seconds
+    BACKING = "BACKING"      # Back up 20cm
+    NAVIGATING = "NAVIGATING" # Pure Pursuit to start
+
+
 class NavigationConfig:
     """Configuration for navigation behavior"""
     # Target distance
@@ -672,153 +679,100 @@ class NavigationFSM:
         # Calculate bearing to start position
         dx = self.start_x - self.current_x
         dy = self.start_y - self.current_y
-        
-        # Distance to start
         distance_to_start = np.sqrt(dx**2 + dy**2)
         
         if distance_to_start < self.config.return_distance_threshold:
-            # Already close enough to start
             print("✓ Already at start position - navigation complete")
             self._set_state(NavigationState.IDLE)
             if self.on_returned:
                 self.on_returned()
             return
         
-        # Start with BACKUP to clear the object
-        self.return_phase = "BACKUP"
-        self.backup_start_pos = (self.current_x, self.current_y)
-        
+        print(f"↩ RETURNING triggered. Waiting 5s before return...")
+        self.return_phase = ReturnPhase.WAITING
+        self.return_start_time = time.time()
         self._set_state(NavigationState.RETURNING)
-        print(f"↩ RETURNING triggered. Starting BACKUP 20cm from ({self.current_x:.1f}, {self.current_y:.1f})")
     
     async def _handle_returning(self):
-        """RETURNING: Navigate back to start position with Closed-Loop Control"""
-        # Calculate vector to start
-        dx = self.start_x - self.current_x
-        dy = self.start_y - self.current_y
-        distance_to_start = np.sqrt(dx**2 + dy**2)
+        """RETURNING: Wait -> Backup -> Pure Pursuit to Start"""
         
-        # COORDINATE FIX: Robot is Y-Forward (North=0).
-        # atan2(dx, dy) gives correct heading relative to North (+Y)
-        target_heading = np.arctan2(dx, dy)
-        
-        # Check if arrived at start
-        if distance_to_start < self.config.return_distance_threshold:
-            await self._stop_motors()
-            self._set_state(NavigationState.IDLE)
-            print(f"✓ RETURNED to start! Distance: {distance_to_start:.1f}cm")
-            if self.on_returned:
-                self.on_returned()
-            return
-        
-        if self.return_phase == "BACKUP":
-            # Backup 20cm to clear the object
-            bx, by = self.backup_start_pos
-            dist_backed = np.sqrt((self.current_x - bx)**2 + (self.current_y - by)**2)
-            
-            if dist_backed < 20.0:  # Back up 20cm
-                await self._set_motor_power(-0.3, -0.3)
+        # --- PHASE 1: WAITING (5 Seconds) ---
+        if self.return_phase == ReturnPhase.WAITING:
+            elapsed = time.time() - self.return_start_time
+            if elapsed < 5.0:
+                await self._stop_motors()
+                # Optional: print countdown every second
+                if int(elapsed) > int(elapsed - 0.1): 
+                    print(f"  ⏳ Returning in {5 - int(elapsed):.0f}s...")
                 return
             else:
-                # Backup complete
-                await self._stop_motors()
-                print(f"  ✓ Backup complete ({dist_backed:.1f}cm). Starting return...")
-                
-                # Check initial heading error to decide mode
-                heading_error = target_heading - self.current_theta
-                while heading_error > np.pi: heading_error -= 2 * np.pi
-                while heading_error < -np.pi: heading_error += 2 * np.pi
-                
-                # SMART TURN LOGIC:
-                # If error is large (> 45 deg), Pivot first (ROTATE)
-                # If error is small (< 45 deg), Arc turn (DRIVE)
-                if abs(heading_error) > np.radians(45):
-                    self.return_phase = "ROTATE"
-                    print(f"  ↪ Large Angle ({np.degrees(heading_error):.1f}°) -> Pivoting")
+                print("  ◀ Starting Backup (20cm)")
+                self.return_phase = ReturnPhase.BACKING
+                self.backup_start_pos = (self.current_x, self.current_y)
+                # Reset stuck timer just in case
+                self.avoid_start_time = time.time() 
+                return
+
+        # --- PHASE 2: BACKING UP (20cm) ---
+        elif self.return_phase == ReturnPhase.BACKING:
+            # Calculate how far we've moved since starting backup
+            dx = self.current_x - self.backup_start_pos[0]
+            dy = self.current_y - self.backup_start_pos[1]
+            dist_moved = np.sqrt(dx*dx + dy*dy)
+            
+            # Backup Speed (slightly slower for safety)
+            BACKUP_SPEED = 0.35
+            BACKUP_DIST = 20.0 # cm
+
+            if dist_moved < BACKUP_DIST:
+                # Check for timeout (stuck while backing up?) - 5s limit
+                if time.time() - self.avoid_start_time > 5.0:
+                    print("  ⚠ Backup timeout - forcing return")
+                    self.return_phase = ReturnPhase.NAVIGATING
                 else:
-                    self.return_phase = "DRIVE"
-                    print(f"  ↪ Small Angle ({np.degrees(heading_error):.1f}°) -> Arcing")
-                
-                self.return_target_heading = target_heading
-                
-                # Pre-lock IMU target if available
-                if self.imu:
-                    self.target_imu_rotation = target_heading
-                return
-
-        if self.return_phase == "ROTATE":
-            # Phase 1: Point-and-Shoot (Pivot until roughly facing home)
-            
-            # Use cached target to avoid oscillation near 180 degrees
-            target_heading = self.return_target_heading
-            
-            # Calculate heading error
-            heading_error = target_heading - self.current_theta
-            while heading_error > np.pi: heading_error -= 2 * np.pi
-            while heading_error < -np.pi: heading_error += 2 * np.pi
-            
-            # Threshold to switch to driving (10 degrees)
-            THRESHOLD = np.radians(10)
-            
-            if abs(heading_error) <= THRESHOLD:
-                await self._stop_motors()
-                self.return_phase = "DRIVE"
-                print("  ✓ Aligned → DRIVING to start")
-                await asyncio.sleep(0.1)
-                return
-            
-            # Execute Turn
-            MIN_MOVING_POWER = 0.30
-            # Reduced pivot speed for accuracy
-            pivot_power = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(heading_error) * 1.5))
-            
-            if heading_error > 0:
-                # Target is LEFT -> Turn LEFT (CCW)
-                # Left Back, Right Forward
-                await self._set_motor_power(-pivot_power, pivot_power) 
+                    # Drive backwards straight
+                    await self._set_motor_power(-BACKUP_SPEED, -BACKUP_SPEED)
             else:
-                # Target is RIGHT -> Turn RIGHT (CW)
-                # Left Forward, Right Back
-                await self._set_motor_power(pivot_power, -pivot_power)
-        
-        elif self.return_phase == "DRIVE":
-            # Phase 2: Drive & Correct (Continuous Heading Correction / Arcing)
-            
-            # Recalculate Error
-            target_heading = np.arctan2(dx, dy)
-            heading_error = target_heading - self.current_theta
-            while heading_error > np.pi: heading_error -= 2 * np.pi
-            while heading_error < -np.pi: heading_error += 2 * np.pi
-            
-            # If we drift MASSIVELY (> 60 deg), stop and rotate
-            # This handles if we get knocked off course
-            if abs(heading_error) > np.radians(60):
-                 print(f"  ⚠ Excessive Drift ({np.degrees(heading_error):.1f}°) - Re-aligning")
-                 self.return_phase = "ROTATE"
-                 self.return_target_heading = target_heading
-                 await self._stop_motors()
-                 return
+                print(f"  ✓ Backup complete ({dist_moved:.1f}cm) → Returning Home")
+                await self._stop_motors()
+                self.return_phase = ReturnPhase.NAVIGATING
+                # Small pause to settle
+                await asyncio.sleep(0.5)
 
-            # P-Controller for Heading
-            # Stronger correction for larger errors to enable arcing
-            kP = 1.0 
-            correction = heading_error * kP
+        # --- PHASE 3: PURE PURSUIT TO START ---
+        elif self.return_phase == ReturnPhase.NAVIGATING:
+            # 1. Calculate Vector to Start (Goal is self.start_x, self.start_y)
+            dx = self.start_x - self.current_x
+            dy = self.start_y - self.current_y
             
-            # Base speed
-            speed = self.config.drive_speed
+            # Distance to start
+            map_dist = np.sqrt(dx*dx + dy*dy)
             
-            # Apply correction (Turn towards target)
-            # If error > 0 (Target is LEFT), we need to turn LEFT.
-            # Turn LEFT = Reduce Left Power, Increase Right Power
-            left_power = speed - correction
-            right_power = speed + correction
+            # Check arrival
+            if map_dist < self.config.return_distance_threshold:
+                print(f"✓ RETURNED to start! (Dist: {map_dist:.1f}cm)")
+                await self._stop_motors()
+                self._set_state(NavigationState.IDLE)
+                if self.on_returned:
+                    self.on_returned()
+                return
+
+            # 2. Coordinate Transform (World -> Robot Frame)
+            # Match math from _handle_approaching EXACTLY
+            cos_t = np.cos(self.current_theta)
+            sin_t = np.sin(self.current_theta)
             
-            # Clamp
-            max_p = max(abs(left_power), abs(right_power), 1.0)
-            left_power /= max_p
-            right_power /= max_p
+            # Use same transform as approaching (negated X for correct steering)
+            local_x = -(dx * cos_t - dy * sin_t)
+            local_y = dx * sin_t + dy * cos_t
             
-            await self._set_motor_power(left_power, right_power)
+            # Calculate Bearing (Angle to goal relative to robot)
+            map_bearing = np.arctan2(local_x, local_y)
+
+            # 3. Use Pure Pursuit
+            # This handles smooth driving and pivoting > 45 deg
+            await self._handle_pure_pursuit(map_dist, map_bearing)
+
     
     # =========================================================================
     # MOTOR HELPERS
