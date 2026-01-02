@@ -22,7 +22,7 @@ import argparse
 
 ROBOT_IP = "192.168.1.161"             # Replace with your Pi's IP address
 ROBOT_USER = "besto"                   # Your Pi username
-REMOTE_PATH = "~/viam_projects/viam_projects/training_images"  # Folder on Pi with captured images
+REMOTE_PATH = "~/viam_projects/training_images"  # Folder on Pi with captured images
 LOCAL_PATH = "./downloaded_images"     # Folder on your laptop to save images
 GUI_FILE_PATH = "GUI.html"             # Path to your local GUI file
 
@@ -86,6 +86,20 @@ def sync_images():
                 downloaded += len([f for f in files if f.endswith(('.jpg', '.jpeg', '.png'))])
             
             print(f"\n✅ Sync Complete! {downloaded} images saved to: {os.path.abspath(LOCAL_PATH)}")
+            
+            # Prompt to delete remote images
+            delete_choice = input("\n🗑️  Do you want to DELETE these images from the robot to save space? (y/N): ").strip().lower()
+            if delete_choice == 'y':
+                print("   Deleting remote images...")
+                # rm -rf path/* to keep the folder but remove contents
+                # Using remote path from config
+                del_cmd = f'ssh {ROBOT_USER}@{ROBOT_IP} "rm -rf {REMOTE_PATH}/*"'
+                del_result = subprocess.run(del_cmd, shell=True)
+                if del_result.returncode == 0:
+                     print("   ✅ Remote images deleted.")
+                else:
+                     print("   ❌ Failed to delete remote images.")
+            
             return True
         else:
             print("\n❌ Sync Failed. Check your connection or credentials.")

@@ -455,8 +455,10 @@ async def handle_client(websocket):
                             
                 elif msg_type == "download_images":
                     # Zip all training images and send to client
+                    should_clear = data.get("clear", False)
                     import zipfile
                     import io
+                    import shutil
                     from datetime import datetime
                     
                     base_dir = "training_images"
@@ -506,6 +508,21 @@ async def handle_client(websocket):
                                 "filename": filename,
                                 "image_count": image_count
                             }))
+                            
+                            # Clear images if requested (AFTER successful zip)
+                            if should_clear:
+                                print(f"  🗑️ Clearing {image_count} images from {base_dir}...")
+                                try:
+                                    # Delete contents of training_images but keep the directory
+                                    for root, dirs, files in os.walk(base_dir, topdown=False):
+                                        for name in files:
+                                            os.remove(os.path.join(root, name))
+                                        for name in dirs:
+                                            os.rmdir(os.path.join(root, name))
+                                    print("  ✅ Images cleared.")
+                                except Exception as e:
+                                    print(f"  ❌ Failed to clear images: {e}")
+                             
                             
                 elif msg_type == "collect_blur_dataset":
                     if camera:

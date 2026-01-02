@@ -2447,13 +2447,21 @@
         });
 
         // Download Images Button
+        // Download Images Button
         elements.downloadImagesBtn.addEventListener('click', () => {
             if (!state.connected) return;
+
+            // Ask user if they want to clear remote images
+            const shouldClear = confirm("Do you want to DELETE these images from the robot after downloading?\n\nOK = Download & Delete from Robot\nCancel = Download Only (Keep on Robot)");
 
             // Request image download from server
             elements.downloadImagesBtn.disabled = true;
             elements.downloadImagesBtn.textContent = '⏳ Preparing...';
-            state.ws.send(JSON.stringify({ type: "download_images" }));
+
+            state.ws.send(JSON.stringify({
+                type: "download_images",
+                clear: shouldClear
+            }));
         });
 
         // Blur Dataset Sweep
