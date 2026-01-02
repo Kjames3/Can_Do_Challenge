@@ -752,9 +752,13 @@ class NavigationFSM:
             target_speed = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(heading_error) * 1.5))
             
             if heading_error > 0:
-                await self._set_motor_power(target_speed, -target_speed) # Tank turn left
+                # Target is LEFT -> Turn LEFT (CCW)
+                # Left Back, Right Forward
+                await self._set_motor_power(-target_speed, target_speed) 
             else:
-                await self._set_motor_power(-target_speed, target_speed) # Tank turn right
+                # Target is RIGHT -> Turn RIGHT (CW)
+                # Left Forward, Right Back
+                await self._set_motor_power(target_speed, -target_speed)
         
         elif self.return_phase == "DRIVE":
             # Phase 2: Drive & Correct (Continuous Heading Correction)
