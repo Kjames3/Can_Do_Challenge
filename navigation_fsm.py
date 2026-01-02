@@ -749,8 +749,10 @@ class NavigationFSM:
         if self.return_phase == "ROTATE":
             # Phase 1: Point-and-Shoot (Pivot until roughly facing home)
             
-            # Recalculate heading error
-            target_heading = np.arctan2(dx, dy) # Update target in case we moved
+            # Use cached target to avoid oscillation near 180 degrees
+            target_heading = self.return_target_heading
+            
+            # Calculate heading error
             heading_error = target_heading - self.current_theta
             while heading_error > np.pi: heading_error -= 2 * np.pi
             while heading_error < -np.pi: heading_error += 2 * np.pi
