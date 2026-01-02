@@ -692,11 +692,12 @@ class NavigationFSM:
         print(f"↩ RETURNING triggered. Starting BACKUP 20cm from ({self.current_x:.1f}, {self.current_y:.1f})")
     
     async def _handle_returning(self):
-        """RETURNING: Navigate back to start position"""
-        # Calculate distance to start
+        """RETURNING: Navigate back to start position with Closed-Loop Control"""
+        # Calculate vector to start
         dx = self.start_x - self.current_x
         dy = self.start_y - self.current_y
         distance_to_start = np.sqrt(dx**2 + dy**2)
+        target_heading = np.arctan2(dy, dx)
         
         # Check if arrived at start
         if distance_to_start < self.config.return_distance_threshold:
@@ -718,83 +719,78 @@ class NavigationFSM:
             else:
                 # Backup complete
                 await self._stop_motors()
-                print(f"  ✓ Backup complete ({dist_backed:.1f}cm). Calculating return path...")
+                print(f"  ✓ Backup complete ({dist_backed:.1f}cm). Starting return...")
                 self.return_phase = "ROTATE"
+                self.return_target_heading = target_heading
                 
-                # NOW calculate return heading from this new safe position
-                dx = self.start_x - self.current_x
-                dy = self.start_y - self.current_y
-                self.return_target_heading = np.arctan2(dy, dx)
-                
+                # Pre-lock IMU target if available
                 if self.imu:
-                    # DO NOT reset heading - maintains global coordinate consistency
-                    # self.imu.reset_heading() 
-                    
-                    # Target is the absolute heading we want to face
-                    self.target_imu_rotation = self.return_target_heading
+                    self.target_imu_rotation = target_heading
                 
-                print(f"  ↪ New Heading to Start: {np.degrees(self.return_target_heading):.1f}°")
+                print(f"  ↪ Turn to Start: {np.degrees(target_heading):.1f}°")
                 return
 
         if self.return_phase == "ROTATE":
-            # Rotate to face start position
-            if self.imu:
-                current_heading = self.imu.get_heading()
-                remaining_turn = self.target_imu_rotation - current_heading
-                
-                # Normalize remaining turn to [-pi, pi]
-                while remaining_turn > np.pi: remaining_turn -= 2 * np.pi
-                while remaining_turn < -np.pi: remaining_turn += 2 * np.pi
-                
-                threshold = 0.08  # ~5 degrees
-            else:
-                # Fallback: use odometry heading
-                heading_diff = self.return_target_heading - self.current_theta
-                while heading_diff > np.pi:
-                    heading_diff -= 2 * np.pi
-                while heading_diff < -np.pi:
-                    heading_diff += 2 * np.pi
-                remaining_turn = heading_diff
-                threshold = 0.15
+            # Phase 1: Point-and-Shoot (Turn until facing home)
             
-            if abs(remaining_turn) <= threshold:
+            # Calculate heading error
+            heading_error = target_heading - self.current_theta
+            while heading_error > np.pi: heading_error -= 2 * np.pi
+            while heading_error < -np.pi: heading_error += 2 * np.pi
+            
+            THRESHOLD = 0.08 if self.imu else 0.15 # ~5-8 degrees
+            
+            if abs(heading_error) <= THRESHOLD:
                 await self._stop_motors()
                 self.return_phase = "DRIVE"
-                print("  ✓ Aligned → DRIVING to start")
+                print("  ✓ Aligned → DRIVING to start (Closed-Loop)")
                 await asyncio.sleep(0.2)
                 return
             
+            # Execute Turn
+            MIN_MOVING_POWER = 0.30
+            target_speed = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(heading_error) * 1.5))
             
-            # Turn toward start
-            MIN_MOVING_POWER = 0.30  # Increased from 0.24 for reliable turning
-            target_speed = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(remaining_turn) * 1.5))
-            
-            if remaining_turn > 0:
-                await self._set_motor_power(target_speed, 0.0)
+            if heading_error > 0:
+                await self._set_motor_power(target_speed, -target_speed) # Tank turn left
             else:
-                await self._set_motor_power(0.0, target_speed)
+                await self._set_motor_power(-target_speed, target_speed) # Tank turn right
         
         elif self.return_phase == "DRIVE":
-            # Drive toward start
-            # Recalculate bearing in case of drift
-            target_heading = np.arctan2(dy, dx)
+            # Phase 2: Drive & Correct (Continuous Heading Correction)
+            
+            # Recalculate Error
             heading_error = target_heading - self.current_theta
-            while heading_error > np.pi:
-                heading_error -= 2 * np.pi
-            while heading_error < -np.pi:
-                heading_error += 2 * np.pi
+            while heading_error > np.pi: heading_error -= 2 * np.pi
+            while heading_error < -np.pi: heading_error += 2 * np.pi
             
-            # If drifted too much, go back to ROTATE
-            if abs(heading_error) > 0.5:  # ~30 degrees
-                self.return_phase = "ROTATE"
-                if self.imu:
-                    self.imu.reset_heading()
-                    self.target_imu_rotation = heading_error
-                print(f"  ⚠ Drift detected ({np.degrees(heading_error):.1f}°) → re-rotating")
-                return
+            # If we drift MASSIVELY (> 60 deg), stop and rotate
+            if abs(heading_error) > 1.0:
+                 print(f"  ⚠ Excessive Drift ({np.degrees(heading_error):.1f}°) - Re-aligning")
+                 self.return_phase = "ROTATE"
+                 self.return_target_heading = target_heading
+                 await self._stop_motors()
+                 return
+
+            # P-Controller for Heading
+            kP = 0.8  # Correction strength
+            correction = heading_error * kP
             
-            # Drive forward
-            await self._set_motor_power(self.config.drive_speed, self.config.drive_speed)
+            # Base speed
+            speed = self.config.drive_speed
+            
+            # Apply correction (Turn towards target)
+            # If error > 0 (Target is LEFT), we need to turn LEFT.
+            # Turn LEFT = Reduce Left Power, Increase Right Power
+            left_power = speed - correction
+            right_power = speed + correction
+            
+            # Clamp
+            max_p = max(abs(left_power), abs(right_power), 1.0)
+            left_power /= max_p
+            right_power /= max_p
+            
+            await self._set_motor_power(left_power, right_power)
     
     # =========================================================================
     # MOTOR HELPERS

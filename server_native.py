@@ -97,6 +97,9 @@ TARGET_CLASSES = [0]  # 0=can
 
 # Camera Settings
 CAMERA_HFOV_DEG = 66.0  # IMX708 Standard FOV
+CAMERA_VFOV_DEG = 40.1  # Calculated for 16:9 aspect ratio
+CAMERA_HEIGHT_CM = 8.5  # ESTIMATED height from floor to lens center (User to measure!)
+CAMERA_TILT_DEG = 1.0   # 0-2 degrees down from horizontal
 IMAGE_WIDTH = 1536
 IMAGE_HEIGHT = 864
 
@@ -195,10 +198,30 @@ def process_detection(frame):
                 center_x = (x1 + x2) / 2
                 center_y = (y1 + y2) / 2
                 
-                # Height-based distance estimation
-                height_px = y2 - y1
-                # Distance = (Real Height * Focal Length) / Image Height
-                distance_cm = (KNOWN_HEIGHT_CAN * FOCAL_LENGTH) / height_px
+                # Height-based distance estimation (OLD)
+                # height_px = y2 - y1
+                # distance_cm = (KNOWN_HEIGHT_CAN * FOCAL_LENGTH) / height_px
+                
+                # Base-of-Object Triangulation (NEW)
+                # Uses the bottom edge of the bounding box (y2) to determine angle
+                y_bottom = float(y2)
+                image_center_y = IMAGE_HEIGHT / 2.0
+                
+                # Calculate angle below horizon
+                # (Pixel offset from center) * (Degrees per pixel)
+                vertical_angle_offset_deg = (y_bottom - image_center_y) * (CAMERA_VFOV_DEG / IMAGE_HEIGHT)
+                
+                # Total angle = Camera Tilt + Object Angle
+                total_angle_deg = CAMERA_TILT_DEG + vertical_angle_offset_deg
+                
+                # Safety: Avoid division by zero or negative distance (looking up)
+                if total_angle_deg <= 0.1:
+                    distance_cm = 999.0 # Too far or looking up
+                else:
+                    distance_cm = CAMERA_HEIGHT_CM / np.tan(np.radians(total_angle_deg))
+                
+                # Clamp minimal distance to avoid singularities
+                distance_cm = max(5.0, distance_cm)
                 
                 label = f"Can: {distance_cm:.1f}cm ({conf:.2f})"
                 cv2.putText(frame, label, (int(x1), int(y1) - 10), 
@@ -369,6 +392,18 @@ async def handle_client(websocket):
                     global is_auto_driving
                     is_auto_driving = True
                     print("🚀 AUTO-DRIVE ENGAGED")
+                    
+                    # RESET ALL STATE (Zero Heading/Position)
+                    print("  🔄 Resetting Robot State & IMU to (0,0)")
+                    if robot_state:
+                        robot_state.x = 0.0
+                        robot_state.y = 0.0
+                        robot_state.theta = 0.0
+                        robot_state.initialized = False # Force re-init of encoder baseline
+                    
+                    if imu:
+                        imu.reset_heading()
+                        
                     if fsm:
                         # Reset FSM state
                         await fsm.start()
