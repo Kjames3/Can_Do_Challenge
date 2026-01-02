@@ -697,7 +697,10 @@ class NavigationFSM:
         dx = self.start_x - self.current_x
         dy = self.start_y - self.current_y
         distance_to_start = np.sqrt(dx**2 + dy**2)
-        target_heading = np.arctan2(dy, dx)
+        
+        # COORDINATE FIX: Robot is Y-Forward (North=0).
+        # atan2(dx, dy) gives correct heading relative to North (+Y)
+        target_heading = np.arctan2(dx, dy)
         
         # Check if arrived at start
         if distance_to_start < self.config.return_distance_threshold:
@@ -720,56 +723,74 @@ class NavigationFSM:
                 # Backup complete
                 await self._stop_motors()
                 print(f"  ✓ Backup complete ({dist_backed:.1f}cm). Starting return...")
-                self.return_phase = "ROTATE"
+                
+                # Check initial heading error to decide mode
+                heading_error = target_heading - self.current_theta
+                while heading_error > np.pi: heading_error -= 2 * np.pi
+                while heading_error < -np.pi: heading_error += 2 * np.pi
+                
+                # SMART TURN LOGIC:
+                # If error is large (> 45 deg), Pivot first (ROTATE)
+                # If error is small (< 45 deg), Arc turn (DRIVE)
+                if abs(heading_error) > np.radians(45):
+                    self.return_phase = "ROTATE"
+                    print(f"  ↪ Large Angle ({np.degrees(heading_error):.1f}°) -> Pivoting")
+                else:
+                    self.return_phase = "DRIVE"
+                    print(f"  ↪ Small Angle ({np.degrees(heading_error):.1f}°) -> Arcing")
+                
                 self.return_target_heading = target_heading
                 
                 # Pre-lock IMU target if available
                 if self.imu:
                     self.target_imu_rotation = target_heading
-                
-                print(f"  ↪ Turn to Start: {np.degrees(target_heading):.1f}°")
                 return
 
         if self.return_phase == "ROTATE":
-            # Phase 1: Point-and-Shoot (Turn until facing home)
+            # Phase 1: Point-and-Shoot (Pivot until roughly facing home)
             
-            # Calculate heading error
+            # Recalculate heading error
+            target_heading = np.arctan2(dx, dy) # Update target in case we moved
             heading_error = target_heading - self.current_theta
             while heading_error > np.pi: heading_error -= 2 * np.pi
             while heading_error < -np.pi: heading_error += 2 * np.pi
             
-            THRESHOLD = 0.08 if self.imu else 0.15 # ~5-8 degrees
+            # Threshold to switch to driving (10 degrees)
+            THRESHOLD = np.radians(10)
             
             if abs(heading_error) <= THRESHOLD:
                 await self._stop_motors()
                 self.return_phase = "DRIVE"
-                print("  ✓ Aligned → DRIVING to start (Closed-Loop)")
-                await asyncio.sleep(0.2)
+                print("  ✓ Aligned → DRIVING to start")
+                await asyncio.sleep(0.1)
                 return
             
             # Execute Turn
             MIN_MOVING_POWER = 0.30
-            target_speed = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(heading_error) * 1.5))
+            # Reduced pivot speed for accuracy
+            pivot_power = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(heading_error) * 1.5))
             
             if heading_error > 0:
                 # Target is LEFT -> Turn LEFT (CCW)
                 # Left Back, Right Forward
-                await self._set_motor_power(-target_speed, target_speed) 
+                await self._set_motor_power(-pivot_power, pivot_power) 
             else:
                 # Target is RIGHT -> Turn RIGHT (CW)
                 # Left Forward, Right Back
-                await self._set_motor_power(target_speed, -target_speed)
+                await self._set_motor_power(pivot_power, -pivot_power)
         
         elif self.return_phase == "DRIVE":
-            # Phase 2: Drive & Correct (Continuous Heading Correction)
+            # Phase 2: Drive & Correct (Continuous Heading Correction / Arcing)
             
             # Recalculate Error
+            target_heading = np.arctan2(dx, dy)
             heading_error = target_heading - self.current_theta
             while heading_error > np.pi: heading_error -= 2 * np.pi
             while heading_error < -np.pi: heading_error += 2 * np.pi
             
             # If we drift MASSIVELY (> 60 deg), stop and rotate
-            if abs(heading_error) > 1.0:
+            # This handles if we get knocked off course
+            if abs(heading_error) > np.radians(60):
                  print(f"  ⚠ Excessive Drift ({np.degrees(heading_error):.1f}°) - Re-aligning")
                  self.return_phase = "ROTATE"
                  self.return_target_heading = target_heading
@@ -777,7 +798,8 @@ class NavigationFSM:
                  return
 
             # P-Controller for Heading
-            kP = 0.8  # Correction strength
+            # Stronger correction for larger errors to enable arcing
+            kP = 1.0 
             correction = heading_error * kP
             
             # Base speed
