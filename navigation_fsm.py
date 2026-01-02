@@ -51,8 +51,8 @@ class NavigationConfig:
     large_turn_threshold: float = 0.35    # ~20° - use tank turn above this
     
     # Motor speeds (higher = fewer small movements = fewer API calls)
-    rotate_speed: float = 0.28            # Tank turn speed
-    pivot_speed: float = 0.25             # Pivot turn speed
+    rotate_speed: float = 0.40            # Tank turn speed (increased for heavy bot)
+    pivot_speed: float = 0.40             # Pivot turn speed (increased for heavy bot)
     drive_speed: float = 0.50             # Forward drive speed (increased for faster approach)
     search_speed: float = 0.20            # Search rotation speed (slowed to not miss objects)
     backup_speed: float = 0.25            # Backup speed for avoiding
@@ -552,8 +552,8 @@ class NavigationFSM:
         # "Deliberate" movement: Start at pivot_speed, slow down as we get closer.
         # MIN_MOVING_POWER ensures we don't stall due to friction.
         
-        base_speed = self.config.pivot_speed  # Default 0.25
-        MIN_MOVING_POWER = 0.24  # Calibrated value (overcomes friction)
+        base_speed = self.config.pivot_speed  # Default 0.40
+        MIN_MOVING_POWER = 0.32  # Increased to overcome static friction (was 0.24)
         
         # Simple P-Control: Scale speed based on remaining error 
         dynamic_speed = abs(remaining_turn) * 1.5 
