@@ -1127,13 +1127,22 @@
                     <div class="control-section-item">
                         <h3 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; color: var(--text-secondary);">📍 Position
                         </h3>
-                        <div class="motor-grid">
+                        <div class="motor-grid" style="grid-template-columns: 1fr 1fr 1fr;">
                             <div class="motor-card">
                                 <h3>Robot</h3>
                                 <div id="robot-x" class="motor-value" style="font-size: 0.9rem;">X: 0.0</div>
                                 <div id="robot-y" class="motor-value" style="font-size: 0.9rem;">Y: 0.0</div>
                                 <div id="robot-theta" class="motor-value"
                                     style="font-size: 0.75rem; color: var(--text-secondary);">θ: 0.0°</div>
+                            </div>
+                            <div class="motor-card">
+                                <h3>Start</h3>
+                                <div id="start-x" class="motor-value"
+                                    style="font-size: 0.9rem; color: var(--text-muted);">X: --</div>
+                                <div id="start-y" class="motor-value"
+                                    style="font-size: 0.9rem; color: var(--text-muted);">Y: --</div>
+                                <div id="start-msg" class="motor-value"
+                                    style="font-size: 0.75rem; color: var(--text-muted);">Not Set</div>
                             </div>
                             <div class="motor-card">
                                 <h3>Target</h3>
@@ -1499,6 +1508,9 @@
             robotX: document.getElementById('robot-x'),
             robotY: document.getElementById('robot-y'),
             robotTheta: document.getElementById('robot-theta'),
+            startX: document.getElementById('start-x'),
+            startY: document.getElementById('start-y'),
+            startMsg: document.getElementById('start-msg'),
             targetX: document.getElementById('target-x'),
             targetY: document.getElementById('target-y'),
             targetDist: document.getElementById('target-dist'),
@@ -1807,6 +1819,20 @@
                 elements.targetX.textContent = 'X: --';
                 elements.targetY.textContent = 'Y: --';
                 elements.targetDist.textContent = 'Dist: --';
+            }
+
+            // Update Start Position Display
+            if (data.auto_drive_start) {
+                const sp = data.auto_drive_start;
+                elements.startX.textContent = `X: ${sp.x.toFixed(1)}`;
+                elements.startY.textContent = `Y: ${sp.y.toFixed(1)}`;
+                elements.startMsg.textContent = 'Auto-Drive Origin';
+                elements.startMsg.style.color = 'var(--accent-green)';
+                // Add start marker to 3D view if it doesn't exist or is different?
+                // (Already handled in 3D init, fixed at 0,0,0 usually but we can update if needed)
+            } else {
+                // Default to 0,0 if not set or just show --
+                // Since we reset to 0,0 on start, it should always be 0,0 when active
             }
 
             // Update Power Display (from INA219)

@@ -198,32 +198,39 @@ def process_detection(frame):
                 center_x = (x1 + x2) / 2
                 center_y = (y1 + y2) / 2
                 
-                # Height-based distance estimation (OLD)
-                # height_px = y2 - y1
-                # distance_cm = (KNOWN_HEIGHT_CAN * FOCAL_LENGTH) / height_px
+                # HYBRID DISTANCE LOGIC
+                # ---------------------
+                # Method A: Height-based (Best for FAR objects, avoids floor clamp issues)
+                height_px = y2 - y1
+                dist_height = (KNOWN_HEIGHT_CAN * FOCAL_LENGTH) / height_px
                 
-                # Base-of-Object Triangulation (NEW)
-                # Uses the bottom edge of the bounding box (y2) to determine angle
+                # Method B: Base-of-Object Triangulation (Best for CLOSE objects, handles cropping)
                 y_bottom = float(y2)
                 image_center_y = IMAGE_HEIGHT / 2.0
-                
-                # Calculate angle below horizon
-                # (Pixel offset from center) * (Degrees per pixel)
                 vertical_angle_offset_deg = (y_bottom - image_center_y) * (CAMERA_VFOV_DEG / IMAGE_HEIGHT)
-                
-                # Total angle = Camera Tilt + Object Angle
                 total_angle_deg = CAMERA_TILT_DEG + vertical_angle_offset_deg
                 
-                # Safety: Avoid division by zero or negative distance (looking up)
                 if total_angle_deg <= 0.1:
-                    distance_cm = 999.0 # Too far or looking up
+                    dist_floor = 999.0
                 else:
-                    distance_cm = CAMERA_HEIGHT_CM / np.tan(np.radians(total_angle_deg))
+                    dist_floor = CAMERA_HEIGHT_CM / np.tan(np.radians(total_angle_deg))
                 
-                # Clamp minimal distance to avoid singularities
+                # Dynamic Switch
+                # If the box is small (< 50px), it's far away -> Use Height method
+                # If the box is large (>= 50px), it's close -> Use Floor method
+                SWITCH_THRESHOLD_PX = 50
+                
+                if height_px < SWITCH_THRESHOLD_PX:
+                    distance_cm = dist_height
+                    method_tag = "H" # Height
+                else:
+                    distance_cm = dist_floor
+                    method_tag = "F" # Floor
+                
+                # Clamp minimal distance
                 distance_cm = max(5.0, distance_cm)
                 
-                label = f"Can: {distance_cm:.1f}cm ({conf:.2f})"
+                label = f"Can: {distance_cm:.1f}cm ({method_tag})"
                 cv2.putText(frame, label, (int(x1), int(y1) - 10), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
                 
@@ -808,6 +815,10 @@ async def broadcast_loop():
                     "heading_deg": np.degrees(imu.get_heading()) if imu else 0,
                     "yaw_rate": imu.get_gyro()[2] if imu else 0
                 } if imu else None,
+                "auto_drive_start": {
+                    "x": fsm.start_x,
+                    "y": fsm.start_y
+                } if fsm and is_auto_driving else None,
                 "lidar_points": lidar.get_points_xy()[:360] if lidar else [],
                 "fsm_state": fsm.state_summary if fsm else "IDLE",
                 "power": power_sensor.get_all() if power_sensor else None
