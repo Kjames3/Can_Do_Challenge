@@ -243,6 +243,9 @@ class NavigationFSM:
             self.current_x = current_pose.get('x', 0.0)
             self.current_y = current_pose.get('y', 0.0)
             self.current_theta = current_pose.get('theta', 0.0)
+            
+        # Store detection for phases that need live valid targets (e.g. Return Alignment)
+        self.latest_detection = detection if detection and detection.get('distance_cm') else {}
         
         # MAP-BASED NAVIGATION: Update persistent goal from target_pose
         # GOAL FREEZING: Only update goal if we're farther than 30cm
@@ -773,37 +776,75 @@ class NavigationFSM:
             await self._handle_pure_pursuit(map_dist, map_bearing)
 
         # --- PHASE 4: ALIGNING TO START ORIENTATION ---
+        # --- PHASE 4: ALIGNING TO TARGET (Visual or Blind) ---
         elif self.return_phase == ReturnPhase.ALIGNING:
-            # Use cached target (should be start_theta)
-            target_heading = self.return_target_heading
+            # Default: Blind alignment to Map Goal
+            # Only calculate once at start of phase to prevent drift, unless visual update
+            if not hasattr(self, '_align_target_heading'):
+                # Calculate vector from Start -> Goal
+                if self.goal_x is not None and self.goal_y is not None:
+                    gx = self.goal_x - self.start_x
+                    gy = self.goal_y - self.start_y
+                    self._align_target_heading = np.arctan2(gx, gy) # Y-Forward angle
+                    print(f"  👀 Aligning to Map Goal: {np.degrees(self._align_target_heading):.1f}°")
+                else:
+                    self._align_target_heading = self.start_theta
+                    print("  👀 Aligning to Start Theta (No Goal recorded)")
+
+            target_heading = self._align_target_heading
+            THRESHOLD = np.radians(8) # Loose threshold for blind
             
+            # LIVE VISUAL OVERRIDE
+            # If we see ANY target, prioritize it and tighten threshold
+            if self.latest_detection:
+                # Calculate bearing to this new target
+                # We need pixel offset logic here or rely on 'center_x' if available
+                det = self.latest_detection
+                center_x = det.get('center_x', 1536/2) # Default to center if missing
+                img_width = 1536 # Hardcoded match to server_native
+                fov = 66.0       # Hardcoded match to server_native
+                
+                pixel_offset = center_x - (img_width / 2)
+                bearing = pixel_offset * (fov / img_width) * (np.pi / 180.0)
+                
+                # Visual Target Heading = Current Theta + Bearing
+                # We update the target_heading dynamically to chase the visual target
+                target_heading = self.current_theta + bearing
+                
+                # Tighten threshold for visual lock
+                THRESHOLD = np.radians(3)
+                print(f"  🎯 Visual Lock! Bearing: {np.degrees(bearing):.1f}°", end='\r')
+
             # Calculate heading error
             heading_error = target_heading - self.current_theta
             while heading_error > np.pi: heading_error -= 2 * np.pi
             while heading_error < -np.pi: heading_error += 2 * np.pi
             
-            # Threshold to finish (Relaxed to 8 degrees to prevent hunting)
-            THRESHOLD = np.radians(8)
-            
             if abs(heading_error) <= THRESHOLD:
                 await self._stop_motors()
                 self._set_state(NavigationState.IDLE)
-                print(f"✓ RETURN COMPLETED! Aligned to {np.degrees(self.current_theta):.1f}°")
+                if self.latest_detection:
+                    print(f"\n✓ VISUAL ALIGN COMPLETE! Locked on target.")
+                else:
+                    print(f"\n✓ BLIND ALIGN COMPLETE! Pointing to map goal.")
+                    
+                # Cleanup
+                if hasattr(self, '_align_target_heading'):
+                    del self._align_target_heading
+                    
                 if self.on_returned:
                     self.on_returned()
                 return
             
             # Execute Pivot Turn
-            # Use same strong power settings from ROTATE
             MIN_MOVING_POWER = 0.32
-            # Reduced P-gain from 2.0 to 1.0 to prevent oscillation
-            pivot_power = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(heading_error) * 1.0))
+            # Use lower gain for visual tracking to be smooth
+            gain = 1.0 if not self.latest_detection else 0.8
+            pivot_power = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(heading_error) * gain))
             
             if heading_error > 0:
-                # Target is LEFT -> Turn LEFT (CCW)
                 await self._set_motor_power(-pivot_power, pivot_power) 
             else:
-                # Target is RIGHT -> Turn RIGHT (CW)
                 await self._set_motor_power(pivot_power, -pivot_power)
 
     
