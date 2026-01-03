@@ -831,10 +831,10 @@ class NavigationFSM:
                     return
                 
                 # ON PHASE (0.1s) - Quick nudge
-                pivot_power = 0.33 
+                pivot_power = 0.35 
             else:
                 # Standard Control
-                MIN_MOVING_POWER = 0.30
+                MIN_MOVING_POWER = 0.32
                 gain = 0.8
                 pivot_power = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(heading_error) * gain))
             
