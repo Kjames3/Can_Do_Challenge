@@ -282,13 +282,8 @@ class NavigationFSM:
         if self.state == NavigationState.ARRIVED:
             # Check if auto-return is enabled
             if self.config.auto_return:
-                # Wait 5 seconds before returning
-                time_since_arrival = time.time() - self.arrived_time
-                if time_since_arrival > 5.0:
-                    self._start_return()
-                elif time_since_arrival > 0.5 and int(time_since_arrival) != int(time_since_arrival - 0.1):
-                     # Print countdown roughly every second (avoid spam)
-                     print(f"  ⏳ Returning in {5.0 - time_since_arrival:.0f}s...")
+                # Trigger return logic immediately (WAITING phase handles the 5s delay)
+                self._start_return()
             return
         
         # Check for obstacles first (safety) - but not during RETURNING
@@ -787,8 +782,8 @@ class NavigationFSM:
             while heading_error > np.pi: heading_error -= 2 * np.pi
             while heading_error < -np.pi: heading_error += 2 * np.pi
             
-            # Threshold to finish (5 degrees)
-            THRESHOLD = np.radians(5)
+            # Threshold to finish (Relaxed to 8 degrees to prevent hunting)
+            THRESHOLD = np.radians(8)
             
             if abs(heading_error) <= THRESHOLD:
                 await self._stop_motors()
@@ -801,7 +796,8 @@ class NavigationFSM:
             # Execute Pivot Turn
             # Use same strong power settings from ROTATE
             MIN_MOVING_POWER = 0.32
-            pivot_power = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(heading_error) * 2.0))
+            # Reduced P-gain from 2.0 to 1.0 to prevent oscillation
+            pivot_power = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(heading_error) * 1.0))
             
             if heading_error > 0:
                 # Target is LEFT -> Turn LEFT (CCW)
