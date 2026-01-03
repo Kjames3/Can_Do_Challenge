@@ -138,12 +138,15 @@ viam_projects/
 - Real-time bounding box overlay
 
 ### Autonomous Navigation
-- **FSM States**: IDLE → SEARCHING → APPROACHING → ARRIVED
-- **Pure Pursuit** curved path control (smooth arcs to target)
-- **Map-Based Navigation** using world coordinates
-- **IMU-precision turns** using gyroscope
+- **FSM States**: IDLE → SEARCHING → APPROACHING → ARRIVED → RETURNING
+- **Pure Pursuit Controller**: Uses a lookahead point and constant curvature blending to drive smooth arcs towards the target, rather than sharp "rotate-then-drive" movements.
+- **Map-Based Navigation** using Y-Forward Cartesian coordinates
+- **Robust Return-to-Home**: Wait → Backup (20cm) → Navigate → Align
+- **Smart Final Alignment**:
+    - **Visual Lock**: Uses camera to center target (3° precision)
+    - **Blind Fallback**: Uses goal coordinates if target lost (15° precision)
+    - **Pulse Logic**: Micro-pulses motors to fix oscillation close to target
 - **Obstacle avoidance** with backup behavior
-- **Auto-return** to starting position
 - **3D Trajectory visualization** in GUI
 
 ### Telemetry
@@ -154,6 +157,29 @@ viam_projects/
 - FPS & detection stats
 
 ---
+
+## 🧭 Coordinate System & Navigation Math
+
+The robot uses a **Y-Forward / Right-Handed** coordinate system:
+
+- **X+** = Right (East)
+- **Y+** = Forward (North)
+- **Theta=0°** = Facing Y+ (North)
+- **Theta=+90°** = Facing Left (West) - *Standard mathematical convention*
+
+### Navigation Heading
+To calculate the heading from Point A (Start) to Point B (Goal):
+
+```python
+# Standard atan2(y, x) is for X-Forward systems.
+# For Y-Forward, we rotate the inputs:
+heading = np.arctan2(-delta_x, delta_y)
+```
+
+### Auto-Return Logic
+1.  **Goal Persistence**: The robot remembers the (X, Y) of the target even after driving back.
+2.  **Singularity Handling**: If facing 180° away from target, it forces a turn to break mathematical deadlock.
+3.  **Pulse Alignment**: When error < 20°, motors "pulse" (0.15s ON) to nudge alignment without oscillation.
 
 ## ⚙️ Configuration
 
@@ -167,6 +193,7 @@ VIDEO_FPS_CAP = 20
 
 # Detection
 FOCAL_LENGTH = 1298           # Calibrate with calibration/calibrate_focal_length.py
+KNOWN_HEIGHT_CAN = 15.7       # 16oz Coke Can Height (cm)
 CONFIDENCE_THRESHOLD = 0.25
 
 # Motor Tuning
@@ -215,6 +242,28 @@ Default: `ws://<pi-ip>:8081`
 - **[calibration/README.md](calibration/README.md)** - Calibrating motors & camera
 - **[training/README.md](training/README.md)** - Training custom YOLO models
 - **[tests/README.md](tests/README.md)** - Running hardware tests
+
+- **[tests/README.md](tests/README.md)** - Running hardware tests
+
+---
+
+## 🔮 Future Improvements
+
+While the current system uses robust deterministic logic (dead reckoning), the project roadmap includes upgrading to probabilistic state refinenent:
+
+### 1. Advanced State Estimation (KF/EKF)
+Replacing the current dead reckoning model with **Kalman Filters (KF)** or **Extended Kalman Filters (EKF)**.
+- **Why**: Dead reckoning assumes zero wheel slip. An EKF would fuse encoder data (proprioception) with IMU and Camera data (exteroception) to estimate the robot's *true* position and covariance (uncertainty) dynamically.
+
+### 2. Probabilistic Perception (Bayesian/Fisher)
+Moving from binary "trust" to probabilistic updates.
+- **Current**: If YOLO says "Can is at 45cm", we believe it 100%.
+- **Future**: Use **Fisher Information** to quantify how much information a frame provides. Use a **Bayesian Estimator** to update the belief map, trusting "sharp/close" frames more than "blurry/far" frames.
+
+### 3. Parameter Estimation (Least Squares)
+Calibrating physical constants mathematically rather than manually.
+- **Concept**: The "Calibration Problem" involves solving for the *true* physical parameters that minimize error over time.
+- **Application**: Driving the robot in a closed loop and using **Least Squares Estimation (LSE)** on the start/end drift to calculate the *exact* effective wheel diameter (to 0.01mm) and track width. This would significantly reduce systematic odometry errors.
 
 ---
 
