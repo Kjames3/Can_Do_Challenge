@@ -91,7 +91,7 @@ DRIFT_COMPENSATION = -0.10
 
 # Detection Configuration
 KNOWN_HEIGHT_BOTTLE = 20.0
-KNOWN_HEIGHT_CAN = 12.5  # Increased from 12.5 to fix distance underestimation (robot was stopping short)
+KNOWN_HEIGHT_CAN = 15.7  # Updated to 15.7cm (16oz Coke can)
 FOCAL_LENGTH = 1298
 TARGET_CLASSES = [0]  # 0=can
 

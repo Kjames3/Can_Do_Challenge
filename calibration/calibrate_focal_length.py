@@ -27,7 +27,7 @@ from ultralytics import YOLO
 from drivers import NativeCamera, configure_pin_factory
 
 # Constants
-KNOWN_HEIGHT_CAN_CM = 12.0  # Standard 12oz/355ml Coke can
+KNOWN_HEIGHT_CAN_CM = 15.7  # Standard 16oz/473ml Coke can (was 12.0)
 DEFAULT_TEST_DIST_CM = 50.0 # Standard calibration distance
 
 # Camera Settings (Must match server_native.py)
