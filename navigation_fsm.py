@@ -748,11 +748,16 @@ class NavigationFSM:
                 self.return_phase = ReturnPhase.ALIGNING
                 return
 
-            # Pure Pursuit Logic
+            # 2. Coordinate Transform (World -> Robot Frame)
+            # Match math from _handle_approaching EXACTLY
             cos_t = np.cos(self.current_theta)
             sin_t = np.sin(self.current_theta)
-            local_x = dx * cos_t - dy * sin_t
+            
+            # Use same transform as approaching (negated X for correct steering)
+            local_x = -(dx * cos_t - dy * sin_t)
             local_y = dx * sin_t + dy * cos_t
+            
+            # Calculate Bearing (Angle to goal relative to robot)
             map_bearing = np.arctan2(local_x, local_y)
 
             await self._handle_pure_pursuit(map_dist, map_bearing)
