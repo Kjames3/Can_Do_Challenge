@@ -747,16 +747,11 @@ class NavigationFSM:
                 await self._stop_motors()
                 self.return_phase = ReturnPhase.ALIGNING
                 return
-            # Vector to target (Corrected Inverse Transform for Y-Forward System)
-            # We un-rotate the World Vector (dx, dy) by the Robot's Heading (theta)
-            # x_local (Right)   = dx * cos(theta) - dy * sin(theta)
-            # y_local (Forward) = dx * sin(theta) + dy * cos(theta)
-                self.align_start_time = time.time() # Start 10s timer
-                return
 
             # Pure Pursuit Logic
             cos_t = np.cos(self.current_theta)
             sin_t = np.sin(self.current_theta)
+            # FIXED: Negate local_x to correct turn direction (was spinning away from target)
             local_x = -(dx * cos_t - dy * sin_t)
             local_y = dx * sin_t + dy * cos_t
             map_bearing = np.arctan2(local_x, local_y)
@@ -766,18 +761,6 @@ class NavigationFSM:
         # --- PHASE 4: ALIGNING TO OLD TARGET ---
         elif self.return_phase == ReturnPhase.ALIGNING:
             
-            # 0. TIMEOUT CHECK (10 Seconds)
-            # If we struggle to align for > 10s (due to visual noise or friction), just stop.
-            if hasattr(self, 'align_start_time') and (time.time() - self.align_start_time > 10.0):
-                print(f"\n  ⚠ Alignment Timeout (10s) - Forcing Success")
-                await self._stop_motors()
-                self._set_state(NavigationState.IDLE)
-                if hasattr(self, '_align_target_heading'):
-                    del self._align_target_heading
-                if self.on_returned:
-                    self.on_returned()
-                return
-
             # 1. Calculate Target Heading (With 180 Degree Flip)
             if not hasattr(self, '_align_target_heading'):
                 if self.goal_x is not None and self.goal_y is not None:
@@ -817,7 +800,7 @@ class NavigationFSM:
             while heading_error > np.pi: heading_error -= 2 * np.pi
             while heading_error < -np.pi: heading_error += 2 * np.pi
             
-            # DEBUG: loop counter
+            # DEBUG: Print error to monitor oscillation
             if int(time.time() * 2) % 2 == 0: 
                 print(f"  ...Align Error: {np.degrees(heading_error):.1f}°   ", end='\r')
 
@@ -832,27 +815,23 @@ class NavigationFSM:
                     self.on_returned()
                 return
             
-            # 5. [FIX 2] GENTLER PULSE LOGIC & LOWER SPEED
-            # Reduced Pulse Power: 0.35 -> 0.32
-            # Reduced Max Speed: self.config.pivot_speed (0.40) -> 0.35
-            
+            # 5. [FIX 2] GENTLER PULSE LOGIC
+            # If error is small (< 25 deg), use very short pulses
             if abs(heading_error) < np.radians(25):
-                # Cycle: 0.15s ON, 0.35s OFF (Total 0.5s)
-                cycle_time = time.time() % 0.5
+                # Cycle: 0.1s ON, 0.6s OFF (Total 0.7s)
+                cycle_time = time.time() % 0.7
                 
-                if cycle_time > 0.15: # OFF PHASE (0.35s)
+                if cycle_time > 0.1: # OFF PHASE (0.6s) - Long coast to stop
                     await self._stop_motors()
                     return
                 
-                # ON PHASE (0.15s) - Quick nudge
+                # ON PHASE (0.1s) - Quick nudge
                 pivot_power = 0.35 
             else:
                 # Standard Control
                 MIN_MOVING_POWER = 0.32
                 gain = 0.8
-                # CAP MAX SPEED at 0.35 for control
-                ALIGN_MAX_SPEED = 0.35
-                pivot_power = max(MIN_MOVING_POWER, min(ALIGN_MAX_SPEED, abs(heading_error) * gain))
+                pivot_power = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(heading_error) * gain))
             
             # Apply Motor Power
             if heading_error > 0:
