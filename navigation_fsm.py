@@ -697,168 +697,147 @@ class NavigationFSM:
         self._set_state(NavigationState.RETURNING)
     
     async def _handle_returning(self):
-        """RETURNING: Wait -> Backup -> Pure Pursuit to Start"""
+        """RETURNING: Wait -> Backup -> Pure Pursuit to Start -> Align to Target"""
         
         # --- PHASE 1: WAITING (5 Seconds) ---
         if self.return_phase == ReturnPhase.WAITING:
             elapsed = time.time() - self.return_start_time
             if elapsed < 5.0:
                 await self._stop_motors()
-                # Optional: print countdown every second
                 if int(elapsed) > int(elapsed - 0.1): 
-                    print(f"  ⏳ Returning in {5 - int(elapsed):.0f}s...")
+                    print(f"  ⏳ Returning in {5 - int(elapsed)}s...", end='\r')
                 return
             else:
-                print("  ◀ Starting Backup (20cm)")
+                print("\n  ◀ Starting Backup (20cm)")
                 self.return_phase = ReturnPhase.BACKING
                 self.backup_start_pos = (self.current_x, self.current_y)
-                # Reset stuck timer just in case
                 self.avoid_start_time = time.time() 
-                return
 
         # --- PHASE 2: BACKING UP (20cm) ---
         elif self.return_phase == ReturnPhase.BACKING:
-            # Calculate how far we've moved since starting backup
             dx = self.current_x - self.backup_start_pos[0]
             dy = self.current_y - self.backup_start_pos[1]
             dist_moved = np.sqrt(dx*dx + dy*dy)
             
-            # Backup Speed (slightly slower for safety)
+            # Backup Speed
             BACKUP_SPEED = 0.35
-            BACKUP_DIST = 20.0 # cm
+            BACKUP_DIST = 20.0 
 
             if dist_moved < BACKUP_DIST:
-                # Check for timeout (stuck while backing up?) - 5s limit
                 if time.time() - self.avoid_start_time > 5.0:
                     print("  ⚠ Backup timeout - forcing return")
                     self.return_phase = ReturnPhase.NAVIGATING
                 else:
-                    # Drive backwards straight
                     await self._set_motor_power(-BACKUP_SPEED, -BACKUP_SPEED)
             else:
                 print(f"  ✓ Backup complete ({dist_moved:.1f}cm) → Returning Home")
                 await self._stop_motors()
                 self.return_phase = ReturnPhase.NAVIGATING
-                # Small pause to settle
                 await asyncio.sleep(0.5)
 
         # --- PHASE 3: PURE PURSUIT TO START ---
         elif self.return_phase == ReturnPhase.NAVIGATING:
-            # 1. Calculate Vector to Start (Goal is self.start_x, self.start_y)
             dx = self.start_x - self.current_x
             dy = self.start_y - self.current_y
-            
-            # Distance to start
             map_dist = np.sqrt(dx*dx + dy*dy)
             
             # Check arrival
             if map_dist < self.config.return_distance_threshold:
-                print(f"✓ Arrived at start ({map_dist:.1f}cm). Aligning to {np.degrees(self.start_theta):.1f}°...")
+                print(f"✓ Arrived at start ({map_dist:.1f}cm). Starting Final Alignment...")
                 await self._stop_motors()
                 self.return_phase = ReturnPhase.ALIGNING
-                self.return_target_heading = self.start_theta # Cache target
-                # Pre-lock IMU target if available
-                if self.imu:
-                    self.target_imu_rotation = self.start_theta
-                await asyncio.sleep(0.5) # Settle
                 return
 
-            # 2. Coordinate Transform (World -> Robot Frame)
-            # Match math from _handle_approaching EXACTLY
+            # Pure Pursuit Logic
             cos_t = np.cos(self.current_theta)
             sin_t = np.sin(self.current_theta)
-            
-            # Use same transform as approaching (negated X for correct steering)
-            local_x = -(dx * cos_t - dy * sin_t)
+            local_x = dx * cos_t - dy * sin_t
             local_y = dx * sin_t + dy * cos_t
-            
-            # Calculate Bearing (Angle to goal relative to robot)
             map_bearing = np.arctan2(local_x, local_y)
 
-            # 3. Use Pure Pursuit
-            # This handles smooth driving and pivoting > 45 deg
             await self._handle_pure_pursuit(map_dist, map_bearing)
 
-        # --- PHASE 4: ALIGNING TO START ORIENTATION ---
-        # --- PHASE 4: ALIGNING TO TARGET (Visual or Blind) ---
-        # --- PHASE 4: ALIGNING TO TARGET (Visual or Blind) ---
+        # --- PHASE 4: ALIGNING TO OLD TARGET ---
         elif self.return_phase == ReturnPhase.ALIGNING:
             
-            # 1. Calculate Target Heading (Once)
+            # 1. Calculate Target Heading (With 180 Degree Flip)
             if not hasattr(self, '_align_target_heading'):
                 if self.goal_x is not None and self.goal_y is not None:
                     gx = self.goal_x - self.start_x
                     gy = self.goal_y - self.start_y
                     
-                    # [FIX 1] DIRECTION CORRECTION
-                    # Your robot is Y-Forward (0°=North, +90°=West/Left).
-                    # Standard atan2(gx, gy) assumes X-Forward.
-                    # We must use atan2(-gx, gy) to match your robot's frame.
-                    self._align_target_heading = np.arctan2(-gx, gy)
+                    # [FIX 1] 180 DEGREE OFFSET
+                    # We calculate the vector, then add PI (180 deg) to face the "Old Target"
+                    # as requested (since aligning to 0.0 pointed the wrong way).
+                    raw_angle = np.arctan2(-gx, gy) # Standard Y-Forward math
+                    self._align_target_heading = raw_angle + np.pi 
                     
-                    print(f"  👀 Aligning to Map Goal: {np.degrees(self._align_target_heading):.1f}°")
+                    # Normalize to -pi to +pi
+                    while self._align_target_heading > np.pi: self._align_target_heading -= 2*np.pi
+                    while self._align_target_heading < -np.pi: self._align_target_heading += 2*np.pi
+
+                    print(f"  👀 Aligning to Target Vector: {np.degrees(self._align_target_heading):.1f}°")
                 else:
-                    self._align_target_heading = self.start_theta
-                    print("  👀 Aligning to Start Theta (No Goal recorded)")
+                    # Default to 180 if no goal recorded
+                    self._align_target_heading = np.pi
+                    print("  👀 No Goal recorded - Defaulting to 180°")
 
             target_heading = self._align_target_heading
             
             # 2. Dynamic Thresholds
-            # Loose (10°) for blind map alignment, Tight (3°) if we see the object
-            THRESHOLD = np.radians(3) if self.latest_detection else np.radians(10)
+            THRESHOLD = np.radians(4) if self.latest_detection else np.radians(8)
             
-            # [Visual Override] Refine heading if camera sees the target
+            # Visual Override (Optional)
             if self.latest_detection:
                 det = self.latest_detection
                 center_x = det.get('center_x', 1536/2)
-                img_width = 1536
-                fov = 66.0       
-                pixel_offset = center_x - (img_width / 2)
-                bearing = pixel_offset * (fov / img_width) * (np.pi / 180.0)
-                
-                # Visual heading is always relative to current look
+                bearing = (center_x - 768) * (66.0 / 1536) * (np.pi / 180.0)
                 target_heading = self.current_theta + bearing
                 print(f"  🎯 Visual Lock! Bearing: {np.degrees(bearing):.1f}°", end='\r')
 
-            # 3. Calculate Error (Shortest path)
+            # 3. Calculate Error
             heading_error = target_heading - self.current_theta
             while heading_error > np.pi: heading_error -= 2 * np.pi
             while heading_error < -np.pi: heading_error += 2 * np.pi
             
+            # DEBUG: Print error to monitor oscillation
+            if int(time.time() * 2) % 2 == 0: 
+                print(f"  ...Align Error: {np.degrees(heading_error):.1f}°   ", end='\r')
+
             # 4. Check Completion
             if abs(heading_error) <= THRESHOLD:
                 await self._stop_motors()
                 self._set_state(NavigationState.IDLE)
-                print(f"\n✓ ALIGN COMPLETE! Error: {np.degrees(heading_error):.1f}°")
+                print(f"\n✓ ALIGN COMPLETE! Final Error: {np.degrees(heading_error):.1f}°")
                 if hasattr(self, '_align_target_heading'):
                     del self._align_target_heading
                 if self.on_returned:
                     self.on_returned()
                 return
             
-            # 5. [FIX 2] ANTI-OSCILLATION PULSE
-            # If error is small (< 20°), pulse motors to nudge without overshoot
-            if abs(heading_error) < np.radians(20):
-                # Cycle: 0.15s ON, 0.35s OFF
-                cycle_time = time.time() % 0.5
+            # 5. [FIX 2] GENTLER PULSE LOGIC
+            # If error is small (< 25 deg), use very short pulses
+            if abs(heading_error) < np.radians(25):
+                # Cycle: 0.1s ON, 0.6s OFF (Total 0.7s)
+                cycle_time = time.time() % 0.7
                 
-                if cycle_time > 0.15: # OFF PHASE (Coast)
+                if cycle_time > 0.1: # OFF PHASE (0.6s) - Long coast to stop
                     await self._stop_motors()
                     return
                 
-                # ON PHASE (Nudge)
+                # ON PHASE (0.1s) - Quick nudge
                 pivot_power = 0.35 
             else:
-                # Standard proportional control for large turns
+                # Standard Control
                 MIN_MOVING_POWER = 0.32
-                gain = 1.0
+                gain = 0.8
                 pivot_power = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(heading_error) * gain))
             
             # Apply Motor Power
             if heading_error > 0:
-                await self._set_motor_power(-pivot_power, pivot_power)  # Turn Left
+                await self._set_motor_power(-pivot_power, pivot_power) 
             else:
-                await self._set_motor_power(pivot_power, -pivot_power)  # Turn Right
+                await self._set_motor_power(pivot_power, -pivot_power)
 
     
     # =========================================================================
