@@ -796,8 +796,8 @@ class NavigationFSM:
 
             target_heading = self._align_target_heading
             
-            # 1. WIDEN TOLERANCE to prevent hunting (10 degrees for blind)
-            THRESHOLD = np.radians(10) 
+            # 1. WIDEN TOLERANCE to prevent hunting (15 degrees for blind)
+            THRESHOLD = np.radians(15) 
             
             # LIVE VISUAL OVERRIDE (Tighten tolerance if we actually see something)
             if self.latest_detection:
@@ -817,6 +817,14 @@ class NavigationFSM:
             while heading_error > np.pi: heading_error -= 2 * np.pi
             while heading_error < -np.pi: heading_error += 2 * np.pi
             
+            # 1. SINGULARITY CHECK (Break 180° Oscillation)
+            # If we are facing directly away (±180°), noise causes sign flipping.
+            # Force a strong turn in one direction to break out.
+            if abs(heading_error) > np.radians(170):
+                print(f"  ↻ Breaking 180° Singularity ({np.degrees(heading_error):.1f}°)...")
+                await self._set_motor_power(0.5, -0.5) # Force Right Turn
+                return
+            
             if abs(heading_error) <= THRESHOLD:
                 await self._stop_motors()
                 self._set_state(NavigationState.IDLE)
@@ -829,9 +837,10 @@ class NavigationFSM:
                     self.on_returned()
                 return
             
-            # 2. REDUCE KICK POWER
-            # Use a slightly softer minimum power for fine adjustments
-            ALIGN_MIN_POWER = 0.28  # Lower than the main 0.32 to prevent hard kicks
+            # 2. REDUCE KICK POWER & TUNE GAIN
+            # Use substantially lower power for fine adjustments (0.25)
+            # Increased blind threshold to 12 degrees (in previous logic setup)
+            ALIGN_MIN_POWER = 0.25
             
             gain = 1.0 if not self.latest_detection else 0.8
             pivot_power = max(ALIGN_MIN_POWER, min(self.config.pivot_speed, abs(heading_error) * gain))
