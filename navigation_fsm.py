@@ -386,7 +386,7 @@ class NavigationFSM:
                     self.camera.set_focus(new_focus)
                     self.last_focus_val = new_focus
                     print(f"DEBUG: Focus set to {new_focus:.2f} for dist {det_distance:.1f}cm")
-
+        
         # 4. BLIND SPOT LOGGING (for debugging)
         if not detection or not detection.get('distance_cm'):
             time_since_loss = time.time() - self.target_lost_time if self.target_lost_time > 0 else 0
@@ -748,12 +748,16 @@ class NavigationFSM:
                 self.return_phase = ReturnPhase.ALIGNING
                 return
 
-            # Pure Pursuit Logic
+            # 2. Coordinate Transform (World -> Robot Frame)
+            # Match math from _handle_approaching EXACTLY
             cos_t = np.cos(self.current_theta)
             sin_t = np.sin(self.current_theta)
-            # FIXED: Negate local_x to correct turn direction (was spinning away from target)
+            
+            # Use same transform as approaching (negated X for correct steering)
             local_x = -(dx * cos_t - dy * sin_t)
             local_y = dx * sin_t + dy * cos_t
+            
+            # Calculate Bearing (Angle to goal relative to robot)
             map_bearing = np.arctan2(local_x, local_y)
 
             await self._handle_pure_pursuit(map_dist, map_bearing)
@@ -779,7 +783,8 @@ class NavigationFSM:
 
                     print(f"  👀 Aligning to Target Vector: {np.degrees(self._align_target_heading):.1f}°")
                 else:
-                    self._align_target_heading = self.start_theta
+                    # Default to 180 if no goal recorded
+                    self._align_target_heading = np.pi
                     print("  👀 No Goal recorded - Defaulting to 180°")
 
             target_heading = self._align_target_heading
