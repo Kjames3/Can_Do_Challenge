@@ -783,12 +783,19 @@ class NavigationFSM:
         # --- PHASE 4: ALIGNING TO TARGET (Visual or Blind) ---
         # --- PHASE 4: ALIGNING TO TARGET (Visual or Blind) ---
         elif self.return_phase == ReturnPhase.ALIGNING:
-            # Default: Blind alignment to Map Goal
+            
+            # 1. Calculate Target Heading (Once)
             if not hasattr(self, '_align_target_heading'):
                 if self.goal_x is not None and self.goal_y is not None:
                     gx = self.goal_x - self.start_x
                     gy = self.goal_y - self.start_y
-                    self._align_target_heading = np.arctan2(gx, gy)
+                    
+                    # [FIX 1] DIRECTION CORRECTION
+                    # Your robot is Y-Forward (0°=North, +90°=West/Left).
+                    # Standard atan2(gx, gy) assumes X-Forward.
+                    # We must use atan2(-gx, gy) to match your robot's frame.
+                    self._align_target_heading = np.arctan2(-gx, gy)
+                    
                     print(f"  👀 Aligning to Map Goal: {np.degrees(self._align_target_heading):.1f}°")
                 else:
                     self._align_target_heading = self.start_theta
@@ -796,59 +803,62 @@ class NavigationFSM:
 
             target_heading = self._align_target_heading
             
-            # 1. WIDEN TOLERANCE to prevent hunting (15 degrees for blind)
-            THRESHOLD = np.radians(15) 
+            # 2. Dynamic Thresholds
+            # Loose (10°) for blind map alignment, Tight (3°) if we see the object
+            THRESHOLD = np.radians(3) if self.latest_detection else np.radians(10)
             
-            # LIVE VISUAL OVERRIDE (Tighten tolerance if we actually see something)
+            # [Visual Override] Refine heading if camera sees the target
             if self.latest_detection:
                 det = self.latest_detection
                 center_x = det.get('center_x', 1536/2)
-                img_width = 1536 
+                img_width = 1536
                 fov = 66.0       
                 pixel_offset = center_x - (img_width / 2)
                 bearing = pixel_offset * (fov / img_width) * (np.pi / 180.0)
                 
+                # Visual heading is always relative to current look
                 target_heading = self.current_theta + bearing
-                THRESHOLD = np.radians(3) # Tight precision only if visual
                 print(f"  🎯 Visual Lock! Bearing: {np.degrees(bearing):.1f}°", end='\r')
 
-            # Calculate heading error
+            # 3. Calculate Error (Shortest path)
             heading_error = target_heading - self.current_theta
             while heading_error > np.pi: heading_error -= 2 * np.pi
             while heading_error < -np.pi: heading_error += 2 * np.pi
             
-            # 1. SINGULARITY CHECK (Break 180° Oscillation)
-            # If we are facing directly away (±180°), noise causes sign flipping.
-            # Force a strong turn in one direction to break out.
-            if abs(heading_error) > np.radians(170):
-                print(f"  ↻ Breaking 180° Singularity ({np.degrees(heading_error):.1f}°)...")
-                await self._set_motor_power(0.5, -0.5) # Force Right Turn
-                return
-            
+            # 4. Check Completion
             if abs(heading_error) <= THRESHOLD:
                 await self._stop_motors()
                 self._set_state(NavigationState.IDLE)
                 print(f"\n✓ ALIGN COMPLETE! Error: {np.degrees(heading_error):.1f}°")
-                    
-                # Cleanup
                 if hasattr(self, '_align_target_heading'):
                     del self._align_target_heading
                 if self.on_returned:
                     self.on_returned()
                 return
             
-            # 2. REDUCE KICK POWER & TUNE GAIN
-            # Use substantially lower power for fine adjustments (0.25)
-            # Increased blind threshold to 12 degrees (in previous logic setup)
-            ALIGN_MIN_POWER = 0.25
-            
-            gain = 1.0 if not self.latest_detection else 0.8
-            pivot_power = max(ALIGN_MIN_POWER, min(self.config.pivot_speed, abs(heading_error) * gain))
-            
-            if heading_error > 0:
-                await self._set_motor_power(-pivot_power, pivot_power) 
+            # 5. [FIX 2] ANTI-OSCILLATION PULSE
+            # If error is small (< 20°), pulse motors to nudge without overshoot
+            if abs(heading_error) < np.radians(20):
+                # Cycle: 0.15s ON, 0.35s OFF
+                cycle_time = time.time() % 0.5
+                
+                if cycle_time > 0.15: # OFF PHASE (Coast)
+                    await self._stop_motors()
+                    return
+                
+                # ON PHASE (Nudge)
+                pivot_power = 0.35 
             else:
-                await self._set_motor_power(pivot_power, -pivot_power)
+                # Standard proportional control for large turns
+                MIN_MOVING_POWER = 0.32
+                gain = 1.0
+                pivot_power = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(heading_error) * gain))
+            
+            # Apply Motor Power
+            if heading_error > 0:
+                await self._set_motor_power(-pivot_power, pivot_power)  # Turn Left
+            else:
+                await self._set_motor_power(pivot_power, -pivot_power)  # Turn Right
 
     
     # =========================================================================
