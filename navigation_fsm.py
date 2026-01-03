@@ -751,7 +751,7 @@ class NavigationFSM:
             # We un-rotate the World Vector (dx, dy) by the Robot's Heading (theta)
             # x_local (Right)   = dx * cos(theta) - dy * sin(theta)
             # y_local (Forward) = dx * sin(theta) + dy * cos(theta)
-                self.align_start_time = time.time() # Start 5s timer
+                self.align_start_time = time.time() # Start 10s timer
                 return
 
             # Pure Pursuit Logic
@@ -766,10 +766,10 @@ class NavigationFSM:
         # --- PHASE 4: ALIGNING TO OLD TARGET ---
         elif self.return_phase == ReturnPhase.ALIGNING:
             
-            # 0. TIMEOUT CHECK (5 Seconds)
-            # If we struggle to align for > 5s (due to visual noise or friction), just stop.
-            if hasattr(self, 'align_start_time') and (time.time() - self.align_start_time > 5.0):
-                print(f"\n  ⚠ Alignment Timeout (5s) - Forcing Success")
+            # 0. TIMEOUT CHECK (10 Seconds)
+            # If we struggle to align for > 10s (due to visual noise or friction), just stop.
+            if hasattr(self, 'align_start_time') and (time.time() - self.align_start_time > 10.0):
+                print(f"\n  ⚠ Alignment Timeout (10s) - Forcing Success")
                 await self._stop_motors()
                 self._set_state(NavigationState.IDLE)
                 if hasattr(self, '_align_target_heading'):
@@ -817,7 +817,7 @@ class NavigationFSM:
             while heading_error > np.pi: heading_error -= 2 * np.pi
             while heading_error < -np.pi: heading_error += 2 * np.pi
             
-            # DEBUG: Print error to monitor oscillation
+            # DEBUG: loop counter
             if int(time.time() * 2) % 2 == 0: 
                 print(f"  ...Align Error: {np.degrees(heading_error):.1f}°   ", end='\r')
 
@@ -837,15 +837,15 @@ class NavigationFSM:
             # Reduced Max Speed: self.config.pivot_speed (0.40) -> 0.35
             
             if abs(heading_error) < np.radians(25):
-                # Cycle: 0.1s ON, 0.6s OFF (Total 0.7s)
-                cycle_time = time.time() % 0.7
+                # Cycle: 0.15s ON, 0.35s OFF (Total 0.5s)
+                cycle_time = time.time() % 0.5
                 
-                if cycle_time > 0.1: # OFF PHASE (0.6s) - Long coast to stop
+                if cycle_time > 0.15: # OFF PHASE (0.35s)
                     await self._stop_motors()
                     return
                 
-                # ON PHASE (0.1s) - Quick nudge - Reduced slightly
-                pivot_power = 0.32  
+                # ON PHASE (0.15s) - Quick nudge
+                pivot_power = 0.35 
             else:
                 # Standard Control
                 MIN_MOVING_POWER = 0.32
