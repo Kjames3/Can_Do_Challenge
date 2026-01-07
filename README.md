@@ -6,7 +6,7 @@ A high-performance robotics platform for autonomous object detection and collect
 
 ---
 
-## 🎯 Project Goal
+## Project Goal
 
 Build an autonomous rover capable of:
 - **Real-time object detection** using YOLO11
@@ -16,7 +16,7 @@ Build an autonomous rover capable of:
 
 ---
 
-## 🔧 Hardware
+## Hardware
 
 | Component | Model | Purpose |
 |-----------|-------|---------|
@@ -40,7 +40,7 @@ IMU:          I2C Bus 1, Address 0x68
 
 ---
 
-## 🚀 Why Native Implementation?
+## Why Native Implementation?
 
 The standard Viam SDK has a **100 API calls/second limit** which causes:
 - Motor command timeouts during high-frequency control loops
@@ -58,7 +58,7 @@ The standard Viam SDK has a **100 API calls/second limit** which causes:
 
 ---
 
-## 📦 Quick Start
+## Quick Start
 
 ### 1. Install Dependencies (on Pi 5)
 
@@ -93,7 +93,7 @@ Enter the Pi's IP address and click **Connect**.
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 viam_projects/
@@ -114,7 +114,7 @@ viam_projects/
 
 ---
 
-## 🗂️ Directory Guide
+## Directory Guide
 
 | Folder | Description | When to Use |
 |--------|-------------|-------------|
@@ -125,7 +125,7 @@ viam_projects/
 
 ---
 
-## 🎮 Core Features
+## Core Features
 
 ### Motor Control
 - **Arcade-style gamepad** control (right stick)
@@ -158,7 +158,7 @@ viam_projects/
 
 ---
 
-## 🧭 Coordinate System & Navigation Math
+## Coordinate System & Navigation Math
 
 The robot uses a **Y-Forward / Right-Handed** coordinate system:
 
@@ -181,7 +181,7 @@ heading = np.arctan2(-delta_x, delta_y)
 2.  **Singularity Handling**: If facing 180° away from target, it forces a turn to break mathematical deadlock.
 3.  **Pulse Alignment**: When error < 20°, motors "pulse" (0.15s ON) to nudge alignment without oscillation.
 
-## ⚙️ Configuration
+## Configuration
 
 Key parameters in `server_native.py`:
 
@@ -202,7 +202,7 @@ DRIFT_COMPENSATION = -0.10    # Calibrate with calibration/calibrate_motors.py
 
 ---
 
-## 🔌 WebSocket API
+## WebSocket API
 
 Default: `ws://<pi-ip>:8081`
 
@@ -236,7 +236,7 @@ Default: `ws://<pi-ip>:8081`
 
 ---
 
-## 📚 See Also
+## See Also
 
 - **[viam/README.md](viam/README.md)** - Using Viam SDK instead
 - **[calibration/README.md](calibration/README.md)** - Calibrating motors & camera
@@ -247,7 +247,7 @@ Default: `ws://<pi-ip>:8081`
 
 ---
 
-## 🔮 Future Improvements
+## Future Improvements
 
 While the current system uses robust deterministic logic (dead reckoning), the project roadmap includes upgrading to probabilistic state refinenent:
 
@@ -267,6 +267,6 @@ Calibrating physical constants mathematically rather than manually.
 
 ---
 
-## 📄 License
+## License
 
 MIT License - See LICENSE file for details.

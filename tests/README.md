@@ -56,7 +56,7 @@ python test_astra.py
 
 ---
 
-## 🧭 Navigation Tests (NEW)
+## Navigation Tests (NEW)
 
 ### Unit Tests
 
