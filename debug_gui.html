@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Viam Rover Debug Panel</title>
+
+    <!-- Fonts & Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
+
+    <!-- Chart.js for Graphing -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-streaming@2.0.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@2.0.2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.1.0"></script>
+
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #334155;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-cyan: #06b6d4;
+            --accent-green: #22c55e;
+            --accent-red: #ef4444;
+            --accent-yellow: #eab308;
+            --border-color: #475569;
+            --radius-md: 10px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-primary);
+        }
+
+        h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--accent-cyan);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 99px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-red);
+        }
+
+        .status-dot.connected {
+            background: var(--accent-green);
+            box-shadow: 0 0 8px var(--accent-green);
+        }
+
+        /* Main Layout */
+        main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 3fr 1fr;
+            /* Graph takes 75% */
+            gap: 1rem;
+            padding: 1rem;
+            overflow: hidden;
+        }
+
+        /* Graph Section */
+        .graph-container {
+            background: var(--bg-secondary);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        canvas {
+            flex: 1;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Sidebar */
+        aside {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            overflow-y: auto;
+        }
+
+        .panel {
+            background: var(--bg-secondary);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            padding: 1rem;
+        }
+
+        .panel h2 {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Camera Feed */
+        .camera-box {
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: #000;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .camera-box img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* Controls */
+        .data-toggles {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .toggle-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--bg-tertiary);
+            padding: 0.5rem 0.75rem;
+            border-radius: 6px;
+            cursor: pointer;
+            user-select: none;
+            transition: 0.2s;
+        }
+
+        .toggle-item:hover {
+            background: #475569;
+        }
+
+        .toggle-item.active {
+            border-left: 3px solid var(--color);
+        }
+
+        .color-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+        }
+
+        .toggle-label {
+            font-size: 0.85rem;
+            flex: 1;
+            margin-left: 0.75rem;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+        }
+
+        .stat-box {
+            background: var(--bg-tertiary);
+            padding: 0.5rem;
+            border-radius: 4px;
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            display: block;
+        }
+
+        .stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            color: var(--accent-cyan);
+        }
+
+        /* Auto Drive Indicator */
+        .auto-drive-status {
+            margin-top: auto;
+            padding: 1rem;
+            text-align: center;
+            font-weight: 700;
+            border-radius: var(--radius-md);
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+        }
+
+        .auto-drive-status.active {
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-green));
+            color: #000;
+            animation: pulse-border 2s infinite;
+        }
+
+        @keyframes pulse-border {
+            0% {
+                box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+            }
+
+            70% {
+                box-shadow: 0 0 0 10px rgba(34, 197, 94, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h1><span style="font-size: 1.5rem">📊</span> Sensor Debugger</h1>
+        <div class="status-badge">
+            <div id="status-dot" class="status-dot"></div>
+            <span id="status-text">Disconnected</span>
+        </div>
+    </header>
+
+    <main>
+        <!-- Primary Graph Card -->
+        <div class="graph-container">
+            <canvas id="sensorChart"></canvas>
+        </div>
+
+        <!-- Sidebar -->
+        <aside>
+            <!-- Camera Feed -->
+            <div class="panel">
+                <h2>Live Feed</h2>
+                <div class="camera-box">
+                    <img id="camera-feed" src="" alt="Checking connection...">
+                </div>
+            </div>
+
+            <!-- Data Toggles -->
+            <div class="panel">
+                <h2>Data Channels</h2>
+                <div class="data-toggles" id="toggles">
+                    <!-- Generated by JS -->
+                </div>
+            </div>
+
+            <!-- Numeric Readouts -->
+            <div class="panel">
+                <h2>Raw Values</h2>
+                <div class="stats-grid" id="stats-grid">
+                    <!-- Generated by JS -->
+                </div>
+            </div>
+
+            <div id="auto-drive-indicator" class="auto-drive-status">
+                MANUAL CONTROL
+            </div>
+        </aside>
+    </main>
+
+    <script>
+        // --- Configuration ---
+        const WEBSOCKET_URL = "ws://" + window.location.hostname + ":8765";
+
+        // Dataset Definitions
+        const DATASETS_CONFIG = [
+            { key: 'accel_x', label: 'Accel X', color: '#ef4444', path: d => d.imu?.raw_accel?.x },
+            { key: 'accel_y', label: 'Accel Y', color: '#f97316', path: d => d.imu?.raw_accel?.y },
+            { key: 'accel_z', label: 'Accel Z', color: '#eab308', path: d => d.imu?.raw_accel?.z },
+
+            { key: 'gyro_x', label: 'Gyro X', color: '#84cc16', path: d => d.imu?.raw_gyro?.x, hidden: true },
+            { key: 'gyro_y', label: 'Gyro Y', color: '#10b981', path: d => d.imu?.raw_gyro?.y, hidden: true },
+            { key: 'gyro_z', label: 'Gyro Z', color: '#06b6d4', path: d => d.imu?.raw_gyro?.z },
+
+            { key: 'vel_l', label: 'Vel Left', color: '#3b82f6', path: d => d.motor_velocity?.left },
+            { key: 'vel_r', label: 'Vel Right', color: '#8b5cf6', path: d => d.motor_velocity?.right },
+
+            { key: 'power', label: 'Power (W)', color: '#d946ef', path: d => d.power?.power, hidden: true }
+        ];
+
+        // --- State ---
+        let ws;
+        let chart;
+        let isConnected = false;
+
+        // --- Initialization ---
+        function init() {
+            initChart();
+            initUI();
+            connectWebSocket();
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('sensorChart').getContext('2d');
+
+            const datasets = DATASETS_CONFIG.map(cfg => ({
+                label: cfg.label,
+                borderColor: cfg.color,
+                backgroundColor: cfg.color,
+                data: [],
+                borderWidth: 2,
+                pointRadius: 0,
+                fill: false,
+                hidden: cfg.hidden || false,
+                tension: 0.1
+            }));
+
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    interaction: { mode: 'nearest', axis: 'x', intersect: false },
+                    plugins: {
+                        legend: { display: false }, // Using custom toggles
+                        tooltip: { enabled: true }
+                    },
+                    scales: {
+                        x: {
+                            type: 'realtime',
+                            realtime: {
+                                duration: 10000,  // 10 second window
+                                delay: 100,
+                                refresh: 100,
+                                onRefresh: onChartRefresh
+                            },
+                            grid: { color: '#334155' },
+                            ticks: { color: '#94a3b8' }
+                        },
+                        y: {
+                            grid: { color: '#334155' },
+                            ticks: { color: '#94a3b8' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function initUI() {
+            const toggleContainer = document.getElementById('toggles');
+            const statsContainer = document.getElementById('stats-grid');
+
+            DATASETS_CONFIG.forEach((cfg, index) => {
+                // Toggles
+                const div = document.createElement('div');
+                div.className = `toggle-item ${!cfg.hidden ? 'active' : ''}`;
+                div.innerHTML = `
+                <div class="color-dot" style="background: ${cfg.color}"></div>
+                <span class="toggle-label">${cfg.label}</span>
+            `;
+                // Store toggle visual logic
+                div.style.setProperty('--color', cfg.color);
+                div.onclick = () => {
+                    const meta = chart.getDatasetMeta(index);
+                    meta.hidden = meta.hidden === null ? !chart.data.datasets[index].hidden : !meta.hidden;
+                    chart.update();
+                    div.classList.toggle('active', !meta.hidden);
+                };
+                toggleContainer.appendChild(div);
+
+                // Stat Boxes
+                const statBox = document.createElement('div');
+                statBox.className = 'stat-box';
+                statBox.innerHTML = `
+                <span class="stat-label">${cfg.label}</span>
+                <span class="stat-value" id="stat-${cfg.key}">--</span>
+            `;
+                statsContainer.appendChild(statBox);
+            });
+        }
+
+        // --- WebSocket Logic ---
+        // Buffer for incoming data to sync with chart refresh
+        let incomingDataBuffer = [];
+
+        function connectWebSocket() {
+            // Handle "sim mode" or direct file usage vs served
+            const url = WEBSOCKET_URL;
+            console.log("Connecting to", url);
+
+            ws = new WebSocket(url);
+
+            ws.onopen = () => {
+                isConnected = true;
+                updateStatus(true);
+            };
+
+            ws.onclose = () => {
+                isConnected = false;
+                updateStatus(false);
+                setTimeout(connectWebSocket, 2000);
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.type === "readout") {
+                        handleReadout(msg);
+                    }
+                } catch (e) { console.error(e); }
+            };
+        }
+
+        function updateStatus(connected) {
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            if (connected) {
+                dot.classList.add('connected');
+                text.textContent = "Connected";
+                text.style.color = "var(--accent-green)";
+            } else {
+                dot.classList.remove('connected');
+                text.textContent = "Disconnected";
+                text.style.color = "var(--text-secondary)";
+            }
+        }
+
+        function handleReadout(data) {
+            // Update Camera
+            if (data.image) {
+                document.getElementById('camera-feed').src = "data:image/jpeg;base64," + data.image;
+            }
+
+            // Update Auto-Drive Status
+            const autoDriveEl = document.getElementById('auto-drive-indicator');
+            if (data.is_auto_driving) {
+                autoDriveEl.textContent = "AUTONOMOUS MODE";
+                autoDriveEl.classList.add('active');
+            } else {
+                autoDriveEl.textContent = "MANUAL CONTROL";
+                autoDriveEl.classList.remove('active');
+            }
+
+            // Queue data for chart
+            incomingDataBuffer.push({
+                time: Date.now(),
+                data: data
+            });
+
+            // Update Numeric Stats immediately (for responsiveness)
+            DATASETS_CONFIG.forEach(cfg => {
+                const val = cfg.path(data);
+                const el = document.getElementById(`stat-${cfg.key}`);
+                if (val !== undefined && el) {
+                    el.textContent = typeof val === 'number' ? val.toFixed(3) : val;
+                }
+            });
+        }
+
+        // --- Real-time Chart Loop ---
+        function onChartRefresh(chart) {
+            if (incomingDataBuffer.length === 0) return;
+
+            // Process all buffered packets
+            incomingDataBuffer.forEach(packet => {
+                DATASETS_CONFIG.forEach((cfg, i) => {
+                    const val = cfg.path(packet.data);
+                    if (val !== undefined) {
+                        chart.data.datasets[i].data.push({
+                            x: packet.time,
+                            y: val
+                        });
+                    }
+                });
+            });
+
+            // Clear buffer
+            incomingDataBuffer = [];
+        }
+
+        // Start
+        init();
+
+    </script>
+</body>
+
+</html>

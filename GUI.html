@@ -968,7 +968,7 @@
                     <span id="status-text">Disconnected</span>
                 </div>
                 <!-- IP Input -->
-                <input type="text" id="robot-ip" placeholder="Robot IP" value="192.168.1.X"
+                <input type="text" id="robot-ip" placeholder="Robot IP" value="besto.local"
                     style="padding: 0.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-primary); margin-right: 0.5rem; width: 140px;">
                 <button id="connect-btn" class="btn btn-primary">Connect</button>
                 <button id="disconnect-btn" class="btn btn-danger"
@@ -1262,8 +1262,8 @@
             if (hostInput && hostInput.value && hostInput.value !== '192.168.1.X') {
                 return `ws://${hostInput.value}:${DEFAULT_PORT}`;
             }
-            // Fallback: use localhost if running locally
-            return `ws://localhost:${DEFAULT_PORT}`;
+            // Fallback: use besto.local if not specified
+            return `ws://besto.local:${DEFAULT_PORT}`;
         }
 
         // =================================================================

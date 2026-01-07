@@ -654,14 +654,32 @@ async def broadcast_loop():
                     else:
                         _stuck_start_time = None
             
-            # Throttle video frame rate
-            if current_time - last_video_time < video_interval:
-                await asyncio.sleep(0.005)
-                continue
-            
-            last_video_time = current_time
+            # Calculate velocities (units/sec)
+            dt_video = current_time - last_video_time if last_video_time > 0 else 0.1 # Approx
             
             # --- UPDATE ODOMETRY ---
+            l_pos = left_encoder.get_position() if left_encoder else 0
+            r_pos = right_encoder.get_position() if right_encoder else 0
+            
+            # Simple velocity estimation (could be noisy, good for debug graph)
+            # Store previous positions to calculate delta
+            if not hasattr(broadcast_loop, "last_pos_l"):
+                broadcast_loop.last_pos_l = l_pos
+                broadcast_loop.last_pos_r = r_pos
+                broadcast_loop.last_vel_time = current_time
+            
+            vel_l = 0.0
+            vel_r = 0.0
+            
+            if current_time - broadcast_loop.last_vel_time > 0.0:
+                dt_vel = current_time - broadcast_loop.last_vel_time
+                vel_l = (l_pos - broadcast_loop.last_pos_l) / dt_vel
+                vel_r = (r_pos - broadcast_loop.last_pos_r) / dt_vel
+                
+                broadcast_loop.last_pos_l = l_pos
+                broadcast_loop.last_pos_r = r_pos
+                broadcast_loop.last_vel_time = current_time
+
             if left_encoder and right_encoder:
                 if imu:
                     robot_state.update_with_imu(
@@ -758,13 +776,28 @@ async def broadcast_loop():
                                         [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
                 image_b64 = base64.b64encode(buffer).decode('utf-8')
             
+            last_video_time = current_time
+
             # Build data packet
+            # Gather Raw IMU
+            raw_accel = {'x': 0, 'y': 0, 'z': 0}
+            raw_gyro = {'x': 0, 'y': 0, 'z': 0}
+            if imu:
+                ax, ay, az = imu.get_accel()
+                gx, gy, gz = imu.get_gyro()
+                raw_accel = {'x': ax, 'y': ay, 'z': az}
+                raw_gyro = {'x': gx, 'y': gy, 'z': gz}
+
             data = {
                 "type": "readout",
-                "left_pos": left_encoder.get_position() if left_encoder else 0,
+                "left_pos": l_pos,
                 "left_power": left_motor.power if left_motor else 0,
-                "right_pos": right_encoder.get_position() if right_encoder else 0,
+                "right_pos": r_pos,
                 "right_power": right_motor.power if right_motor else 0,
+                "motor_velocity": {
+                    "left": vel_l,
+                    "right": vel_r
+                },
                 "image": image_b64,
                 "detection_enabled": detection_enabled,
                 "detections": last_detections,
@@ -787,7 +820,9 @@ async def broadcast_loop():
                     "pitch": imu.get_tilt()[0] if imu else 0,
                     "roll": imu.get_tilt()[1] if imu else 0,
                     "heading_deg": np.degrees(imu.get_heading()) if imu else 0,
-                    "yaw_rate": imu.get_gyro()[2] if imu else 0
+                    "yaw_rate": imu.get_gyro()[2] if imu else 0,
+                    "raw_accel": raw_accel,
+                    "raw_gyro": raw_gyro
                 } if imu else None,
                 "auto_drive_start": {
                     "x": fsm.start_x,
