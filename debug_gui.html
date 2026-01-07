@@ -93,6 +93,31 @@
             box-shadow: 0 0 8px var(--accent-green);
         }
 
+        /* IP Input */
+        .header-controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .ip-input {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            width: 140px;
+            text-align: center;
+        }
+
+        .ip-input:focus {
+            outline: none;
+            border-color: var(--accent-cyan);
+            color: var(--text-primary);
+        }
+
         /* Main Layout */
         main {
             flex: 1;
@@ -260,9 +285,12 @@
 
     <header>
         <h1><span style="font-size: 1.5rem">📊</span> Sensor Debugger</h1>
-        <div class="status-badge">
-            <div id="status-dot" class="status-dot"></div>
-            <span id="status-text">Disconnected</span>
+        <div class="header-controls">
+            <input type="text" id="ws-host" class="ip-input" placeholder="IP Address">
+            <div class="status-badge">
+                <div id="status-dot" class="status-dot"></div>
+                <span id="status-text">Disconnected</span>
+            </div>
         </div>
     </header>
 
@@ -306,7 +334,9 @@
 
     <script>
         // --- Configuration ---
-        const WEBSOCKET_URL = "ws://" + window.location.hostname + ":8765";
+        // Default to hostname if served, or localhost if file://
+        const DEFAULT_HOST = window.location.hostname || "localhost";
+        const PORT = 8765;
 
         // Dataset Definitions
         const DATASETS_CONFIG = [
@@ -328,9 +358,25 @@
         let ws;
         let chart;
         let isConnected = false;
+        let shouldReconnect = true;
 
         // --- Initialization ---
         function init() {
+            // Set default IP in input
+            const hostInput = document.getElementById('ws-host');
+            hostInput.value = DEFAULT_HOST;
+
+            // Listen for IP changes
+            hostInput.addEventListener('change', () => {
+                console.log("IP Changed, reconnecting...");
+                if (ws) {
+                    shouldReconnect = false;
+                    ws.close();
+                }
+                shouldReconnect = true;
+                connectWebSocket();
+            });
+
             initChart();
             initUI();
             connectWebSocket();
@@ -422,9 +468,11 @@
         let incomingDataBuffer = [];
 
         function connectWebSocket() {
-            // Handle "sim mode" or direct file usage vs served
-            const url = WEBSOCKET_URL;
+            const host = document.getElementById('ws-host').value || DEFAULT_HOST;
+            const url = `ws://${host}:${PORT}`;
             console.log("Connecting to", url);
+
+            updateStatus(false, "Connecting...");
 
             ws = new WebSocket(url);
 
@@ -436,7 +484,9 @@
             ws.onclose = () => {
                 isConnected = false;
                 updateStatus(false);
-                setTimeout(connectWebSocket, 2000);
+                if (shouldReconnect) {
+                    setTimeout(connectWebSocket, 2000);
+                }
             };
 
             ws.onmessage = (event) => {
@@ -449,16 +499,17 @@
             };
         }
 
-        function updateStatus(connected) {
+        function updateStatus(connected, msg) {
             const dot = document.getElementById('status-dot');
             const text = document.getElementById('status-text');
+
             if (connected) {
                 dot.classList.add('connected');
                 text.textContent = "Connected";
                 text.style.color = "var(--accent-green)";
             } else {
                 dot.classList.remove('connected');
-                text.textContent = "Disconnected";
+                text.textContent = msg || "Disconnected";
                 text.style.color = "var(--text-secondary)";
             }
         }
