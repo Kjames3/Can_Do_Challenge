@@ -4,13 +4,15 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-# Adjust the path to python3 and the script location if necessary
-ExecStart=/usr/bin/python3 /home/pi/viam_projects/announce_ip.py
-WorkingDirectory=/home/pi/viam_projects
+# IMPORTANT: This line goes INSIDE this file. DO NOT run it in the terminal.
+# We are assuming your username is 'besto' and the folder is 'Can_Do_Challenge'.
+# If you are using a virtual environment, point to that python executable instead.
+ExecStart=/usr/bin/python3 /home/besto/Can_Do_Challenge/announce_ip.py
+WorkingDirectory=/home/besto/Can_Do_Challenge
 StandardOutput=inherit
 StandardError=inherit
 Restart=always
-User=pi
+User=besto
 
 [Install]
 WantedBy=multi-user.target

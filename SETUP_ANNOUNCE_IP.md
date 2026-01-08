@@ -4,42 +4,49 @@ This guide explains how to set up your Raspberry Pi to automatically run the `an
 
 ## Prerequisites
 
-1.  **Transfer Files**: You need to move the following files from this folder to your Raspberry Pi (e.g., using `scp`, `rsync`, or a flash drive):
+1.  **Transfer Files**: You need to move the following files from this folder to your Raspberry Pi into the `/home/besto/Can_Do_Challenge/` directory:
     *   `announce_ip.py`
     *   `announce_ip.service`
-2.  **Location**: This guide assumes you place the files in `/home/pi/viam_projects/`. If you put them elsewhere, you **MUST** edit the `announce_ip.service` file to match your path.
+
+2.  **Verify File Existence**:
+    Run this command on your Pi to make sure the file is there:
+    ```bash
+    ls -l /home/besto/Can_Do_Challenge/announce_ip.py
+    ```
+    *If it says "No such file or directory", you need to fix the path or copy the file there first.*
 
 ## Setup Steps
 
-1.  **Connect to your Raspberry Pi** via SSH or open a terminal on the Pi.
-
-2.  **Verify Paths**:
-    Ensure your script needs no special environment. If you usually run it with a virtual environment (like Viam's venv), you might need to change the `ExecStart` line in `announce_ip.service` to point to that python executable (e.g., `/home/pi/viam_projects/venv/bin/python`).
+1.  **Edit the Service File (If Needed)**:
+    Open `announce_ip.service` on your Windows machine or on the Pi. Look for the `ExecStart` line.
     
-    Current default in `announce_ip.service`:
+    > **IMPORTANT**: `ExecStart` is a **configuration setting** inside the file. It is **NOT** a command you type into the terminal.
+
+    Ensure it matches your actual path:
     ```ini
-    ExecStart=/usr/bin/python3 /home/pi/viam_projects/announce_ip.py
+    ExecStart=/usr/bin/python3 /home/besto/Can_Do_Challenge/announce_ip.py
+    User=besto
     ```
 
-3.  **Copy the Service File**:
+2.  **Copy the Service File**:
     Move the service file to the systemd directory.
     ```bash
-    sudo cp announce_ip.service /etc/systemd/system/
+    sudo cp /home/besto/Can_Do_Challenge/announce_ip.service /etc/systemd/system/
     ```
 
-4.  **Reload Systemd**:
+3.  **Reload Systemd**:
     Tell systemd to read the new file.
     ```bash
     sudo systemctl daemon-reload
     ```
 
-5.  **Enable the Service**:
+4.  **Enable the Service**:
     This makes it start automatically on boot.
     ```bash
     sudo systemctl enable announce_ip.service
     ```
 
-6.  **Start the Service Immediately** (Optional):
+5.  **Start the Service**:
     To test it without rebooting:
     ```bash
     sudo systemctl start announce_ip.service
@@ -55,13 +62,7 @@ This guide explains how to set up your Raspberry Pi to automatically run the `an
     You should see `Active: active (running)`.
 
 2.  **View Logs**:
-    If it fails, check the logs:
+    If it fails, check the logs (press `q` to exit):
     ```bash
     journalctl -u announce_ip.service -f
     ```
-
-## Troubleshooting
-
--   **"File not found"**: Double-check the path in `ExecStart` inside the `.service` file.
--   **Permission Denied**: Ensure `announce_ip.py` is readable (e.g., `chmod +x announce_ip.py`).
--   **Network Issues**: The service is set to wait for the network (`After=network-online.target`), but if it starts too early, it might fail. The script already has a retry mechanism, so it should recover.
