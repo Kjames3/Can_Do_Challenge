@@ -1,0 +1,16 @@
+[Unit]
+Description=Announce IP Address via UDP
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Adjust the path to python3 and the script location if necessary
+ExecStart=/usr/bin/python3 /home/pi/viam_projects/announce_ip.py
+WorkingDirectory=/home/pi/viam_projects
+StandardOutput=inherit
+StandardError=inherit
+Restart=always
+User=pi
+
+[Install]
+WantedBy=multi-user.target
