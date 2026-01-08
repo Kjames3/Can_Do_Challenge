@@ -20,7 +20,9 @@ This guide explains how to set up your Raspberry Pi to automatically run the `an
 1.  **Edit the Service Files (If Needed)**:
     Open `announce_ip.service` and `rover_server.service` to verify the paths match your setup.
     
-    > **IMPORTANT**: `ExecStart` is a **configuration setting** inside the file. It is **NOT** a command you type into the terminal.
+    > **IMPORTANT**: 
+    > 1. `ExecStart` must point to the python inside your virtual environment (e.g., `/home/besto/Can_Do_Challenge/.venv/bin/python`) so it can find your installed libraries.
+    > 2. `ExecStart` is a **configuration setting** inside the file. It is **NOT** a command you type into the terminal.
 
 2.  **Copy the Service Files**:
     Move both service files to the systemd directory.

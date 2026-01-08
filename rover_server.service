@@ -5,7 +5,8 @@ Wants=network-online.target
 
 [Service]
 # Service Config
-ExecStart=/usr/bin/python3 /home/besto/Can_Do_Challenge/server_native.py
+# IMPORTANT: Pointing to the VENV python executable to ensure libraries (viam, ultralytics) are found.
+ExecStart=/home/besto/Can_Do_Challenge/.venv/bin/python /home/besto/Can_Do_Challenge/server_native.py
 WorkingDirectory=/home/besto/Can_Do_Challenge
 StandardOutput=inherit
 StandardError=inherit
