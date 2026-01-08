@@ -1,0 +1,21 @@
+[Unit]
+Description=Viam Rover Main Server
+After=network-online.target announce_ip.service
+Wants=network-online.target
+
+[Service]
+# Service Config
+ExecStart=/usr/bin/python3 /home/besto/Can_Do_Challenge/server_native.py
+WorkingDirectory=/home/besto/Can_Do_Challenge
+StandardOutput=inherit
+StandardError=inherit
+Restart=always
+# Restart slightly slower to avoid spinning if it crashes fast
+RestartSec=3
+User=besto
+
+# Environment (Optional: useful for Viam or OpenCV libraries if needed)
+# Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
