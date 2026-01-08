@@ -364,11 +364,18 @@
         function init() {
             // Set default IP in input
             const hostInput = document.getElementById('ws-host');
-            hostInput.value = DEFAULT_HOST;
+            const savedIP = localStorage.getItem('viam_robot_ip');
+            hostInput.value = savedIP || DEFAULT_HOST;
 
             // Listen for IP changes
             hostInput.addEventListener('change', () => {
                 console.log("IP Changed, reconnecting...");
+
+                // Save new IP if valid
+                if (hostInput.value) {
+                    localStorage.setItem('viam_robot_ip', hostInput.value);
+                }
+
                 if (ws) {
                     shouldReconnect = false;
                     ws.close();

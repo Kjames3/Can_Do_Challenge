@@ -1422,6 +1422,13 @@
         // Initialize 3D viewport when DOM is ready
         document.addEventListener('DOMContentLoaded', () => {
             setTimeout(init3DViewport, 100);  // Small delay to ensure Three.js is loaded
+
+            // Load saved IP if available
+            const savedIP = localStorage.getItem('viam_robot_ip');
+            const hostInput = document.getElementById('robot-ip');
+            if (savedIP && hostInput) {
+                hostInput.value = savedIP;
+            }
         });
 
         // =================================================================
@@ -1537,6 +1544,12 @@
                 state.sessionStartTime = Date.now();
                 updateConnectionStatus('connected');
                 elements.controlArea.classList.remove('disabled-overlay');
+
+                // Save successful IP to localStorage
+                const hostInput = document.getElementById('robot-ip');
+                if (hostInput && hostInput.value) {
+                    localStorage.setItem('viam_robot_ip', hostInput.value);
+                }
 
                 // Start session timer (updates every second)
                 if (state.sessionTimerInterval) clearInterval(state.sessionTimerInterval);
