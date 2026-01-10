@@ -138,16 +138,19 @@ viam_projects/
 - Real-time bounding box overlay
 
 ### Autonomous Navigation
-- **FSM States**: IDLE → SEARCHING → APPROACHING → ARRIVED → RETURNING
-- **Pure Pursuit Controller**: Uses a lookahead point and constant curvature blending to drive smooth arcs towards the target, rather than sharp "rotate-then-drive" movements.
-- **Map-Based Navigation** using Y-Forward Cartesian coordinates
-- **Robust Return-to-Home**: Wait → Backup (20cm) → Navigate → Align
-- **Smart Final Alignment**:
-    - **Visual Lock**: Uses camera to center target (3° precision)
-    - **Blind Fallback**: Uses goal coordinates if target lost (15° precision)
-    - **Pulse Logic**: Micro-pulses motors to fix oscillation close to target
-- **Obstacle avoidance** with backup behavior
-- **3D Trajectory visualization** in GUI
+- **Behavior Tree Architecture**: Modular `Selector` and `Sequence` nodes replace rigid FSM logic.
+- **Prioritized Behaviors**: Avoid Obstacle → Return Home → Approach Target → Search.
+- **Pure Pursuit Controller**: Uses a lookahead point and constant curvature blending to drive smooth arcs towards the target.
+- **Robust Return-to-Home**: Wait → Backup (20cm) → Navigate → Align.
+- **Smart Final Alignment**: Visual Lock (3° precision) and Blind Fallback (15° precision).
+- **Obstacle avoidance** with backup behavior.
+- **3D Trajectory visualization** in GUI.
+
+### State Estimation (EKF)
+- **Extended Kalman Filter**: Probabilistically fuses wheel odometry (prediction) with IMU heading (correction).
+- **Process Noise**: Models encoder slip and drift.
+- **Measurement Noise**: Models IMU sensor uncertainty.
+- **Result**: Robust position tracking even when wheels slip or IMU drifts.
 
 ### Telemetry
 - Encoder positions (revolutions)
@@ -251,16 +254,12 @@ Default: `ws://<pi-ip>:8081`
 
 While the current system uses robust deterministic logic (dead reckoning), the project roadmap includes upgrading to probabilistic state refinenent:
 
-### 1. Advanced State Estimation (KF/EKF)
-Replacing the current dead reckoning model with **Kalman Filters (KF)** or **Extended Kalman Filters (EKF)**.
-- **Why**: Dead reckoning assumes zero wheel slip. An EKF would fuse encoder data (proprioception) with IMU and Camera data (exteroception) to estimate the robot's *true* position and covariance (uncertainty) dynamically.
-
-### 2. Probabilistic Perception (Bayesian/Fisher)
+### 1. Probabilistic Perception (Bayesian/Fisher)
 Moving from binary "trust" to probabilistic updates.
 - **Current**: If YOLO says "Can is at 45cm", we believe it 100%.
 - **Future**: Use **Fisher Information** to quantify how much information a frame provides. Use a **Bayesian Estimator** to update the belief map, trusting "sharp/close" frames more than "blurry/far" frames.
 
-### 3. Parameter Estimation (Least Squares)
+### 2. Parameter Estimation (Least Squares)
 Calibrating physical constants mathematically rather than manually.
 - **Concept**: The "Calibration Problem" involves solving for the *true* physical parameters that minimize error over time.
 - **Application**: Driving the robot in a closed loop and using **Least Squares Estimation (LSE)** on the start/end drift to calculate the *exact* effective wheel diameter (to 0.01mm) and track width. This would significantly reduce systematic odometry errors.

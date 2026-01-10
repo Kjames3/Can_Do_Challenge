@@ -20,78 +20,151 @@ WHEEL_BASE_MM = 356             # mm (width between wheels)
 WHEEL_BASE_CM = WHEEL_BASE_MM / 10
 
 class RobotState:
-    """Track robot pose using wheel encoder odometry with optional IMU heading fusion."""
+    """
+    Track robot pose using an Extended Kalman Filter (EKF).
+    Fuses wheel encoder odometry (Prediction) with IMU heading (Update).
+    """
     
     def __init__(self):
+        # State vector [x, y, theta]
         self.x = 0.0  # cm
         self.y = 0.0  # cm
         self.theta = 0.0  # radians
+        
+        # EKF Covariance Matrix (Uncertainty)
+        # Initial high confidence in starting at (0,0,0)
+        self.P = np.eye(3) * 0.1
+        
+        # Process Noise Covariance (Q) - Uncertainty in model/encoders
+        # Tunable: How much we trust the physics prediction vs measurement
+        self.Q = np.diag([0.5, 0.5, 0.1])  
+        
+        # Measurement Noise Covariance (R) - Uncertainty in IMU
+        # Tunable: Lower = trust IMU more
+        self.R = np.array([[0.05]])  # ~3 degrees variance
+        
         self.last_left_pos = 0.0
         self.last_right_pos = 0.0
         self.initialized = False
     
     def update(self, left_pos, right_pos):
-        """Update pose from encoder positions (in revolutions)."""
+        """Standard update (Prediction only) if no IMU data available."""
         if not self.initialized:
-            self.last_left_pos = left_pos
-            self.last_right_pos = right_pos
-            self.initialized = True
+            self._init_encoders(left_pos, right_pos)
             return
         
-        # Delta in revolutions
-        left_delta = left_pos - self.last_left_pos
-        right_delta = right_pos - self.last_right_pos
+        # Calculate Odometry Control Input (u)
+        d_left, d_right = self._get_wheel_deltas(left_pos, right_pos)
         
-        # Convert to distance (cm)
-        left_dist = left_delta * WHEEL_CIRCUMFERENCE_MM / 10
-        right_dist = right_delta * WHEEL_CIRCUMFERENCE_MM / 10
-        
-        # Differential drive kinematics
-        linear = (left_dist + right_dist) / 2.0
-        angular = (right_dist - left_dist) / WHEEL_BASE_CM
-        
-        # Update pose
-        self.x += linear * np.sin(self.theta)
-        self.y += linear * np.cos(self.theta)
-        self.theta += angular
-        self.theta = np.arctan2(np.sin(self.theta), np.cos(self.theta))
+        # EKF Prediction Step
+        self._predict(d_left, d_right)
         
         self.last_left_pos = left_pos
         self.last_right_pos = right_pos
-    
+
     def update_with_imu(self, left_pos, right_pos, imu_heading):
         """
-        Update pose using encoder distance + IMU heading (more accurate).
-        
-        Args:
-            left_pos: Left encoder position in revolutions
-            right_pos: Right encoder position in revolutions
-            imu_heading: Heading from IMU in radians
+        EKF Full Cycle:
+        1. Prediction Step (using encoders)
+        2. Update Step (using IMU heading)
         """
         if not self.initialized:
-            self.last_left_pos = left_pos
-            self.last_right_pos = right_pos
-            self.initialized = True
+            self._init_encoders(left_pos, right_pos)
+            # Initialize theta to first IMU reading if desired, 
+            # but usually we assume start at 0 or match calibration.
+            # self.theta = imu_heading 
             return
         
-        # Delta in revolutions
-        left_delta = left_pos - self.last_left_pos
-        right_delta = right_pos - self.last_right_pos
+        # 1. Prediction (Odometry)
+        d_left, d_right = self._get_wheel_deltas(left_pos, right_pos)
+        self._predict(d_left, d_right)
         
-        # Convert to distance (cm)
-        left_dist = left_delta * WHEEL_CIRCUMFERENCE_MM / 10
-        right_dist = right_delta * WHEEL_CIRCUMFERENCE_MM / 10
-        
-        # Average distance for forward movement
-        distance = (left_dist + right_dist) / 2
-        
-        # Use IMU heading directly (much more accurate than encoder-derived)
-        self.theta = imu_heading
-        
-        # Update position using IMU heading
-        # Convention: Y is forward (cos), X is lateral (sin)
-        self.x += distance * np.sin(self.theta)
-        self.y += distance * np.cos(self.theta)
+        # 2. Update (Correction)
+        self._correct(imu_heading)
         
         self.last_left_pos = left_pos
         self.last_right_pos = right_pos
+
+    def _init_encoders(self, left, right):
+        self.last_left_pos = left
+        self.last_right_pos = right
+        self.initialized = True
+
+    def _get_wheel_deltas(self, left_pos, right_pos):
+        """Calculate distance moved by each wheel in cm."""
+        left_delta = left_pos - self.last_left_pos
+        right_delta = right_pos - self.last_right_pos
+        
+        d_left = left_delta * WHEEL_CIRCUMFERENCE_MM / 10
+        d_right = right_delta * WHEEL_CIRCUMFERENCE_MM / 10
+        return d_left, d_right
+
+    def _predict(self, d_left, d_right):
+        """EKF Prediction Step: x = f(x, u)"""
+        ds = (d_left + d_right) / 2.0
+        d_theta = (d_right - d_left) / WHEEL_BASE_CM
+        
+        # New State Estimation
+        # Use half-angle for better integration accuracy (Runge-Kutta 2nd order approx)
+        avg_theta = self.theta + d_theta / 2.0
+        
+        self.x += ds * np.sin(avg_theta)  # Y-Forward convention check? 
+        # CAUTION: Original code had:
+        # self.x += linear * np.sin(self.theta)
+        # self.y += linear * np.cos(self.theta)
+        # Convention: Y is Forward, X is Right?
+        # Let's stick to existing convention:
+        # sin(theta) -> X (Lateral)
+        # cos(theta) -> Y (Forward)
+        
+        self.y += ds * np.cos(avg_theta)
+        self.theta += d_theta
+        
+        # Normalize angle
+        self.theta = np.arctan2(np.sin(self.theta), np.cos(self.theta))
+        
+        # Jacobian of f(x, u) with respect to x (F matrix)
+        # F = [ 1, 0, ds*cos(theta) ]
+        #     [ 0, 1, -ds*sin(theta)]
+        #     [ 0, 0, 1             ]
+        # Note: Derivatives depend on sin/cos mapping above.
+        # dx/dtheta = ds * cos(theta)
+        # dy/dtheta = -ds * sin(theta)
+        
+        F = np.eye(3)
+        F[0, 2] = ds * np.cos(avg_theta)
+        F[1, 2] = -ds * np.sin(avg_theta)
+        
+        # Covariance Prediction: P = F*P*F.T + Q
+        self.P = F @ self.P @ F.T + self.Q
+
+    def _correct(self, imu_z):
+        """EKF Correction Step: Incorporate measurement z"""
+        # Measurement Vector z = [imu_heading]
+        # Measurement Matrix H = [0, 0, 1] (We measure theta directly)
+        H = np.array([[0, 0, 1]])
+        
+        # Innovation (Residual) y = z - Hx
+        # We need to handle angle wrapping for the residual
+        y = imu_z - self.theta
+        y = np.arctan2(np.sin(y), np.cos(y))  # Normalize -pi to pi
+        
+        # Innovation Covariance S = H*P*H.T + R
+        S = H @ self.P @ H.T + self.R
+        
+        # Kalman Gain K = P*H.T * S^-1
+        K = self.P @ H.T @ np.linalg.inv(S)
+        
+        # Update State x = x + K*y
+        change = K @ np.array([[y]]) # Shape (3,1)
+        
+        self.x += change[0, 0]
+        self.y += change[1, 0]
+        self.theta += change[2, 0]
+        
+        # Normalize Theta again
+        self.theta = np.arctan2(np.sin(self.theta), np.cos(self.theta))
+        
+        # Update Covariance P = (I - K*H) * P
+        I = np.eye(3)
+        self.P = (I - K @ H) @ self.P
