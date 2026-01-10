@@ -351,6 +351,10 @@
             { key: 'vel_l', label: 'Vel Left', color: '#3b82f6', path: d => d.motor_velocity?.left },
             { key: 'vel_r', label: 'Vel Right', color: '#8b5cf6', path: d => d.motor_velocity?.right },
 
+            { key: 'pos_x', label: 'Robot X', color: '#f472b6', path: d => d.robot_pose?.x, hidden: true },
+            { key: 'pos_y', label: 'Robot Y', color: '#c084fc', path: d => d.robot_pose?.y, hidden: true },
+            { key: 'theta', label: 'Theta', color: '#a78bfa', path: d => (d.robot_pose?.theta * 180 / Math.PI).toFixed(1), hidden: true },
+
             { key: 'power', label: 'Power (W)', color: '#d946ef', path: d => d.power?.power, hidden: true }
         ];
 
