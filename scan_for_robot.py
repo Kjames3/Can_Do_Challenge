@@ -59,8 +59,8 @@ def main():
         block_start = (third_octet // BLOCK_SIZE) * BLOCK_SIZE
         block_end = block_start + (BLOCK_SIZE - 1)
         
-        print(f"🌐 Target Range: {network_prefix}.{block_start}.1  --->  {network_prefix}.{block_end}.254")
-        print(f"📊 Scanning approx {BLOCK_SIZE * 255} IPs with {THREAD_COUNT} threads...")
+        print(f" Target Range: {network_prefix}.{block_start}.1  --->  {network_prefix}.{block_end}.254")
+        print(f" Scanning approx {BLOCK_SIZE * 255} IPs with {THREAD_COUNT} threads...")
         
     except Exception as e:
         print(f"Error parsing IP: {e}")
