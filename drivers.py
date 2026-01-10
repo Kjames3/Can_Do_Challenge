@@ -473,17 +473,24 @@ class Picamera2Driver:
                 time.sleep(0.1)
 
     def get_frame(self):
+        """Get the latest frame from the camera."""
+        # 1. Simulation or Failed Init: Return "NO CAM"
         if self.sim_mode or not self.picam2:
-            # Return dummy frame if sim/failed
             img = np.zeros((self.height, self.width, 3), dtype=np.uint8)
-            cv2.putText(img, "NO CAM", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,255), 2)
+            cv2.putText(img, "NO CAM", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
             return img
             
+        # 2. Threaded Capture Check
         with self._frame_lock:
             if self._frame is not None:
                 return self._frame.copy()
-        return None
-
+        
+        # 3. Valid Camera but No Frame Yet: Return "WAITING"
+        # This prevents the GUI from showing nothing while the camera warms up
+        img = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+        cv2.putText(img, "WAITING...", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
+        return img
+    
     def cleanup(self):
         self._running = False
         if self._thread:
