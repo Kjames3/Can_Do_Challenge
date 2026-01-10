@@ -841,8 +841,11 @@ async def broadcast_loop():
                     det_center_x = best_det.get('center_x', IMAGE_WIDTH / 2)
                     
                     # Calculate bearing angle
+                    # Pixel Offset: Negative = Left, Positive = Right
+                    # FSM expects: Positive = Left, Negative = Right
+                    # So we must invert the sign.
                     pixel_offset = det_center_x - (IMAGE_WIDTH / 2)
-                    bearing = pixel_offset * (CAMERA_HFOV_DEG / IMAGE_WIDTH) * (np.pi / 180.0)
+                    bearing = -1 * pixel_offset * (CAMERA_HFOV_DEG / IMAGE_WIDTH) * (np.pi / 180.0)
                     
                     # Calculate Local Position
                     target_local_x = det_distance * np.sin(bearing)

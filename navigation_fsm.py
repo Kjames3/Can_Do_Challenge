@@ -323,7 +323,9 @@ async def _stop_motors(ctx):
 
 async def _pivot_towards(ctx, diff_angle):
     # diff_angle: Positive = Left, Negative = Right
-    speed = max(0.32, min(0.4, abs(diff_angle) * 1.5))
+    # diff_angle: Positive = Left, Negative = Right
+    # Increased minimum power from 0.32 to 0.45 to prevent stalling
+    speed = max(0.45, min(0.6, abs(diff_angle) * 1.8))
     if diff_angle > 0:
         # Turn Left (CCW): Right motor forward, Left stopped/back
         await _set_motor_power(ctx, 0, speed) 
@@ -359,8 +361,9 @@ async def _execute_pure_pursuit(ctx, tx, ty, distance):
     
     # Speeds
     base = ctx.config.drive_speed
+    base = ctx.config.drive_speed
     if distance < 30.0:
-        base = max(0.25, base * (distance/30.0))
+        base = max(0.40, base * (distance/30.0))
         
     l_pow = base + curvature
     r_pow = base - curvature
@@ -378,10 +381,11 @@ class NavigationConfig:
     target_distance_cm = 5.0
     dist_threshold_cm = 2.0
     obstacle_min_distance_cm = 20.0
+    obstacle_min_distance_cm = 20.0
     backup_duration_sec = 0.8
-    search_speed = 0.20
-    drive_speed = 0.50
-    backup_speed = 0.25
+    search_speed = 0.35  # Increased from 0.20
+    drive_speed = 0.60   # Increased from 0.50
+    backup_speed = 0.40  # Increased from 0.25
     auto_return = True
     return_distance_threshold = 15.0
     curvature_gain = 1.2
