@@ -197,22 +197,6 @@ class ReturnHomeSequence(Node):
                 if ctx.on_returned: ctx.on_returned()
                 return NodeStatus.SUCCESS
             
-            # Pivot
-            speed = max(0.32, min(0.4, abs(diff) * 1.5))
-            if diff > 0: await _set_motor_power(ctx, speed, -speed) # Left turn? 
-            # Note: diff > 0 means target is to the Left (CounterClockwise)
-            # Motor: Left forward = Turn Right? No.
-            # Let's verify motor polarity. 
-            # Original code: remaining > 0 (Turn RIGHT) -> l_pow=speed, r_pow=0
-            # IMU: Positive = Left (CCW).
-            # If diff > 0 (Target is Left of Current), we want to turn LEFT.
-            # Turn Left -> l_pow=0, r_pow=speed.
-            else: await _set_motor_power(ctx, speed, 0.0) # Turn Right?
-            
-            # WAIT. Original code logic:
-            # remaining_turn > 0: Turn RIGHT.
-            # IMU heading: Positive is LEFT.
-            # If target=PI, current=0 -> diff=+PI (Left). We want to turn Left.
             # Original Logic:
             # remaining_turn = target + heading.
             # Wait, let's use a simpler Pivot helper.
