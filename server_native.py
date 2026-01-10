@@ -813,10 +813,10 @@ async def broadcast_loop():
                         "theta": float(robot_state.theta)
                     },
                     "target_pose": {
-                        "x": float(fsm.goal_x),
-                        "y": float(fsm.goal_y),
-                        "distance_cm": float(fsm.goal_distance)
-                    } if fsm and fsm.goal_x is not None else None,
+                        "x": float(fsm.ctx.goal_x),
+                        "y": float(fsm.ctx.goal_y),
+                        "distance_cm": float(fsm.ctx.goal_distance)
+                    } if fsm and fsm.ctx.goal_x is not None else None,
                     "imu": {
                         "pitch": float(imu.get_tilt()[0]) if imu else 0,
                         "roll": float(imu.get_tilt()[1]) if imu else 0,
@@ -826,8 +826,8 @@ async def broadcast_loop():
                         "raw_gyro": raw_gyro
                     } if imu else None,
                     "auto_drive_start": {
-                        "x": float(fsm.start_x),
-                        "y": float(fsm.start_y)
+                        "x": float(fsm.ctx.start_pose['x']),
+                        "y": float(fsm.ctx.start_pose['y'])
                     } if fsm and (is_auto_driving or fsm.state != "IDLE") else None,
                     "lidar_points": lidar.get_points_xy()[:360] if lidar else [],
                     "fsm_state": fsm.state_summary if fsm else "IDLE",
@@ -864,10 +864,10 @@ async def broadcast_loop():
                 
                 # Calculate trajectory arc for 3D visualization
                 trajectory_points = []
-                if fsm and fsm.goal_x is not None and fsm.goal_y is not None:
+                if fsm and fsm.ctx.goal_x is not None and fsm.ctx.goal_y is not None:
                     # Generate arc points from robot to goal
                     rx, ry = robot_state.x, robot_state.y
-                    gx, gy = fsm.goal_x, fsm.goal_y
+                    gx, gy = fsm.ctx.goal_x, fsm.ctx.goal_y
                     
                     # Simple interpolation with curve based on bearing
                     dx = gx - rx
