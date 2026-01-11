@@ -99,28 +99,18 @@ class RobotState:
         d_right = right_delta * WHEEL_CIRCUMFERENCE_MM / 10
         return d_left, d_right
 
+    def _predict(self, d_left, d_right):
+        """EKF Prediction Step: x = f(x, u)"""
         ds = (d_left + d_right) / 2.0
         
-        # FIX: Reverting Encoder Swap (Step 270 was wrong diagnosis)
-        # The control loop was inverted (turning Left instead of Right).
-        # The Odometry correctly reported that Left Turn.
-        # So dl/dr polarity was correct originally.
-        d_theta = (d_right - d_left) / self.wheel_base_mm
+        # Encoder polarity: (Right - Left)
+        # If Right > Left, turning Left (CCW), theta increases.
+        d_theta = (d_right - d_left) / WHEEL_BASE_CM
         
-        # New State Estimation
         # Use half-angle for better integration accuracy (Runge-Kutta 2nd order approx)
         avg_theta = self.theta + d_theta / 2.0
         
-        # FIX: Restore Y-Forward Convention (Matches Backup)
-        # +Theta (Left Turn) -> +X Displacement (Left in Robot Frame?)
-        # This matches the Backup's "working" logic: x += sin, y += cos
-        self.y += ds * np.cos(avg_theta)
-        self.theta += d_theta
-        
-        # Normalize angle
-        self.theta = np.arctan2(np.sin(self.theta), np.cos(self.theta))
-        # Prediction Step (Motion Model)
-        # Y-Forward System:
+        # Motion Model (Y-Forward System):
         # Theta=0 -> +Y
         # Theta=90 (Left) -> -X
         self.x -= ds * np.sin(avg_theta)
@@ -134,9 +124,6 @@ class RobotState:
         print(f"DEBUG: Odom: x={self.x:.1f}, y={self.y:.1f}, th={self.theta:.2f}, ds={ds:.1f}")
 
         # Jacobian F (df/dx, df/dy, df/dtheta)
-        # dx/dtheta = -ds * cos(theta)
-        # dy/dtheta = -ds * sin(theta)
-        
         F = np.eye(3)
         F[0, 2] = -ds * np.cos(avg_theta)
         F[1, 2] = -ds * np.sin(avg_theta)
