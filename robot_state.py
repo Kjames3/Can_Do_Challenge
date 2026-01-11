@@ -108,15 +108,8 @@ class RobotState:
         # Use half-angle for better integration accuracy (Runge-Kutta 2nd order approx)
         avg_theta = self.theta + d_theta / 2.0
         
-        self.x += ds * np.sin(avg_theta)  # Y-Forward convention check? 
-        # CAUTION: Original code had:
-        # self.x += linear * np.sin(self.theta)
-        # self.y += linear * np.cos(self.theta)
-        # Convention: Y is Forward, X is Right?
-        # Let's stick to existing convention:
-        # sin(theta) -> X (Lateral)
-        # cos(theta) -> Y (Forward)
-        
+        # FIX: Negate X update so +X is Right (Standard), not Left
+        self.x -= ds * np.sin(avg_theta)
         self.y += ds * np.cos(avg_theta)
         self.theta += d_theta
         
@@ -124,15 +117,13 @@ class RobotState:
         self.theta = np.arctan2(np.sin(self.theta), np.cos(self.theta))
         
         # Jacobian of f(x, u) with respect to x (F matrix)
-        # F = [ 1, 0, ds*cos(theta) ]
-        #     [ 0, 1, -ds*sin(theta)]
+        # F = [ 1, 0, -ds*cos(theta) ] <-- Updated derivative for -sin
+        #     [ 0, 1, -ds*sin(theta) ]
         #     [ 0, 0, 1             ]
-        # Note: Derivatives depend on sin/cos mapping above.
-        # dx/dtheta = ds * cos(theta)
-        # dy/dtheta = -ds * sin(theta)
         
         F = np.eye(3)
-        F[0, 2] = ds * np.cos(avg_theta)
+        # FIX: Update Jacobian to match x -= ...
+        F[0, 2] = -ds * np.cos(avg_theta)
         F[1, 2] = -ds * np.sin(avg_theta)
         
         # Covariance Prediction: P = F*P*F.T + Q
