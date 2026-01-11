@@ -102,7 +102,36 @@ class RobotState:
     def _predict(self, d_left, d_right):
         """EKF Prediction Step: x = f(x, u)"""
         ds = (d_left + d_right) / 2.0
-        d_theta = (d_right - d_left) / WHEEL_BASE_CM
+        
+        # FIX: Swapped dl and dr to correct Polarity Inversion
+        # Logs showed: Right Turn (L > R) -> +Theta (Left Turn).
+        # This implies dr > dl when turning Right?
+        # New Formula: d_theta = (dl - dr) / width.
+        # If Turning Right (L > R): dl is Large. dr is Small.
+        # d_theta = Large - Small = Positive... Wait.
+        # Standard: L > R -> Turn Right.
+        # We want Negative Theta for Right Turn.
+        # So (dl - dr) would be Positive?
+        # WE WANT NEGATIVE.
+        # So we need (dr - dl).
+        # WAIT.
+        # Previous was (dr - dl).
+        # If Turning Right (L > R). 
+        # If Encoders SWAPPED:
+        # enc_l reads Right Motor (Small).
+        # enc_r reads Left Motor (Large).
+        # dl = Small. dr = Large.
+        # Previous: (dr - dl) = Large - Small = Positive. (Left Turn).
+        # This matched the Bug.
+        # Correct Logic should be (dl - dr) IF wiring was correct.
+        # Since wiring is swapped, we want to negate the result?
+        # Or swap variables?
+        # If I use (dl - dr):
+        # dl (Small) - dr (Large) = Negative.
+        # This gives Negative Theta (Right Turn).
+        # THIS IS CORRECT!
+        
+        d_theta = (d_left - d_right) / WHEEL_BASE_CM
         
         # New State Estimation
         # Use half-angle for better integration accuracy (Runge-Kutta 2nd order approx)
