@@ -379,8 +379,11 @@ async def _execute_pure_pursuit(ctx, tx, ty, distance):
     if distance < 30.0:
         base = max(0.40, base * (distance/30.0))
         
-    l_pow = base + curvature
-    r_pow = base - curvature
+    # Motor mixing: Positive curvature = Turn Right
+    # For Right Turn: Left > Right
+    # FIXED: Swapped signs - previous was inverted
+    l_pow = base - curvature
+    r_pow = base + curvature
     
     max_p = max(abs(l_pow), abs(r_pow), 1.0)
     await _set_motor_power(ctx, l_pow/max_p, r_pow/max_p)
