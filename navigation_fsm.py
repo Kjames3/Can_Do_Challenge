@@ -295,7 +295,11 @@ class Idle(Node):
 
 async def _set_motor_power(ctx, left, right):
     if ctx.left_motor and ctx.right_motor:
-        # Simple deadband can be added here
+        # Apply Drift Compensation (Negative = Reduce Left Motor)
+        if ctx.config and hasattr(ctx.config, 'drift_compensation'):
+            if abs(left) > 0.1:
+                left *= (1.0 + ctx.config.drift_compensation)
+                
         try:
             await ctx.left_motor.set_power(left)
             await ctx.right_motor.set_power(right)
@@ -373,7 +377,7 @@ class NavigationConfig:
     auto_return = True
     return_distance_threshold = 15.0
     curvature_gain = 0.8  # Reduced from 1.2 to prevent spiraling
-    drift_compensation = 0.0 # Disabled for debugging
+    drift_compensation = -0.10 # Restored to fix Right Pull (Left Motor is faster)
 
 class NavigationFSM:
     """
