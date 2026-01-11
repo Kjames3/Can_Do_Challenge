@@ -861,11 +861,14 @@ async def broadcast_loop():
                     target_local_y = det_distance * np.cos(bearing)
                     
                     # Transform to World Frame
+                    # Forward Vector (Local Y) -> [-sin(theta), cos(theta)]
+                    # Right Vector (Local X)   -> [cos(theta), sin(theta)]
+                    
                     cos_theta = np.cos(robot_state.theta)
                     sin_theta = np.sin(robot_state.theta)
                     
-                    target_world_x = robot_state.x + (target_local_x * cos_theta + target_local_y * sin_theta)
-                    target_world_y = robot_state.y + (-target_local_x * sin_theta + target_local_y * cos_theta)
+                    target_world_x = robot_state.x + (target_local_x * cos_theta + target_local_y * -sin_theta)
+                    target_world_y = robot_state.y + (target_local_x * sin_theta + target_local_y * cos_theta)
                     
                     # Update data packet
                     data["target_pose"] = {

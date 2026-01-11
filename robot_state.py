@@ -111,21 +111,25 @@ class RobotState:
         # FIX: Restore Y-Forward Convention (Matches Backup)
         # +Theta (Left Turn) -> +X Displacement (Left in Robot Frame?)
         # This matches the Backup's "working" logic: x += sin, y += cos
-        self.x += ds * np.sin(avg_theta)
         self.y += ds * np.cos(avg_theta)
         self.theta += d_theta
         
         # Normalize angle
         self.theta = np.arctan2(np.sin(self.theta), np.cos(self.theta))
+        # Prediction Step (Motion Model)
+        # Y-Forward System:
+        # Theta=0 -> +Y
+        # Theta=90 (Left) -> -X
+        self.x -= ds * np.sin(avg_theta)
+        self.y += ds * np.cos(avg_theta)
+        self.theta += d_theta
         
-        # Jacobian of f(x, u) with respect to x (F matrix)
-        # F = [ 1, 0, ds*cos(theta) ] <-- Updated derivative for +sin
-        #     [ 0, 1, -ds*sin(theta) ]
-        #     [ 0, 0, 1             ]
+        # Jacobian F (df/dx, df/dy, df/dtheta)
+        # dx/dtheta = -ds * cos(theta)
+        # dy/dtheta = -ds * sin(theta)
         
         F = np.eye(3)
-        # FIX: Update Jacobian to match x += ...
-        F[0, 2] = ds * np.cos(avg_theta)
+        F[0, 2] = -ds * np.cos(avg_theta)
         F[1, 2] = -ds * np.sin(avg_theta)
         
         # Covariance Prediction: P = F*P*F.T + Q

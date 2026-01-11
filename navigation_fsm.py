@@ -348,16 +348,16 @@ async def _execute_pure_pursuit(ctx, tx, ty, distance):
     
     # Project D onto R (Local X) and F (Local Y)
     # Vector to target (Corrected Inverse Transform for Y-Forward System)
-    # We un-rotate the World Vector (dx, dy) by the Robot's Heading (theta)
-    # x_local (Right)   = dx * cos(theta) - dy * sin(theta)
-    # y_local (Forward) = dx * sin(theta) + dy * cos(theta)
+    # x_local (Right)   = dx * cos(theta) + dy * sin(theta)
+    # y_local (Forward) = -dx * sin(theta) + dy * cos(theta)
+    # (Dot product with R=[cos,sin] and F=[-sin,cos])
+    
     current_theta = ctx.current_pose['theta']
     cos_t = np.cos(current_theta)
     sin_t = np.sin(current_theta)
     
-    # FIXED: Negate local_x to correct turn direction (was spinning away from target)
-    local_x = -(dx * cos_t - dy * sin_t)   # Lateral offset (Right, negated for correct steering)
-    local_y = dx * sin_t + dy * cos_t      # Forward distance
+    local_x = dx * cos_t + dy * sin_t
+    local_y = -dx * sin_t + dy * cos_t
     
     # In Y-Forward system: local_y is forward, local_x is right
     # Bearing error = atan2(x, y) - angle from forward axis
