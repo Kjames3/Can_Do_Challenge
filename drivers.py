@@ -252,8 +252,27 @@ class NativeIMU:
         
         self._lock = threading.Lock()
         
+        self._lock = threading.Lock()
+        self._running = False
+        self._thread = None
+        
         if not self.sim_mode:
             self._initialize_hardware()
+
+    def start(self):
+        """Start the background update thread."""
+        if not self._initialized or self._running:
+            return
+            
+        self._running = True
+        self._thread = threading.Thread(target=self._update_loop, daemon=True)
+        self._thread.start()
+        print(f"  ✓ {self.name} thread started ({IMU_SAMPLE_RATE}Hz)")
+
+    def stop(self):
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=1.0)
     
     def _initialize_hardware(self):
         try:
@@ -347,6 +366,20 @@ class NativeIMU:
         az = raw[2] / 16384.0
         return (ax, ay, az)
     
+    def _update_loop(self):
+        """Background thread for consistent integration."""
+        target_interval = 1.0 / IMU_SAMPLE_RATE
+        
+        while self._running:
+            start_time = time.time()
+            self.update()
+            
+            # Sleep to maintain rate
+            elapsed = time.time() - start_time
+            sleep_time = target_interval - elapsed
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+
     def update(self):
         if not self._initialized:
             return
@@ -355,18 +388,24 @@ class NativeIMU:
         dt = current_time - self._last_update
         self._last_update = current_time
         
+        # Filter crazy dt (e.g. system wake)
         if dt > 0.5:
             return
         
-        _, _, gz = self.get_gyro()
-        
-        with self._lock:
-            self._heading += np.radians(gz) * dt
-            self._heading = np.arctan2(np.sin(self._heading), np.cos(self._heading))
-        
-        ax, ay, az = self.get_accel()
-        accel_magnitude = np.sqrt(ax*ax + ay*ay)
-        self._is_moving = accel_magnitude > self._motion_threshold
+        try:
+            _, _, gz = self.get_gyro()
+            
+            with self._lock:
+                # Negative sign usually needed for clockwise/right-handed correlation?
+                # Check get_heading usage. Usually +Gyro = Left Turn.
+                self._heading += np.radians(gz) * dt
+                self._heading = np.arctan2(np.sin(self._heading), np.cos(self._heading))
+            
+            ax, ay, az = self.get_accel()
+            accel_magnitude = np.sqrt(ax*ax + ay*ay)
+            self._is_moving = accel_magnitude > self._motion_threshold
+        except Exception:
+            pass
     
     def get_heading(self):
         with self._lock:

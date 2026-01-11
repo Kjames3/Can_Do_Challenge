@@ -250,6 +250,8 @@ def initialize_hardware():
     # IMU
     print("\nIMU (MPU6050):")
     imu = NativeIMU(IMU_I2C_BUS, IMU_I2C_ADDRESS, sim_mode=SIM_MODE, name="imu")
+    if imu:
+        imu.start()
     
     # Camera
     print("\nCamera:")
@@ -608,51 +610,50 @@ async def broadcast_loop():
         if connected_clients:
             current_time = time.time()
             
-            # === IMU UPDATE (high frequency) ===
-            if imu and current_time - last_imu_time >= imu_interval:
-                last_imu_time = current_time
-                imu.update()
+            # === SENSOR UPDATES ===
+            # IMU is now threaded (self-updating), so we just read it.
+            # But we still run safety checks here.
                 
-                # --- TILT SAFETY CHECK ---
-                if TILT_SAFETY_ENABLED and imu.is_tilted_unsafe():
-                    if not is_tilted:
-                        is_tilted = True
-                        print("⚠️ TILT SAFETY: Rover tilted too far! Emergency stop.")
-                        if left_motor: left_motor.stop()
-                        if right_motor: right_motor.stop()
-                        is_auto_driving = False
-                elif is_tilted:
-                    is_tilted = False
-                    print("✓ Tilt returned to safe range")
+            # --- TILT SAFETY CHECK ---
+            if imu and TILT_SAFETY_ENABLED and imu.is_tilted_unsafe():
+                if not is_tilted:
+                    is_tilted = True
+                    print("⚠️ TILT SAFETY: Rover tilted too far! Emergency stop.")
+                    if left_motor: left_motor.stop()
+                    if right_motor: right_motor.stop()
+                    is_auto_driving = False
+            elif is_tilted:
+                is_tilted = False
+                print("✓ Tilt returned to safe range")
+            
+            # --- STUCK DETECTION ---
+            if STUCK_DETECTION_ENABLED and left_motor and right_motor:
+                motor_power = max(abs(left_motor.power), abs(right_motor.power))
                 
-                # --- STUCK DETECTION ---
-                if STUCK_DETECTION_ENABLED and left_motor and right_motor:
-                    motor_power = max(abs(left_motor.power), abs(right_motor.power))
+                if motor_power > STUCK_MOTOR_THRESHOLD:
+                    encoder_count = 0
+                    if left_encoder: encoder_count += abs(left_encoder.get_count())
+                    if right_encoder: encoder_count += abs(right_encoder.get_count())
                     
-                    if motor_power > STUCK_MOTOR_THRESHOLD:
-                        encoder_count = 0
-                        if left_encoder: encoder_count += abs(left_encoder.get_count())
-                        if right_encoder: encoder_count += abs(right_encoder.get_count())
+                    imu_moving = imu.is_moving() if imu else True
+                    encoder_moving = abs(encoder_count - _last_encoder_count) > STUCK_ENCODER_THRESHOLD
                         
-                        imu_moving = imu.is_moving() if imu else True
-                        encoder_moving = abs(encoder_count - _last_encoder_count) > STUCK_ENCODER_THRESHOLD
-                        
-                        if not imu_moving and not encoder_moving:
-                            if _stuck_start_time is None:
-                                _stuck_start_time = current_time
-                            elif current_time - _stuck_start_time > STUCK_TIME_THRESHOLD:
-                                if not is_stuck:
-                                    is_stuck = True
-                                    print("⚠️ STUCK: Motors running but no movement detected!")
-                        else:
-                            _stuck_start_time = None
-                            if is_stuck:
-                                is_stuck = False
-                                print("✓ Movement detected, no longer stuck")
-                        
-                        _last_encoder_count = encoder_count
+                    if not imu_moving and not encoder_moving:
+                        if _stuck_start_time is None:
+                            _stuck_start_time = current_time
+                        elif current_time - _stuck_start_time > STUCK_TIME_THRESHOLD:
+                            if not is_stuck:
+                                is_stuck = True
+                                print("⚠️ STUCK: Motors running but no movement detected!")
                     else:
                         _stuck_start_time = None
+                        if is_stuck:
+                            is_stuck = False
+                            print("✓ Movement detected, no longer stuck")
+                    
+                    _last_encoder_count = encoder_count
+                else:
+                    _stuck_start_time = None
             
             # Calculate velocities (units/sec)
             dt_video = current_time - last_video_time if last_video_time > 0 else 0.1 # Approx
@@ -741,11 +742,17 @@ async def broadcast_loop():
                         target_local_x = det_distance * np.sin(bearing)
                         target_local_y = det_distance * np.cos(bearing)
                         
-                        # World frame
+                        # World frame transformation
+                        # Robot State: +Theta is Left Turn (Moving towards -X)
+                        # Forward Vector (Local Y) -> [-sin(theta), cos(theta)] in World
+                        # Right Vector (Local X)   -> [cos(theta), sin(theta)] in World
+                        
                         cos_theta = np.cos(robot_state.theta)
                         sin_theta = np.sin(robot_state.theta)
-                        target_world_x = robot_state.x + (target_local_x * cos_theta + target_local_y * sin_theta)
-                        target_world_y = robot_state.y + (-target_local_x * sin_theta + target_local_y * cos_theta)
+                        
+                        # Apply Rotation
+                        target_world_x = robot_state.x + (target_local_x * cos_theta + target_local_y * -sin_theta)
+                        target_world_y = robot_state.y + (target_local_x * sin_theta + target_local_y * cos_theta)
                         
                         target_pose = {
                             'x': target_world_x,
@@ -771,12 +778,14 @@ async def broadcast_loop():
                         }
                     )
                 
-                # Encode to JPEG
-                _, buffer = cv2.imencode('.jpg', frame, 
-                                        [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
-                image_b64 = base64.b64encode(buffer).decode('utf-8')
-            
-            last_video_time = current_time
+                # Encode to JPEG (THROTTLED)
+                # Only encode/send video if enough time has passed (VIDEO_FPS_CAP)
+                if current_time - last_video_time >= video_interval:
+                    _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+                    image_b64 = base64.b64encode(buffer).decode('utf-8')
+                    last_video_time = current_time
+                else:
+                    image_b64 = None # Skip sending image this frame
 
             try:
                 # Build data packet

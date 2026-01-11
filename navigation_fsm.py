@@ -340,12 +340,22 @@ async def _execute_pure_pursuit(ctx, tx, ty, distance):
     # local_x = -(dx * cos_t - dy * sin_t)
     # local_y = dx * sin_t + dy * cos_t
     
-    local_x = -(dx * np.cos(heading) - dy * np.sin(heading))
-    local_y = dx * np.sin(heading) + dy * np.cos(heading)
+    # Transform World Vector (dx, dy) into Robot Local Frame
+    # World Frame: X=Right, Y=Forward (at theta=0)
+    # Robot State: +Theta = Left Turn.
+    # Forward Unit Vector F = [-sin(theta), cos(theta)]
+    # Right Unit Vector R   = [cos(theta), sin(theta)]
+    
+    # Project D onto R (Local X) and F (Local Y)
+    local_x = dx * np.cos(heading) + dy * np.sin(heading)
+    local_y = -dx * np.sin(heading) + dy * np.cos(heading)
     bearing = np.arctan2(local_x, local_y)
     
     # Pure Pursuit steering
-    curvature = -np.sin(bearing) * ctx.config.curvature_gain * 0.5
+    # Pure Pursuit steering
+    # Bearing < 0 (Right) -> curvature < 0 -> Left > Right -> Turn Right (Correct)
+    # Bearing > 0 (Left)  -> curvature > 0 -> Left < Right -> Turn Left (Correct)
+    curvature = np.sin(bearing) * ctx.config.curvature_gain * 0.5
     
     # Speeds
     base = ctx.config.drive_speed
