@@ -369,12 +369,12 @@ async def _execute_pure_pursuit(ctx, tx, ty, distance):
         print(f"WARN: Target BEHIND robot. Bear={np.degrees(map_bearing):.1f}")
 
     # Pure Pursuit steering
-    # Bearing < 0 (Right) -> curvature < 0 -> Left > Right -> Turn Right (Correct)
-    # Bearing > 0 (Left)  -> curvature > 0 -> Left < Right -> Turn Left (Correct)
-    curvature = np.sin(map_bearing) * ctx.config.curvature_gain * 0.5
+    # Bearing < 0 (Right) -> sin < 0.
+    # We want Curvature > 0 (Right Turn).
+    # So we must NEGATE sine.
+    curvature = -np.sin(map_bearing) * ctx.config.curvature_gain * 0.5
     
     # Speeds
-    base = ctx.config.drive_speed
     base = ctx.config.drive_speed
     if distance < 30.0:
         base = max(0.40, base * (distance/30.0))
