@@ -124,6 +124,12 @@ class RobotState:
         self.y += ds * np.cos(avg_theta)
         self.theta += d_theta
         
+        # Normalize theta
+        self.theta = np.arctan2(np.sin(self.theta), np.cos(self.theta))
+        
+        # DEBUG LOG
+        print(f"DEBUG: Odom: x={self.x:.1f}, y={self.y:.1f}, th={self.theta:.2f}, ds={ds:.1f}")
+
         # Jacobian F (df/dx, df/dy, df/dtheta)
         # dx/dtheta = -ds * cos(theta)
         # dy/dtheta = -ds * sin(theta)

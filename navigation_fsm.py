@@ -361,6 +361,13 @@ async def _execute_pure_pursuit(ctx, tx, ty, distance):
     # Bearing error = atan2(x, y) - angle from forward axis
     map_bearing = np.arctan2(local_x, local_y)
     
+    # DEBUG LOG
+    # print(f"DEBUG: PP: Tgt({tx:.1f},{ty:.1f}) Robot({ctx.current_pose['x']:.1f},{ctx.current_pose['y']:.1f},{ctx.current_pose['theta']:.2f})")
+    # print(f"DEBUG: PP: dx={dx:.1f}, dy={dy:.1f}, lx={local_x:.1f}, ly={local_y:.1f}, bear={np.degrees(map_bearing):.1f}")
+    
+    if abs(np.degrees(map_bearing)) > 90:
+        print(f"WARN: Target BEHIND robot. Bear={np.degrees(map_bearing):.1f}")
+
     # Pure Pursuit steering
     # Bearing < 0 (Right) -> curvature < 0 -> Left > Right -> Turn Right (Correct)
     # Bearing > 0 (Left)  -> curvature > 0 -> Left < Right -> Turn Left (Correct)
