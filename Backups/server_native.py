@@ -62,17 +62,17 @@ if not SIM_MODE:
 # =============================================================================
 # GPIO PIN CONFIGURATION
 # =============================================================================
-# Left Motor (Physically Left)
+# Left Motor (In1/In2 + PWM)
 LEFT_MOTOR_PIN_A = 35
 LEFT_MOTOR_PIN_B = 33
 LEFT_MOTOR_PWM = 37
 
-# Right Motor (Physically Right) 
+# Right Motor (In1/In2 + PWM) 
 RIGHT_MOTOR_PIN_A = 31
 RIGHT_MOTOR_PIN_B = 29
 RIGHT_MOTOR_PWM = 15
 
-# Encoders
+# Encoders (single channel)
 LEFT_ENCODER_PIN = 38
 RIGHT_ENCODER_PIN = 40
 
@@ -778,141 +778,133 @@ async def broadcast_loop():
             
             last_video_time = current_time
 
-            try:
-                # Build data packet
-                # Gather Raw IMU
-                raw_accel = {'x': 0, 'y': 0, 'z': 0}
-                raw_gyro = {'x': 0, 'y': 0, 'z': 0}
-                if imu:
-                    ax, ay, az = imu.get_accel()
-                    gx, gy, gz = imu.get_gyro()
-                    raw_accel = {'x': float(ax), 'y': float(ay), 'z': float(az)}
-                    raw_gyro = {'x': float(gx), 'y': float(gy), 'z': float(gz)}
+            # Build data packet
+            # Gather Raw IMU
+            raw_accel = {'x': 0, 'y': 0, 'z': 0}
+            raw_gyro = {'x': 0, 'y': 0, 'z': 0}
+            if imu:
+                ax, ay, az = imu.get_accel()
+                gx, gy, gz = imu.get_gyro()
+                raw_accel = {'x': ax, 'y': ay, 'z': az}
+                raw_gyro = {'x': gx, 'y': gy, 'z': gz}
 
-                data = {
-                    "type": "readout",
-                    "left_pos": float(l_pos),
-                    "left_power": float(left_motor.power) if left_motor else 0,
-                    "right_pos": float(r_pos),
-                    "right_power": float(right_motor.power) if right_motor else 0,
-                    "motor_velocity": {
-                        "left": float(vel_l),
-                        "right": float(vel_r)
-                    },
-                    "image": image_b64,
-                    "detection_enabled": bool(detection_enabled),
-                    "detections": last_detections,
-                    "is_auto_driving": bool(is_auto_driving),
-                    "is_stuck": bool(is_stuck),
-                    "is_tilted": bool(is_tilted),
-                    "fps_camera": float(fps_camera),
-                    "fps_detection": float(fps_detection),
-                    "robot_pose": {
-                        "x": float(robot_state.x),
-                        "y": float(robot_state.y),
-                        "theta": float(robot_state.theta)
-                    },
-                    "target_pose": {
-                        "x": float(fsm.ctx.goal_x),
-                        "y": float(fsm.ctx.goal_y),
-                        "distance_cm": float(fsm.ctx.goal_distance)
-                    } if fsm and fsm.ctx.goal_x is not None else None,
-                    "imu": {
-                        "pitch": float(imu.get_tilt()[0]) if imu else 0,
-                        "roll": float(imu.get_tilt()[1]) if imu else 0,
-                        "heading_deg": float(np.degrees(imu.get_heading())) if imu else 0,
-                        "yaw_rate": float(imu.get_gyro()[2]) if imu else 0,
-                        "raw_accel": raw_accel,
-                        "raw_gyro": raw_gyro
-                    } if imu else None,
-                    "auto_drive_start": {
-                        "x": float(fsm.ctx.start_pose['x']),
-                        "y": float(fsm.ctx.start_pose['y'])
-                    } if fsm and (is_auto_driving or fsm.state != "IDLE") else None,
-                    "lidar_points": lidar.get_points_xy()[:360] if lidar else [],
-                    "fsm_state": fsm.state_summary if fsm else "IDLE",
-                    "power": power_sensor.get_all() if power_sensor else None
+            data = {
+                "type": "readout",
+                "left_pos": l_pos,
+                "left_power": left_motor.power if left_motor else 0,
+                "right_pos": r_pos,
+                "right_power": right_motor.power if right_motor else 0,
+                "motor_velocity": {
+                    "left": vel_l,
+                    "right": vel_r
+                },
+                "image": image_b64,
+                "detection_enabled": detection_enabled,
+                "detections": last_detections,
+                "is_auto_driving": is_auto_driving,
+                "is_stuck": is_stuck,
+                "is_tilted": is_tilted,
+                "fps_camera": fps_camera,
+                "fps_detection": fps_detection,
+                "robot_pose": {
+                    "x": robot_state.x,
+                    "y": robot_state.y,
+                    "theta": robot_state.theta
+                },
+                "target_pose": {
+                    "x": fsm.goal_x,
+                    "y": fsm.goal_y,
+                    "distance_cm": fsm.goal_distance
+                } if fsm and fsm.goal_x is not None else None,
+                "imu": {
+                    "pitch": imu.get_tilt()[0] if imu else 0,
+                    "roll": imu.get_tilt()[1] if imu else 0,
+                    "heading_deg": np.degrees(imu.get_heading()) if imu else 0,
+                    "yaw_rate": imu.get_gyro()[2] if imu else 0,
+                    "raw_accel": raw_accel,
+                    "raw_gyro": raw_gyro
+                } if imu else None,
+                "auto_drive_start": {
+                    "x": fsm.start_x,
+                    "y": fsm.start_y
+                } if fsm and (is_auto_driving or fsm.state != "IDLE") else None,
+                "lidar_points": lidar.get_points_xy()[:360] if lidar else [],
+                "fsm_state": fsm.state_summary if fsm else "IDLE",
+                "power": power_sensor.get_all() if power_sensor else None
+            }
+            
+            # Update target_pose from best detection (live refinement)
+            if last_detections and len(last_detections) > 0:
+                best_det = last_detections[0]
+                det_distance = best_det.get('distance_cm', 0)
+                det_center_x = best_det.get('center_x', IMAGE_WIDTH / 2)
+                
+                # Calculate bearing angle
+                pixel_offset = det_center_x - (IMAGE_WIDTH / 2)
+                bearing = pixel_offset * (CAMERA_HFOV_DEG / IMAGE_WIDTH) * (np.pi / 180.0)
+                
+                # Calculate Local Position
+                target_local_x = det_distance * np.sin(bearing)
+                target_local_y = det_distance * np.cos(bearing)
+                
+                # Transform to World Frame
+                cos_theta = np.cos(robot_state.theta)
+                sin_theta = np.sin(robot_state.theta)
+                
+                target_world_x = robot_state.x + (target_local_x * cos_theta + target_local_y * sin_theta)
+                target_world_y = robot_state.y + (-target_local_x * sin_theta + target_local_y * cos_theta)
+                
+                # Update data packet
+                data["target_pose"] = {
+                    "x": target_world_x,
+                    "y": target_world_y,
+                    "distance_cm": det_distance
                 }
+            
+            # Calculate trajectory arc for 3D visualization
+            trajectory_points = []
+            if fsm and fsm.goal_x is not None and fsm.goal_y is not None:
+                # Generate arc points from robot to goal
+                rx, ry = robot_state.x, robot_state.y
+                gx, gy = fsm.goal_x, fsm.goal_y
                 
-                # Update target_pose from best detection (live refinement)
-                if last_detections and len(last_detections) > 0:
-                    best_det = last_detections[0]
-                    det_distance = best_det.get('distance_cm', 0)
-                    det_center_x = best_det.get('center_x', IMAGE_WIDTH / 2)
-                    
-                    # Calculate bearing angle
-                    # Pixel Offset: Negative = Left, Positive = Right
-                    # We want Negative Bearing for Left (-X in World)
-                    pixel_offset = det_center_x - (IMAGE_WIDTH / 2)
-                    bearing = pixel_offset * (CAMERA_HFOV_DEG / IMAGE_WIDTH) * (np.pi / 180.0)
-                    
-                    # Calculate Local Position
-                    target_local_x = det_distance * np.sin(bearing)
-                    target_local_y = det_distance * np.cos(bearing)
-                    
-                    # Transform to World Frame
-                    cos_theta = np.cos(robot_state.theta)
-                    sin_theta = np.sin(robot_state.theta)
-                    
-                    target_world_x = robot_state.x + (target_local_x * cos_theta + target_local_y * sin_theta)
-                    target_world_y = robot_state.y + (-target_local_x * sin_theta + target_local_y * cos_theta)
-                    
-                    # Update data packet
-                    data["target_pose"] = {
-                        "x": float(target_world_x),
-                        "y": float(target_world_y),
-                        "distance_cm": float(det_distance)
-                    }
+                # Simple interpolation with curve based on bearing
+                dx = gx - rx
+                dy = gy - ry
+                dist = np.sqrt(dx*dx + dy*dy)
                 
-                # Calculate trajectory arc for 3D visualization
-                trajectory_points = []
-                if fsm and fsm.ctx.goal_x is not None and fsm.ctx.goal_y is not None:
-                    # Generate arc points from robot to goal
-                    rx, ry = robot_state.x, robot_state.y
-                    gx, gy = fsm.ctx.goal_x, fsm.ctx.goal_y
+                if dist > 5:  # Only show trajectory if far enough
+                    # Calculate bearing for arc curvature
+                    cos_t = np.cos(robot_state.theta)
+                    sin_t = np.sin(robot_state.theta)
+                    local_x = -(dx * cos_t - dy * sin_t)
+                    local_y = dx * sin_t + dy * cos_t
+                    bearing = np.arctan2(local_x, local_y)
                     
-                    # Simple interpolation with curve based on bearing
-                    dx = gx - rx
-                    dy = gy - ry
-                    dist = np.sqrt(dx*dx + dy*dy)
-                    
-                    if dist > 5:  # Only show trajectory if far enough
-                        # Calculate bearing for arc curvature
-                        cos_t = np.cos(robot_state.theta)
-                        sin_t = np.sin(robot_state.theta)
-                        local_x = -(dx * cos_t - dy * sin_t)
-                        local_y = dx * sin_t + dy * cos_t
-                        bearing = np.arctan2(local_x, local_y)
+                    # Generate 5 points along a curved path
+                    for i in range(6):
+                        t = i / 5.0  # 0 to 1
+                        # Quadratic Bezier curve for smooth arc
+                        # Control point offset based on bearing
+                        ctrl_offset = dist * 0.3 * np.sin(bearing)
                         
-                        # Generate 5 points along a curved path
-                        for i in range(6):
-                            t = i / 5.0  # 0 to 1
-                            # Quadratic Bezier curve for smooth arc
-                            # Control point offset based on bearing
-                            ctrl_offset = dist * 0.3 * np.sin(bearing)
-                            
-                            # Control point perpendicular to direct line
-                            mid_x = (rx + gx) / 2 + ctrl_offset * cos_t
-                            mid_y = (ry + gy) / 2 + ctrl_offset * sin_t
-                            
-                            # Quadratic Bezier: B(t) = (1-t)²*P0 + 2(1-t)*t*P1 + t²*P2
-                            px = (1-t)**2 * rx + 2*(1-t)*t * mid_x + t**2 * gx
-                            py = (1-t)**2 * ry + 2*(1-t)*t * mid_y + t**2 * gy
-                            
-                            trajectory_points.append({"x": float(px), "y": float(py)})
-                
-                data["trajectory"] = trajectory_points
-                
-                message = json.dumps(data)
-                await asyncio.gather(
-                    *[client.send(message) for client in connected_clients],
-                    return_exceptions=True
-                )
-
-            except Exception as e:
-                print(f"Broadcast Error: {e}")
-                import traceback
-                traceback.print_exc()
+                        # Control point perpendicular to direct line
+                        mid_x = (rx + gx) / 2 + ctrl_offset * cos_t
+                        mid_y = (ry + gy) / 2 + ctrl_offset * sin_t
+                        
+                        # Quadratic Bezier: B(t) = (1-t)²*P0 + 2(1-t)*t*P1 + t²*P2
+                        px = (1-t)**2 * rx + 2*(1-t)*t * mid_x + t**2 * gx
+                        py = (1-t)**2 * ry + 2*(1-t)*t * mid_y + t**2 * gy
+                        
+                        trajectory_points.append({"x": px, "y": py})
+            
+            data["trajectory"] = trajectory_points
+            
+            message = json.dumps(data)
+            await asyncio.gather(
+                *[client.send(message) for client in connected_clients],
+                return_exceptions=True
+            )
         
         await asyncio.sleep(0.001)
 
