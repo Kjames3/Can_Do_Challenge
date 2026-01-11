@@ -610,184 +610,185 @@ async def broadcast_loop():
         if connected_clients:
             current_time = time.time()
             
-            # === SENSOR UPDATES ===
-            # IMU is now threaded (self-updating), so we just read it.
-            # But we still run safety checks here.
-                
-            # --- TILT SAFETY CHECK ---
-            if imu and TILT_SAFETY_ENABLED and imu.is_tilted_unsafe():
-                if not is_tilted:
-                    is_tilted = True
-                    print("⚠️ TILT SAFETY: Rover tilted too far! Emergency stop.")
-                    if left_motor: left_motor.stop()
-                    if right_motor: right_motor.stop()
-                    is_auto_driving = False
-            elif is_tilted:
-                is_tilted = False
-                print("✓ Tilt returned to safe range")
-            
-            # --- STUCK DETECTION ---
-            if STUCK_DETECTION_ENABLED and left_motor and right_motor:
-                motor_power = max(abs(left_motor.power), abs(right_motor.power))
-                
-                if motor_power > STUCK_MOTOR_THRESHOLD:
-                    encoder_count = 0
-                    if left_encoder: encoder_count += abs(left_encoder.get_count())
-                    if right_encoder: encoder_count += abs(right_encoder.get_count())
+            # === SAFETY: Wrap entire loop in try/catch to prevent thread death ===
+            try:
+                # === SENSOR UPDATES ===
+                # IMU is now threaded (self-updating), so we just read it.
+                # But we still run safety checks here.
                     
-                    imu_moving = imu.is_moving() if imu else True
-                    encoder_moving = abs(encoder_count - _last_encoder_count) > STUCK_ENCODER_THRESHOLD
+                # --- TILT SAFETY CHECK ---
+                if imu and TILT_SAFETY_ENABLED and imu.is_tilted_unsafe():
+                    if not is_tilted:
+                        is_tilted = True
+                        print("⚠️ TILT SAFETY: Rover tilted too far! Emergency stop.")
+                        if left_motor: left_motor.stop()
+                        if right_motor: right_motor.stop()
+                        is_auto_driving = False
+                elif is_tilted:
+                    is_tilted = False
+                    print("✓ Tilt returned to safe range")
+                
+                # --- STUCK DETECTION ---
+                if STUCK_DETECTION_ENABLED and left_motor and right_motor:
+                    motor_power = max(abs(left_motor.power), abs(right_motor.power))
+                    
+                    if motor_power > STUCK_MOTOR_THRESHOLD:
+                        encoder_count = 0
+                        if left_encoder: encoder_count += abs(left_encoder.get_count())
+                        if right_encoder: encoder_count += abs(right_encoder.get_count())
                         
-                    if not imu_moving and not encoder_moving:
-                        if _stuck_start_time is None:
-                            _stuck_start_time = current_time
-                        elif current_time - _stuck_start_time > STUCK_TIME_THRESHOLD:
-                            if not is_stuck:
-                                is_stuck = True
-                                print("⚠️ STUCK: Motors running but no movement detected!")
+                        imu_moving = imu.is_moving() if imu else True
+                        encoder_moving = abs(encoder_count - _last_encoder_count) > STUCK_ENCODER_THRESHOLD
+                            
+                        if not imu_moving and not encoder_moving:
+                            if _stuck_start_time is None:
+                                _stuck_start_time = current_time
+                            elif current_time - _stuck_start_time > STUCK_TIME_THRESHOLD:
+                                if not is_stuck:
+                                    is_stuck = True
+                                    print("⚠️ STUCK: Motors running but no movement detected!")
+                        else:
+                            _stuck_start_time = None
+                            if is_stuck:
+                                is_stuck = False
+                                print("✓ Movement detected, no longer stuck")
+                        
+                        _last_encoder_count = encoder_count
                     else:
                         _stuck_start_time = None
-                        if is_stuck:
-                            is_stuck = False
-                            print("✓ Movement detected, no longer stuck")
-                    
-                    _last_encoder_count = encoder_count
-                else:
-                    _stuck_start_time = None
-            
-            # Calculate velocities (units/sec)
-            dt_video = current_time - last_video_time if last_video_time > 0 else 0.1 # Approx
-            
-            # --- UPDATE ODOMETRY ---
-            l_pos = left_encoder.get_position() if left_encoder else 0
-            r_pos = right_encoder.get_position() if right_encoder else 0
-            
-            # Simple velocity estimation (could be noisy, good for debug graph)
-            # Store previous positions to calculate delta
-            if not hasattr(broadcast_loop, "last_pos_l"):
-                broadcast_loop.last_pos_l = l_pos
-                broadcast_loop.last_pos_r = r_pos
-                broadcast_loop.last_vel_time = current_time
-            
-            vel_l = 0.0
-            vel_r = 0.0
-            
-            if current_time - broadcast_loop.last_vel_time > 0.0:
-                dt_vel = current_time - broadcast_loop.last_vel_time
-                vel_l = (l_pos - broadcast_loop.last_pos_l) / dt_vel
-                vel_r = (r_pos - broadcast_loop.last_pos_r) / dt_vel
                 
-                broadcast_loop.last_pos_l = l_pos
-                broadcast_loop.last_pos_r = r_pos
-                broadcast_loop.last_vel_time = current_time
+                # Calculate velocities (units/sec)
+                dt_video = current_time - last_video_time if last_video_time > 0 else 0.1 # Approx
+                
+                # --- UPDATE ODOMETRY ---
+                l_pos = left_encoder.get_position() if left_encoder else 0
+                r_pos = right_encoder.get_position() if right_encoder else 0
+                
+                # Simple velocity estimation (could be noisy, good for debug graph)
+                # Store previous positions to calculate delta
+                if not hasattr(broadcast_loop, "last_pos_l"):
+                    broadcast_loop.last_pos_l = l_pos
+                    broadcast_loop.last_pos_r = r_pos
+                    broadcast_loop.last_vel_time = current_time
+                
+                vel_l = 0.0
+                vel_r = 0.0
+                
+                if current_time - broadcast_loop.last_vel_time > 0.0:
+                    dt_vel = current_time - broadcast_loop.last_vel_time
+                    vel_l = (l_pos - broadcast_loop.last_pos_l) / dt_vel
+                    vel_r = (r_pos - broadcast_loop.last_pos_r) / dt_vel
+                    
+                    broadcast_loop.last_pos_l = l_pos
+                    broadcast_loop.last_pos_r = r_pos
+                    broadcast_loop.last_vel_time = current_time
 
-            if left_encoder and right_encoder:
-                if imu:
-                    robot_state.update_with_imu(
-                        left_encoder.get_position(),
-                        right_encoder.get_position(),
-                        imu.get_heading()
-                    )
-                else:
-                    robot_state.update(
-                        left_encoder.get_position(),
-                        right_encoder.get_position()
-                    )
-            
-            # Get camera frame
-            frame = camera.get_frame() if camera else None
-            image_b64 = None
-            
-            if frame is not None:
-                frame_count += 1
-                fps_frame_count += 1
+                if left_encoder and right_encoder:
+                    if imu:
+                        robot_state.update_with_imu(
+                            left_encoder.get_position(),
+                            right_encoder.get_position(),
+                            imu.get_heading()
+                        )
+                    else:
+                        robot_state.update(
+                            left_encoder.get_position(),
+                            right_encoder.get_position()
+                        )
                 
-                # Run detection
-                if detection_enabled and frame_count % DETECTION_INTERVAL == 0:
-                    frame, last_detections = process_detection(frame)
-                    fps_detection_count += 1
-                elif detection_enabled:
-                    for d in last_detections:
-                        x1, y1, x2, y2 = d['bbox']
-                        cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 255), 2)
+                # Get camera frame
+                frame = camera.get_frame() if camera else None
+                image_b64 = None
                 
-                # Calculate FPS
-                fps_elapsed = current_time - fps_last_time
-                if fps_elapsed >= 1.0:
-                    fps_camera = fps_frame_count / fps_elapsed
-                    fps_detection = fps_detection_count / fps_elapsed
-                    fps_frame_count = 0
-                    fps_detection_count = 0
-                    fps_last_time = current_time
-                
-                # === AUTO-DRIVE CONTROL (FSM) ===
-                if is_auto_driving and fsm:
-                    detection = None
-                    target_pose = None
+                if frame is not None:
+                    frame_count += 1
+                    fps_frame_count += 1
                     
-                    if last_detections:
-                        target = min(last_detections, key=lambda d: d['distance_cm'])
-                        detection = {
-                            'distance_cm': target['distance_cm'],
-                            'center_x': target['center_x']
-                        }
-                        
-                        # Calculate target_pose (world coordinates) for map-based navigation
-                        det_distance = target['distance_cm']
-                        det_center_x = target['center_x']
-                        pixel_offset = det_center_x - (IMAGE_WIDTH / 2)
-                        bearing = pixel_offset * (CAMERA_HFOV_DEG / IMAGE_WIDTH) * (np.pi / 180.0)
-                        
-                        # Local frame (Y-forward)
-                        target_local_x = det_distance * np.sin(bearing)
-                        target_local_y = det_distance * np.cos(bearing)
-                        
-                        # World frame transformation
-                        # Robot State: +Theta is Left Turn (Moving towards -X)
-                        # Forward Vector (Local Y) -> [-sin(theta), cos(theta)] in World
-                        # Right Vector (Local X)   -> [cos(theta), sin(theta)] in World
-                        
-                        cos_theta = np.cos(robot_state.theta)
-                        sin_theta = np.sin(robot_state.theta)
-                        
-                        # Apply Rotation
-                        target_world_x = robot_state.x + (target_local_x * cos_theta + target_local_y * -sin_theta)
-                        target_world_y = robot_state.y + (target_local_x * sin_theta + target_local_y * cos_theta)
-                        
-                        target_pose = {
-                            'x': target_world_x,
-                            'y': target_world_y,
-                            'distance_cm': det_distance
-                        }
+                    # Run detection
+                    if detection_enabled and frame_count % DETECTION_INTERVAL == 0:
+                        frame, last_detections = process_detection(frame)
+                        fps_detection_count += 1
+                    elif detection_enabled:
+                        for d in last_detections:
+                            x1, y1, x2, y2 = d['bbox']
+                            cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 255), 2)
                     
-                    lidar_min = None
-                    if lidar:
-                        scan = lidar.get_scan()
-                        front_dists = [d for a, d in scan if -0.78 < a < 0.78]
-                        if front_dists:
-                            lidar_min = min(front_dists) * 100.0
+                    # Calculate FPS
+                    fps_elapsed = current_time - fps_last_time
+                    if fps_elapsed >= 1.0:
+                        fps_camera = fps_frame_count / fps_elapsed
+                        fps_detection = fps_detection_count / fps_elapsed
+                        fps_frame_count = 0
+                        fps_detection_count = 0
+                        fps_last_time = current_time
                     
-                    await fsm.update(
-                        detection,
-                        target_pose=target_pose,
-                        lidar_min_distance_cm=lidar_min,
-                        current_pose={
-                            'x': robot_state.x,
-                            'y': robot_state.y,
-                            'theta': robot_state.theta
-                        }
-                    )
-                
-                # Encode to JPEG (THROTTLED)
-                # Only encode/send video if enough time has passed (VIDEO_FPS_CAP)
-                if current_time - last_video_time >= video_interval:
-                    _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
-                    image_b64 = base64.b64encode(buffer).decode('utf-8')
-                    last_video_time = current_time
-                else:
-                    image_b64 = None # Skip sending image this frame
+                    # === AUTO-DRIVE CONTROL (FSM) ===
+                    if is_auto_driving and fsm:
+                        detection = None
+                        target_pose = None
+                        
+                        if last_detections:
+                            target = min(last_detections, key=lambda d: d['distance_cm'])
+                            detection = {
+                                'distance_cm': target['distance_cm'],
+                                'center_x': target['center_x']
+                            }
+                            
+                            # Calculate target_pose (world coordinates) for map-based navigation
+                            det_distance = target['distance_cm']
+                            det_center_x = target['center_x']
+                            pixel_offset = det_center_x - (IMAGE_WIDTH / 2)
+                            bearing = pixel_offset * (CAMERA_HFOV_DEG / IMAGE_WIDTH) * (np.pi / 180.0)
+                            
+                            # Local frame (Y-forward)
+                            target_local_x = det_distance * np.sin(bearing)
+                            target_local_y = det_distance * np.cos(bearing)
+                            
+                            # World frame transformation
+                            # Robot State: +Theta is Left Turn (Moving towards -X)
+                            # Forward Vector (Local Y) -> [-sin(theta), cos(theta)] in World
+                            # Right Vector (Local X)   -> [cos(theta), sin(theta)] in World
+                            
+                            cos_theta = np.cos(robot_state.theta)
+                            sin_theta = np.sin(robot_state.theta)
+                            
+                            # Apply Rotation - FIX: Use +sin_theta for Y-Forward logic (Backup Math)
+                            target_world_x = robot_state.x + (target_local_x * cos_theta + target_local_y * sin_theta)
+                            target_world_y = robot_state.y + (-target_local_x * sin_theta + target_local_y * cos_theta)
+                            
+                            target_pose = {
+                                'x': target_world_x,
+                                'y': target_world_y,
+                                'distance_cm': det_distance
+                            }
+                        
+                        lidar_min = None
+                        if lidar:
+                            scan = lidar.get_scan()
+                            front_dists = [d for a, d in scan if -0.78 < a < 0.78]
+                            if front_dists:
+                                lidar_min = min(front_dists) * 100.0
+                        
+                        await fsm.update(
+                            detection,
+                            target_pose=target_pose,
+                            lidar_min_distance_cm=lidar_min,
+                            current_pose={
+                                'x': robot_state.x,
+                                'y': robot_state.y,
+                                'theta': robot_state.theta
+                            }
+                        )
+                    
+                    # Encode to JPEG (THROTTLED)
+                    # Only encode/send video if enough time has passed (VIDEO_FPS_CAP)
+                    if current_time - last_video_time >= video_interval:
+                        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+                        image_b64 = base64.b64encode(buffer).decode('utf-8')
+                        last_video_time = current_time
+                    else:
+                        image_b64 = None # Skip sending image this frame
 
-            try:
                 # Build data packet
                 # Gather Raw IMU
                 raw_accel = {'x': 0, 'y': 0, 'z': 0}

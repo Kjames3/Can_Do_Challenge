@@ -125,8 +125,8 @@ class RobotState:
         
         F = np.eye(3)
         # FIX: Update Jacobian to match x += ...
-        F[0, 2] = ds * np.cos(avg_theta)
-        F[1, 2] = -ds * np.sin(avg_theta)
+        F[0, 2] = ds * np.sin(avg_theta)
+        F[1, 2] = -ds * np.cos(avg_theta)
         
         # Covariance Prediction: P = F*P*F.T + Q
         self.P = F @ self.P @ F.T + self.Q
