@@ -108,8 +108,10 @@ class RobotState:
         # Use half-angle for better integration accuracy (Runge-Kutta 2nd order approx)
         avg_theta = self.theta + d_theta / 2.0
         
-        # FIX: Negate X update so +X is Right (Standard), not Left
-        self.x -= ds * np.sin(avg_theta)
+        # FIX: Restore Y-Forward Convention (Matches Backup)
+        # +Theta (Left Turn) -> +X Displacement (Left in Robot Frame?)
+        # This matches the Backup's "working" logic: x += sin, y += cos
+        self.x += ds * np.sin(avg_theta)
         self.y += ds * np.cos(avg_theta)
         self.theta += d_theta
         
@@ -117,13 +119,13 @@ class RobotState:
         self.theta = np.arctan2(np.sin(self.theta), np.cos(self.theta))
         
         # Jacobian of f(x, u) with respect to x (F matrix)
-        # F = [ 1, 0, -ds*cos(theta) ] <-- Updated derivative for -sin
+        # F = [ 1, 0, ds*cos(theta) ] <-- Updated derivative for +sin
         #     [ 0, 1, -ds*sin(theta) ]
         #     [ 0, 0, 1             ]
         
         F = np.eye(3)
-        # FIX: Update Jacobian to match x -= ...
-        F[0, 2] = -ds * np.cos(avg_theta)
+        # FIX: Update Jacobian to match x += ...
+        F[0, 2] = ds * np.cos(avg_theta)
         F[1, 2] = -ds * np.sin(avg_theta)
         
         # Covariance Prediction: P = F*P*F.T + Q
