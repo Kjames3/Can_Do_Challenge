@@ -372,7 +372,8 @@ class NavigationConfig:
     backup_speed = 0.40  # Increased from 0.25
     auto_return = True
     return_distance_threshold = 15.0
-    curvature_gain = 1.2
+    curvature_gain = 0.8  # Reduced from 1.2 to prevent spiraling
+    drift_compensation = 0.0 # Disabled for debugging
 
 class NavigationFSM:
     """

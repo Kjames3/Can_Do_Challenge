@@ -62,19 +62,19 @@ if not SIM_MODE:
 # =============================================================================
 # GPIO PIN CONFIGURATION
 # =============================================================================
-# Left Motor (Physically Left)
-LEFT_MOTOR_PIN_A = 35
-LEFT_MOTOR_PIN_B = 33
-LEFT_MOTOR_PWM = 37
+# Left Motor (Physically connected to Right Pins)
+LEFT_MOTOR_PIN_A = 31
+LEFT_MOTOR_PIN_B = 29
+LEFT_MOTOR_PWM = 15
 
-# Right Motor (Physically Right) 
-RIGHT_MOTOR_PIN_A = 31
-RIGHT_MOTOR_PIN_B = 29
-RIGHT_MOTOR_PWM = 15
+# Right Motor (Physically connected to Left Pins)
+RIGHT_MOTOR_PIN_A = 35
+RIGHT_MOTOR_PIN_B = 33
+RIGHT_MOTOR_PWM = 37
 
 # Encoders
-LEFT_ENCODER_PIN = 38
-RIGHT_ENCODER_PIN = 40
+LEFT_ENCODER_PIN = 40
+RIGHT_ENCODER_PIN = 38
 
 # Camera (IMX708 - Pi Camera Module 3 via CSI)
 CAMERA_PATH = "/dev/video0"
@@ -842,10 +842,9 @@ async def broadcast_loop():
                     
                     # Calculate bearing angle
                     # Pixel Offset: Negative = Left, Positive = Right
-                    # FSM expects: Positive = Left, Negative = Right
-                    # So we must invert the sign.
+                    # We want Negative Bearing for Left (-X in World)
                     pixel_offset = det_center_x - (IMAGE_WIDTH / 2)
-                    bearing = -1 * pixel_offset * (CAMERA_HFOV_DEG / IMAGE_WIDTH) * (np.pi / 180.0)
+                    bearing = pixel_offset * (CAMERA_HFOV_DEG / IMAGE_WIDTH) * (np.pi / 180.0)
                     
                     # Calculate Local Position
                     target_local_x = det_distance * np.sin(bearing)
