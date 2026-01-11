@@ -351,8 +351,9 @@ async def _execute_pure_pursuit(ctx, tx, ty, distance):
     # We un-rotate the World Vector (dx, dy) by the Robot's Heading (theta)
     # x_local (Right)   = dx * cos(theta) - dy * sin(theta)
     # y_local (Forward) = dx * sin(theta) + dy * cos(theta)
-    cos_t = np.cos(self.current_theta)
-    sin_t = np.sin(self.current_theta)
+    current_theta = ctx.current_pose['theta']
+    cos_t = np.cos(current_theta)
+    sin_t = np.sin(current_theta)
     
     # FIXED: Negate local_x to correct turn direction (was spinning away from target)
     local_x = -(dx * cos_t - dy * sin_t)   # Lateral offset (Right, negated for correct steering)
@@ -363,10 +364,9 @@ async def _execute_pure_pursuit(ctx, tx, ty, distance):
     map_bearing = np.arctan2(local_x, local_y)
     
     # Pure Pursuit steering
-    # Pure Pursuit steering
     # Bearing < 0 (Right) -> curvature < 0 -> Left > Right -> Turn Right (Correct)
     # Bearing > 0 (Left)  -> curvature > 0 -> Left < Right -> Turn Left (Correct)
-    curvature = np.sin(bearing) * ctx.config.curvature_gain * 0.5
+    curvature = np.sin(map_bearing) * ctx.config.curvature_gain * 0.5
     
     # Speeds
     base = ctx.config.drive_speed
