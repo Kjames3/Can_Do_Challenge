@@ -62,19 +62,19 @@ if not SIM_MODE:
 # =============================================================================
 # GPIO PIN CONFIGURATION
 # =============================================================================
-# Left Motor (Physically connected to Right Pins)
-LEFT_MOTOR_PIN_A = 31
-LEFT_MOTOR_PIN_B = 29
-LEFT_MOTOR_PWM = 15
+# Left Motor (Physically Left)
+LEFT_MOTOR_PIN_A = 35
+LEFT_MOTOR_PIN_B = 33
+LEFT_MOTOR_PWM = 37
 
-# Right Motor (Physically connected to Left Pins)
-RIGHT_MOTOR_PIN_A = 35
-RIGHT_MOTOR_PIN_B = 33
-RIGHT_MOTOR_PWM = 37
+# Right Motor (Physically Right) 
+RIGHT_MOTOR_PIN_A = 31
+RIGHT_MOTOR_PIN_B = 29
+RIGHT_MOTOR_PWM = 15
 
 # Encoders
-LEFT_ENCODER_PIN = 40
-RIGHT_ENCODER_PIN = 38
+LEFT_ENCODER_PIN = 38
+RIGHT_ENCODER_PIN = 40
 
 # Camera (IMX708 - Pi Camera Module 3 via CSI)
 CAMERA_PATH = "/dev/video0"
