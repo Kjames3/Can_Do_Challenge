@@ -27,11 +27,23 @@ import json
 import signal
 import argparse
 import threading
+import logging
 import base64
 import numpy as np
 import cv2
 import websockets
 from ultralytics import YOLO
+
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
+# Configure root logger - change level to DEBUG for verbose output
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 # Import local modules
 from navigation_fsm import NavigationFSM, NavigationConfig
@@ -56,7 +68,7 @@ SIM_MODE = args.sim
 if not SIM_MODE:
     # Try to set up gpiozero with a working pin factory for Pi 5
     if not configure_pin_factory():
-        print("⚠ Falling back to SIMULATION MODE due to GPIO setup failure.")
+        logger.warning("Falling back to SIMULATION MODE due to GPIO setup failure.")
         SIM_MODE = True
 
 # =============================================================================
@@ -87,7 +99,7 @@ LIDAR_PORT = "/dev/ttyUSB0"
 # ROBOT PARAMETERS (App Level)
 # =============================================================================
 # Drift Compensation
-DRIFT_COMPENSATION = -0.10
+DRIFT_COMPENSATION = 0.00 # Temporarily disabled
 
 # Detection Configuration
 KNOWN_HEIGHT_BOTTLE = 20.0
@@ -151,17 +163,17 @@ def initialize_detection():
     """Load YOLO model."""
     global model
     try:
-        print(f"  ⚡ Loading YOLO model: {YOLO_MODEL}")
+        logger.info(f"Loading YOLO model: {YOLO_MODEL}")
         model = YOLO(YOLO_MODEL)
-        print("  ✓ Model loaded successfully")
+        logger.info("Model loaded successfully")
     except Exception as e:
-        print(f"  ⚠ Failed to load ONNX model: {e}")
+        logger.warning(f"Failed to load ONNX model: {e}")
         try:
-            print(f"  ⚡ Loading fallback model: {YOLO_FALLBACK}")
+            logger.info(f"Loading fallback model: {YOLO_FALLBACK}")
             model = YOLO(YOLO_FALLBACK)
-            print("  ✓ Fallback model loaded")
+            logger.info("Fallback model loaded")
         except Exception as e2:
-            print(f"  ✗ Failed to load fallback model: {e2}")
+            logger.error(f"Failed to load fallback model: {e2}")
             model = None
 
 def process_detection(frame):
@@ -216,7 +228,7 @@ def process_detection(frame):
                 })
                 
     except Exception as e:
-        print(f"Detection error: {e}")
+        logger.error(f"Detection error: {e}")
         
     return frame, detections
 
@@ -228,53 +240,53 @@ def initialize_hardware():
     """Initialize all hardware components."""
     global left_motor, right_motor, left_encoder, right_encoder, camera, lidar, imu, power_sensor, fsm
     
-    print("\n" + "="*50)
-    print("Initializing Hardware (Native GPIO)")
-    print("="*50)
+    logger.info("="*50)
+    logger.info("Initializing Hardware (Native GPIO)")
+    logger.info("="*50)
     
     # Motors
-    print("\nMotors:")
+    logger.info("Motors:")
     left_motor = NativeMotor(LEFT_MOTOR_PIN_A, LEFT_MOTOR_PIN_B, LEFT_MOTOR_PWM, sim_mode=SIM_MODE, name="left_motor")
     right_motor = NativeMotor(RIGHT_MOTOR_PIN_A, RIGHT_MOTOR_PIN_B, RIGHT_MOTOR_PWM, sim_mode=SIM_MODE, name="right_motor")
     
     # Encoders
-    print("\nEncoders:")
+    logger.info("Encoders:")
     left_encoder = NativeEncoder(LEFT_ENCODER_PIN, sim_mode=SIM_MODE, name="left_encoder")
     right_encoder = NativeEncoder(RIGHT_ENCODER_PIN, sim_mode=SIM_MODE, name="right_encoder")
     
     # Link motors to encoders
     left_motor.set_encoder(left_encoder)
     right_motor.set_encoder(right_encoder)
-    print("  ✓ Motors linked to encoders for direction tracking")
+    logger.info("Motors linked to encoders for direction tracking")
     
     # IMU
-    print("\nIMU (MPU6050):")
+    logger.info("IMU (MPU6050):")
     imu = NativeIMU(IMU_I2C_BUS, IMU_I2C_ADDRESS, sim_mode=SIM_MODE, name="imu")
     if imu:
         imu.start()
     
     # Camera
-    print("\nCamera:")
+    logger.info("Camera:")
     # Camera
-    print("\nCamera:")
+    logger.info("Camera:")
     # camera = NativeCamera(CAMERA_PATH, IMAGE_WIDTH, IMAGE_HEIGHT, sim_mode=SIM_MODE)
     # Using Picamera2 for Zone Focusing
     camera = Picamera2Driver(IMAGE_WIDTH, IMAGE_HEIGHT, sim_mode=SIM_MODE)
     
     # LIDAR
-    print("\nLIDAR:")
+    logger.info("LIDAR:")
     lidar = NativeLidar(LIDAR_PORT, sim_mode=SIM_MODE)
     
     # Power Sensor (INA219)
-    print("\nPower Sensor:")
+    logger.info("Power Sensor:")
     power_sensor = NativePowerSensor(sim_mode=SIM_MODE)
     
     # Detection model
-    print("\nDetection:")
+    logger.info("Detection:")
     initialize_detection()
     
     # Initialize Navigation FSM
-    print("\nNavigation FSM:")
+    logger.info("Navigation FSM:")
     nav_config = NavigationConfig()
     nav_config.camera_hfov_deg = CAMERA_HFOV_DEG
     nav_config.frame_width = IMAGE_WIDTH
@@ -285,27 +297,27 @@ def initialize_hardware():
     def on_arrived():
         global is_auto_driving
         if fsm.config.auto_return:
-            print("🎉 FSM Callback: TARGET REACHED! Waiting 5s before return...")
+            logger.info("FSM Callback: TARGET REACHED! Waiting 5s before return...")
         else:
-            print("🎉 FSM Callback: TARGET REACHED! Disengaging auto-drive.")
+            logger.info("FSM Callback: TARGET REACHED! Disengaging auto-drive.")
             is_auto_driving = False
 
     def on_returned():
         global is_auto_driving
-        print("🎉 FSM Callback: RETURNED TO START! Disengaging auto-drive.")
+        logger.info("FSM Callback: RETURNED TO START! Disengaging auto-drive.")
         is_auto_driving = False
     
     fsm.on_arrived = on_arrived
     fsm.on_returned = on_returned
-    print("✓ FSM initialized (IMU enabled)" if imu else "✓ FSM initialized (Camera only)")
+    logger.info("FSM initialized (IMU enabled)" if imu else "FSM initialized (Camera only)")
     
-    print("\n" + "="*50)
-    print("✓ Hardware initialization complete")
-    print("="*50 + "\n")
+    logger.info("="*50)
+    logger.info("Hardware initialization complete")
+    logger.info("="*50)
 
 def cleanup():
     """Cleanup all hardware resources."""
-    print("\nCleaning up...")
+    logger.info("Cleaning up...")
     if left_motor: left_motor.cleanup()
     if right_motor: right_motor.cleanup()
     if left_encoder: left_encoder.cleanup()
@@ -313,7 +325,7 @@ def cleanup():
     if camera: camera.cleanup()
     if lidar: lidar.cleanup()
     if imu: imu.cleanup()
-    print("Cleanup complete.")
+    logger.info("Cleanup complete.")
 
 
 # =============================================================================
@@ -321,7 +333,7 @@ def cleanup():
 # =============================================================================
 async def handle_client(websocket):
     """Handle incoming WebSocket connections."""
-    print("Client connected")
+    logger.info("Client connected")
     connected_clients.add(websocket)
     
     try:
@@ -360,20 +372,20 @@ async def handle_client(websocket):
                 elif msg_type == "toggle_detection":
                     global detection_enabled
                     detection_enabled = data.get("enabled", False)
-                    print(f"Detection {'Enabled' if detection_enabled else 'Disabled'}")
+                    logger.info(f"Detection {'Enabled' if detection_enabled else 'Disabled'}")
                     
                     # Reset to autofocus when detection is disabled
                     if not detection_enabled and camera and hasattr(camera, 'set_focus'):
                         camera.set_focus(0.0)
-                        print("  📷 Camera set to autofocus")
+                        logger.debug("Camera set to autofocus")
                     
                 elif msg_type == "start_auto_drive":
                     global is_auto_driving
                     is_auto_driving = True
-                    print("🚀 AUTO-DRIVE ENGAGED")
+                    logger.info("AUTO-DRIVE ENGAGED")
                     
                     # RESET ALL STATE (Zero Heading/Position)
-                    print("  🔄 Resetting Robot State & IMU to (0,0)")
+                    logger.info("Resetting Robot State & IMU to (0,0)")
                     if robot_state:
                         robot_state.x = 0.0
                         robot_state.y = 0.0
@@ -389,7 +401,7 @@ async def handle_client(websocket):
                         
                 elif msg_type == "stop_auto_drive":
                     is_auto_driving = False
-                    print("🛑 AUTO-DRIVE DISENGAGED")
+                    logger.info("AUTO-DRIVE DISENGAGED")
                     if left_motor: left_motor.stop()
                     if right_motor: right_motor.stop()
                     
@@ -456,7 +468,7 @@ async def handle_client(websocket):
                                 total_count += len([f for f in files if f.endswith('.jpg')])
                             
                             dist_str = f" ({distance_cm:.0f}cm)" if distance_cm else ""
-                            print(f"📸 Captured: {filepath}{dist_str} (total: {total_count})")
+                            logger.info(f"Captured: {filepath}{dist_str} (total: {total_count})")
                             
                             # Send response back to client
                             await websocket.send(json.dumps({
@@ -513,7 +525,7 @@ async def handle_client(websocket):
                             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                             filename = f"training_images_{timestamp}.zip"
                             
-                            print(f"📦 Sending {image_count} images as {filename}")
+                            logger.info(f"Sending {image_count} images as {filename}")
                             
                             await websocket.send(json.dumps({
                                 "type": "download_images_response",
@@ -525,7 +537,7 @@ async def handle_client(websocket):
                             
                             # Clear images if requested (AFTER successful zip)
                             if should_clear:
-                                print(f"  🗑️ Clearing {image_count} images from {base_dir}...")
+                                logger.info(f"Clearing {image_count} images from {base_dir}...")
                                 try:
                                     # Delete contents of training_images but keep the directory
                                     for root, dirs, files in os.walk(base_dir, topdown=False):
@@ -533,14 +545,14 @@ async def handle_client(websocket):
                                             os.remove(os.path.join(root, name))
                                         for name in dirs:
                                             os.rmdir(os.path.join(root, name))
-                                    print("  ✅ Images cleared.")
+                                    logger.info("Images cleared.")
                                 except Exception as e:
-                                    print(f"  ❌ Failed to clear images: {e}")
+                                    logger.error(f"Failed to clear images: {e}")
                              
                             
                 elif msg_type == "collect_blur_dataset":
                     if camera:
-                        print("  📸 Starting Blur Dataset Sweep...")
+                        logger.info("Starting Blur Dataset Sweep...")
                         
                         # Determine efficient index
                         import os
@@ -570,7 +582,7 @@ async def handle_client(websocket):
                             "count": count,
                             "index": dataset_index
                         }))
-                        print(f"  ✓ Sweep #{dataset_index} complete ({count} images)")
+                        logger.info(f"Sweep #{dataset_index} complete ({count} images)")
                     else:
                          await websocket.send(json.dumps({
                             "type": "blur_dataset_response",
@@ -580,13 +592,13 @@ async def handle_client(websocket):
 
                             
             except Exception as e:
-                print(f"Message handling error: {e}")
+                logger.error(f"Message handling error: {e}")
                 
     except websockets.exceptions.ConnectionClosed:
         pass
     finally:
         connected_clients.discard(websocket)
-        print(f"Client disconnected. Total: {len(connected_clients)}")
+        logger.info(f"Client disconnected. Total: {len(connected_clients)}")
 
 
 async def broadcast_loop():
@@ -620,13 +632,13 @@ async def broadcast_loop():
                 if imu and TILT_SAFETY_ENABLED and imu.is_tilted_unsafe():
                     if not is_tilted:
                         is_tilted = True
-                        print("⚠️ TILT SAFETY: Rover tilted too far! Emergency stop.")
+                        logger.warning("TILT SAFETY: Rover tilted too far! Emergency stop.")
                         if left_motor: left_motor.stop()
                         if right_motor: right_motor.stop()
                         is_auto_driving = False
                 elif is_tilted:
                     is_tilted = False
-                    print("✓ Tilt returned to safe range")
+                    logger.info("Tilt returned to safe range")
                 
                 # --- STUCK DETECTION ---
                 if STUCK_DETECTION_ENABLED and left_motor and right_motor:
@@ -646,12 +658,12 @@ async def broadcast_loop():
                             elif current_time - _stuck_start_time > STUCK_TIME_THRESHOLD:
                                 if not is_stuck:
                                     is_stuck = True
-                                    print("⚠️ STUCK: Motors running but no movement detected!")
+                                    logger.warning("STUCK: Motors running but no movement detected!")
                         else:
                             _stuck_start_time = None
                             if is_stuck:
                                 is_stuck = False
-                                print("✓ Movement detected, no longer stuck")
+                                logger.info("Movement detected, no longer stuck")
                         
                         _last_encoder_count = encoder_count
                     else:
@@ -754,7 +766,7 @@ async def broadcast_loop():
                             
                             # Apply Rotation - FIX: Use +sin_theta for Y-Forward logic (Backup Math)
                             target_world_x = robot_state.x + (target_local_x * cos_theta + target_local_y * sin_theta)
-                            target_world_y = robot_state.y + (-target_local_x * sin_theta + target_local_y * cos_theta)
+                            target_world_y = robot_state.y + (target_local_x * sin_theta + target_local_y * cos_theta)
                             
                             target_pose = {
                                 'x': target_world_x,
@@ -923,21 +935,19 @@ async def broadcast_loop():
                 )
 
             except Exception as e:
-                print(f"Broadcast Error: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.exception(f"Broadcast Error: {e}")
         
         await asyncio.sleep(0.001)
 
 
 async def main():
-    print("\n" + "="*60)
-    print("  NATIVE RASPBERRY PI SERVER (Refactored)")
-    print("  Zero API limits | Zero network latency")
-    print("="*60)
+    logger.info("="*60)
+    logger.info("NATIVE RASPBERRY PI SERVER (Refactored)")
+    logger.info("Zero API limits | Zero network latency")
+    logger.info("="*60)
     
     if SIM_MODE:
-        print("\n⚠ SIMULATION MODE - No hardware control")
+        logger.warning("SIMULATION MODE - No hardware control")
     
     initialize_hardware()
     
@@ -950,9 +960,9 @@ async def main():
         ping_interval=20, ping_timeout=60
     )
     
-    print(f"\n{'='*50}")
-    print(f"WebSocket server running on ws://0.0.0.0:8081")
-    print(f"{'='*50}\n")
+    logger.info(f"{'='*50}")
+    logger.info(f"WebSocket server running on ws://0.0.0.0:8081")
+    logger.info(f"{'='*50}")
     
     broadcast_task = asyncio.create_task(broadcast_loop())
     
@@ -967,7 +977,7 @@ async def main():
         cleanup()
 
 async def shutdown():
-    print("\nShutting down...")
+    logger.info("Shutting down...")
     tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
     for task in tasks: task.cancel()
 

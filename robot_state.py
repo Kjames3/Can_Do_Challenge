@@ -1,5 +1,9 @@
 
+import logging
 import numpy as np
+
+# Configure logger for this module
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # ROBOT PARAMETERS (from Viam config)
@@ -121,7 +125,7 @@ class RobotState:
         self.theta = np.arctan2(np.sin(self.theta), np.cos(self.theta))
         
         # DEBUG LOG
-        print(f"DEBUG: Odom: x={self.x:.1f}, y={self.y:.1f}, th={self.theta:.2f}, ds={ds:.1f}")
+        logger.debug(f"Odom: x={self.x:.1f}, y={self.y:.1f}, th={self.theta:.2f}, ds={ds:.1f}")
 
         # Jacobian F (df/dx, df/dy, df/dtheta)
         F = np.eye(3)
@@ -136,6 +140,8 @@ class RobotState:
         # Measurement Vector z = [imu_heading]
         # Measurement Matrix H = [0, 0, 1] (We measure theta directly)
         H = np.array([[0, 0, 1]])
+        
+        theta_before = self.theta
         
         # Innovation (Residual) y = z - Hx
         # We need to handle angle wrapping for the residual
@@ -157,6 +163,9 @@ class RobotState:
         
         # Normalize Theta again
         self.theta = np.arctan2(np.sin(self.theta), np.cos(self.theta))
+        
+        # DEBUG: EKF Correction logging
+        logger.debug(f"EKF - Heading before: {np.degrees(theta_before):.1f}°, IMU: {np.degrees(imu_z):.1f}°, after: {np.degrees(self.theta):.1f}°")
         
         # Update Covariance P = (I - K*H) * P
         I = np.eye(3)

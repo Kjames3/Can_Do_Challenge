@@ -4,9 +4,13 @@ Refactored from Finite State Machine (FSM) for modularity and extensibility.
 """
 
 import asyncio
+import logging
 import time
 import numpy as np
 from enum import Enum, auto
+
+# Configure logger for this module
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # BEHAVIOR TREE FRAMEWORK
@@ -101,7 +105,7 @@ class AvoidObstacle(Node):
     async def tick(self, ctx: Context) -> NodeStatus:
         if ctx.avoid_start_time == 0:
             ctx.avoid_start_time = time.time()
-            print(f"⚠️ Obstacle! Backing up...")
+            logger.warning("Obstacle! Backing up...")
         
         elapsed = time.time() - ctx.avoid_start_time
         if elapsed < ctx.config.backup_duration_sec:
@@ -122,7 +126,7 @@ class CheckReturnTrigger(Node):
             ctx.nav_state = "RETURNING"
             ctx.return_start_time = time.time()
             ctx.return_phase = "WAITING"
-            print("↩ Auto-return triggered")
+            logger.info("Auto-return triggered")
             return NodeStatus.SUCCESS
         return NodeStatus.FAILURE
 
@@ -134,12 +138,12 @@ class ReturnHomeSequence(Node):
             elapsed = time.time() - ctx.return_start_time
             if elapsed < 5.0:
                 await _stop_motors(ctx)
-                if int(elapsed * 10) % 10 == 0: print(f"  ⏳ Returning in {5 - int(elapsed)}s...", end='\r')
+                if int(elapsed * 10) % 10 == 0: logger.info(f"Returning in {5 - int(elapsed)}s...")
                 return NodeStatus.RUNNING
             ctx.return_phase = "BACKING"
             ctx.backup_start_pos = (ctx.current_pose['x'], ctx.current_pose['y'])
             ctx.avoid_start_time = time.time()
-            print("\n  ◀ Starting Return Backup")
+            logger.info("Starting Return Backup")
             return NodeStatus.RUNNING
 
         # Phase 2: BACKING
@@ -165,7 +169,7 @@ class ReturnHomeSequence(Node):
             dist = np.sqrt(dx*dx + dy*dy)
             
             if dist < ctx.config.return_distance_threshold:
-                print(f"✓ Returned to start ({dist:.1f}cm). Aligning...")
+                logger.info(f"Returned to start ({dist:.1f}cm). Aligning...")
                 ctx.return_phase = "ALIGNING"
                 await _stop_motors(ctx)
                 return NodeStatus.RUNNING
@@ -246,7 +250,7 @@ class ApproachTargetSequence(Node):
                     ctx.goal_y = ctx.target_pose['y']
                     if curr_dist_to_goal < 22.0:
                         ctx.goal_frozen = True
-                        print(f"  🔒 Goal frozen at {curr_dist_to_goal:.1f}cm")
+                        logger.debug(f"Goal frozen at {curr_dist_to_goal:.1f}cm")
 
         # 2. Acquire Phase (if no goal yet)
         if ctx.goal_x is None:
@@ -267,7 +271,7 @@ class ApproachTargetSequence(Node):
         ctx.goal_distance = map_dist
         
         if map_dist <= 10.0:
-            print(f"✓ TARGET REACHED! Dist: {map_dist:.1f}cm")
+            logger.info(f"TARGET REACHED! Dist: {map_dist:.1f}cm")
             ctx.nav_state = "ARRIVED"
             await _stop_motors(ctx)
             if ctx.on_arrived: ctx.on_arrived()
@@ -361,18 +365,22 @@ async def _execute_pure_pursuit(ctx, tx, ty, distance):
     # Bearing error = atan2(x, y) - angle from forward axis
     map_bearing = np.arctan2(local_x, local_y)
     
-    # DEBUG LOG
-    # print(f"DEBUG: PP: Tgt({tx:.1f},{ty:.1f}) Robot({ctx.current_pose['x']:.1f},{ctx.current_pose['y']:.1f},{ctx.current_pose['theta']:.2f})")
-    # print(f"DEBUG: PP: dx={dx:.1f}, dy={dy:.1f}, lx={local_x:.1f}, ly={local_y:.1f}, bear={np.degrees(map_bearing):.1f}")
+    # DEBUG LOGGING
+    logger.debug(f"Target World: ({tx:.1f}, {ty:.1f})")
+    logger.debug(f"Robot Pose: ({ctx.current_pose['x']:.1f}, {ctx.current_pose['y']:.1f}, {np.degrees(ctx.current_pose['theta']):.1f}°)")
+    logger.debug(f"Local Frame: x={local_x:.1f}, y={local_y:.1f}")
+    logger.debug(f"Bearing: {np.degrees(map_bearing):.1f}°")
     
     if abs(np.degrees(map_bearing)) > 90:
-        print(f"WARN: Target BEHIND robot. Bear={np.degrees(map_bearing):.1f}")
+        logger.warning(f"Target BEHIND robot. Bear={np.degrees(map_bearing):.1f}")
 
     # Pure Pursuit steering
     # Bearing < 0 (Right) -> sin < 0.
     # We want Curvature > 0 (Right Turn).
     # So we must NEGATE sine.
     curvature = -np.sin(map_bearing) * ctx.config.curvature_gain * 0.5
+    
+    logger.debug(f"Curvature: {curvature:.3f}")
     
     # Speeds
     base = ctx.config.drive_speed
@@ -386,6 +394,9 @@ async def _execute_pure_pursuit(ctx, tx, ty, distance):
     r_pow = base + curvature
     
     max_p = max(abs(l_pow), abs(r_pow), 1.0)
+    
+    logger.debug(f"Motor Powers: Left={l_pow/max_p:.2f}, Right={r_pow/max_p:.2f}")
+    
     await _set_motor_power(ctx, l_pow/max_p, r_pow/max_p)
 
 
@@ -461,13 +472,13 @@ class NavigationFSM:
         self.ctx.nav_state = "SEARCHING"
         self.ctx.goal_x = None # Reset goal
         self.ctx.start_pose = start_pose or {'x':0, 'y':0, 'theta':0}
-        print("🚀 BT Nav Started")
+        logger.info("BT Nav Started")
 
     async def stop(self):
         self.active = False
         self.ctx.nav_state = "IDLE"
         await _stop_motors(self.ctx)
-        print("⏹ BT Nav Stopped")
+        logger.info("BT Nav Stopped")
 
     async def update(self, detection=None, target_pose=None, lidar_min_distance_cm=None, current_pose=None):
         if not self.active:

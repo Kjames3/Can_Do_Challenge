@@ -1,8 +1,12 @@
 
+import logging
 import threading
 import time
 import numpy as np
 import cv2
+
+# Configure logger for this module
+logger = logging.getLogger(__name__)
 
 
 try:
@@ -11,7 +15,7 @@ try:
     HAS_PICAM2 = True
 except ImportError:
     HAS_PICAM2 = False
-    print("⚠ Picamera2 not found (Run: pip install picamera2)")
+    logger.warning("Picamera2 not found (Run: pip install picamera2)")
 
 def configure_pin_factory():
     """
@@ -35,17 +39,17 @@ def configure_pin_factory():
                 module = __import__(module_path, fromlist=[factory_class])
                 factory = getattr(module, factory_class)
                 Device.pin_factory = factory()
-                print(f"✓ Using {name} pin factory")
+                logger.info(f"Using {name} pin factory")
                 return True
             except (ImportError, Exception):
                 continue
                 
-        print("⚠ No suitable GPIO pin factory found!")
-        print("  On Raspberry Pi 5, install: sudo apt install python3-lgpio")
+        logger.warning("No suitable GPIO pin factory found!")
+        logger.warning("On Raspberry Pi 5, install: sudo apt install python3-lgpio")
         return False
         
     except ImportError:
-        print("⚠ gpiozero not installed")
+        logger.warning("gpiozero not installed")
         return False
 
 # =============================================================================
@@ -102,7 +106,7 @@ class NativeMotor:
         self.in2 = DigitalOutputDevice(self.pin_b_bcm)
         self.pwm = PWMOutputDevice(self.pin_pwm_bcm, frequency=1000)
         
-        print(f"  ✓ {name}: In1=GPIO{self.pin_a_bcm}, In2=GPIO{self.pin_b_bcm}, PWM=GPIO{self.pin_pwm_bcm}")
+        logger.info(f"{name}: In1=GPIO{self.pin_a_bcm}, In2=GPIO{self.pin_b_bcm}, PWM=GPIO{self.pin_pwm_bcm}")
     
     def set_encoder(self, encoder):
         self._encoder = encoder
@@ -180,9 +184,9 @@ class NativeEncoder:
             self._button = Button(self.pin_bcm, pull_up=True)
             self._button.when_pressed = self._pulse_callback
             self._button.when_released = self._pulse_callback
-            print(f"  ✓ {name}: GPIO{self.pin_bcm}")
+            logger.info(f"{name}: GPIO{self.pin_bcm}")
         except Exception as e:
-            print(f"  ⚠ {name} init failed: {e}")
+            logger.warning(f"{name} init failed: {e}")
     
     def _board_to_bcm(self, board_pin):
         board_to_bcm = {
@@ -267,7 +271,7 @@ class NativeIMU:
         self._running = True
         self._thread = threading.Thread(target=self._update_loop, daemon=True)
         self._thread.start()
-        print(f"  ✓ {self.name} thread started ({IMU_SAMPLE_RATE}Hz)")
+        logger.info(f"{self.name} thread started ({IMU_SAMPLE_RATE}Hz)")
 
     def stop(self):
         self._running = False
@@ -289,22 +293,22 @@ class NativeIMU:
             self._smbus.write_byte_data(self.address, self.ACCEL_CONFIG, 0x00)
             
             self._initialized = True
-            print(f"  ✓ {self.name} initialized on I2C bus {self.bus}, addr 0x{self.address:02x}")
+            logger.info(f"{self.name} initialized on I2C bus {self.bus}, addr 0x{self.address:02x}")
             
             self._calibrate()
             
         except ImportError:
-            print(f"  ✗ {self.name}: smbus2 not installed")
+            logger.error(f"{self.name}: smbus2 not installed")
             self._initialized = False
         except Exception as e:
-            print(f"  ✗ {self.name}: I2C error - {e}")
+            logger.error(f"{self.name}: I2C error - {e}")
             self._initialized = False
     
     def _calibrate(self, samples=100):
         if not self._initialized:
             return
         
-        print(f"  ⏳ Calibrating {self.name} (keep rover still)...")
+        logger.info(f"Calibrating {self.name} (keep rover still)...")
         
         gyro_sum = [0.0, 0.0, 0.0]
         accel_sum = [0.0, 0.0, 0.0]
@@ -320,7 +324,7 @@ class NativeIMU:
         self._gyro_offset = [g / samples for g in gyro_sum]
         self._accel_offset = [accel_sum[0] / samples, accel_sum[1] / samples, 0.0]
         
-        print(f"  ✓ {self.name} calibrated")
+        logger.info(f"{self.name} calibrated")
     
     def _read_raw_word(self, reg):
         high = self._smbus.read_byte_data(self.address, reg)
@@ -451,11 +455,11 @@ class Picamera2Driver:
         self.picam2 = None
         
         if self.sim_mode or not HAS_PICAM2:
-            print("  ⚠ Picamera2Driver in SIM MODE (Missing lib or --sim)")
+            logger.warning("Picamera2Driver in SIM MODE (Missing lib or --sim)")
             return
 
         try:
-            print(f"  ⚡ Initializing Picamera2 ({width}x{height})...")
+            logger.info(f"Initializing Picamera2 ({width}x{height})...")
             self.picam2 = Picamera2()
             
             # Configure for video (BGR format for OpenCV compatibility)
@@ -468,14 +472,14 @@ class Picamera2Driver:
             # Set Initial Focus to Infinity (0.0)
             self.set_focus(0.0)
             
-            print(f"  ✓ Picamera2 started")
+            logger.info("Picamera2 started")
             
             self._running = True
             self._thread = threading.Thread(target=self._capture_loop, daemon=True)
             self._thread.start()
             
         except Exception as e:
-            print(f"  ✗ Picamera2 init failed: {e}")
+            logger.error(f"Picamera2 init failed: {e}")
             self.picam2 = None
 
     def set_focus(self, position):
@@ -493,9 +497,9 @@ class Picamera2Driver:
                     "AfMode": controls.AfModeEnum.Manual,
                     "LensPosition": float(position)
                 })
-                print(f"  🔍 Focus set to: {position}")
+                logger.debug(f"Focus set to: {position}")
             except Exception as e:
-                print(f"  ⚠ Focus error: {e}")
+                logger.warning(f"Focus error: {e}")
 
     def _capture_loop(self):
         import cv2
@@ -509,7 +513,7 @@ class Picamera2Driver:
                     with self._frame_lock:
                         self._frame = frame
             except Exception as e:
-                print(f"Capture error: {e}")
+                logger.error(f"Capture error: {e}")
                 time.sleep(0.1)
 
     def get_frame(self):
@@ -593,13 +597,13 @@ class NativeCamera:
                 
                 self._use_libcamera = True
                 self._yuv_size = width * height * 3 // 2
-                print(f"  ✓ Camera ({vid_cmd}): {width}x{height}")
+                logger.info(f"Camera ({vid_cmd}): {width}x{height}")
             else:
                 raise Exception("rpicam-vid/libcamera-vid not found")
                 
         except Exception as e:
-            print(f"  ⚠ libcamera failed: {e}")
-            print(f"  → Trying OpenCV fallback...")
+            logger.warning(f"libcamera failed: {e}")
+            logger.info("Trying OpenCV fallback...")
             
             import cv2
             if isinstance(device, str):
@@ -610,14 +614,14 @@ class NativeCamera:
                 self.cap = cv2.VideoCapture(device)
             
             if not self.cap.isOpened():
-                print("  ✗ Failed to open camera")
+                logger.error("Failed to open camera")
                 return
             
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
             self.cap.set(cv2.CAP_PROP_FPS, 30)
             
-            print(f"  ✓ Camera (OpenCV): {width}x{height}")
+            logger.info(f"Camera (OpenCV): {width}x{height}")
         
         self._running = True
         self._thread = threading.Thread(target=self._capture_loop, daemon=True)
@@ -717,9 +721,9 @@ class NativeLidar:
             self._thread = threading.Thread(target=self._scan_loop, daemon=True)
             self._thread.start()
             
-            print(f"  ✓ LIDAR: {port}")
+            logger.info(f"LIDAR: {port}")
         except Exception as e:
-            print(f"  ⚠ LIDAR init failed: {e}")
+            logger.warning(f"LIDAR init failed: {e}")
             self._lidar = None
     
     def _scan_loop(self):
@@ -738,7 +742,7 @@ class NativeLidar:
                 with self._scan_lock:
                     self._scans = points
         except Exception as e:
-            print(f"LIDAR scan error: {e}")
+            logger.error(f"LIDAR scan error: {e}")
     
     def get_scan(self):
         if self.sim_mode:
@@ -794,7 +798,7 @@ class NativePowerSensor:
         self._update_interval = 0.5  # Update every 500ms
         
         if self.sim_mode:
-            print(f"  ⚠ {name}: SIM MODE")
+            logger.warning(f"{name}: SIM MODE")
             return
         
         try:
@@ -811,15 +815,15 @@ class NativePowerSensor:
             self._ina.configure()  # Auto-gain for best accuracy
             
             self._initialized = True
-            print(f"  ✓ {name}: INA219 initialized")
+            logger.info(f"{name}: INA219 initialized")
             
             # Initial read
             self._update()
             
         except ImportError:
-            print(f"  ⚠ {name}: pi_ina219 not installed (pip install pi-ina219)")
+            logger.warning(f"{name}: pi_ina219 not installed (pip install pi-ina219)")
         except Exception as e:
-            print(f"  ⚠ {name}: Init failed - {e}")
+            logger.warning(f"{name}: Init failed - {e}")
     
     def _update(self):
         """Read current sensor values."""
