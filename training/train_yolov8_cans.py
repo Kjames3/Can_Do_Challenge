@@ -1,9 +1,12 @@
 """
-YOLO11n Fine-tuning Script for Soda Can Detection
+YOLOv26n Fine-tuning Script for Soda Can Detection
 
-This script fine-tunes the YOLO11n model (lighter and faster than YOLOv8)
-to detect soda cans using Roboflow datasets. All classes are merged into 
-a single "can" class.
+This script fine-tunes the YOLOv26n model (optimized for edge devices like
+Raspberry Pi 5) to detect soda cans using Roboflow datasets. All classes 
+are merged into a single "can" class.
+
+After training, the model is exported to NCNN format for fast inference
+on ARM devices.
 
 Datasets:
 - can1_dataset: 783 train + 88 valid + 44 test images (4 classes -> 1 class)
@@ -247,14 +250,14 @@ def train_model(
     epochs: int = 100,
     batch_size: int = 16,
     img_size: int = 640,
-    pretrained_weights: str = "yolo11n.pt",  # YOLO11n - lighter and faster
+    pretrained_weights: str = "yolo26n.pt",  # YOLOv26n - optimized for edge devices
     project_name: str = "can_detection",
-    run_name: str = "yolo11n_cans",
+    run_name: str = "yolo26n_cans",
     resume: bool = False,
     device: str = None
 ):
     """
-    Train YOLO11n model for can detection.
+    Train YOLOv26n model for can detection.
     
     Args:
         data_yaml: Path to dataset configuration file
@@ -287,7 +290,7 @@ def train_model(
             print("⚠️  No CUDA GPU detected, using CPU (training will be slower)")
     
     print(f"\n{'='*60}")
-    print("YOLO11n Can Detection Training")
+    print("YOLOv26n Can Detection Training")
     print(f"{'='*60}")
     print(f"Dataset config: {data_yaml}")
     print(f"Epochs: {epochs}")
@@ -407,9 +410,12 @@ def export_model(model_path: Path, formats: list = None):
     """
     Export the trained model to various formats.
     
+    After export, copies the .pt model and NCNN model folder to the
+    models/ directory for easy deployment to Raspberry Pi.
+    
     Args:
         model_path: Path to the trained .pt model
-        formats: List of export formats (default: ['onnx'])
+        formats: List of export formats (default: ['ncnn', 'onnx'])
     """
     try:
         from ultralytics import YOLO
@@ -418,13 +424,21 @@ def export_model(model_path: Path, formats: list = None):
         return None
     
     if formats is None:
-        formats = ["onnx"]
+        formats = ["ncnn", "onnx"]  # NCNN first for Pi, ONNX as backup
     
     print(f"\n{'='*60}")
     print("Model Export")
     print(f"{'='*60}")
     
     model = YOLO(str(model_path))
+    project_root = get_project_root()
+    models_dir = project_root / "models"
+    models_dir.mkdir(exist_ok=True)
+    
+    # Copy .pt model to models/ directory
+    pt_dest = models_dir / "yolo26n_cans.pt"
+    shutil.copy2(model_path, pt_dest)
+    print(f"\n✓ Copied .pt model to: {pt_dest}")
     
     exported_paths = []
     for fmt in formats:
@@ -433,6 +447,16 @@ def export_model(model_path: Path, formats: list = None):
             path = model.export(format=fmt)
             exported_paths.append(path)
             print(f"  ✓ Exported to: {path}")
+            
+            # Copy NCNN model folder to models/ directory
+            if fmt == "ncnn":
+                ncnn_src = Path(path)
+                ncnn_dest = models_dir / "yolo26n_cans_ncnn_model"
+                if ncnn_dest.exists():
+                    shutil.rmtree(ncnn_dest)
+                shutil.copytree(ncnn_src, ncnn_dest)
+                print(f"  ✓ Copied NCNN model to: {ncnn_dest}")
+                
         except Exception as e:
             print(f"  ✗ Failed to export to {fmt}: {e}")
     
@@ -441,7 +465,7 @@ def export_model(model_path: Path, formats: list = None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Train YOLO11n for soda can detection"
+        description="Train YOLOv26n for soda can detection"
     )
     parser.add_argument(
         "--epochs", type=int, default=150,
@@ -476,8 +500,8 @@ def main():
         help="Export model after training"
     )
     parser.add_argument(
-        "--export-formats", type=str, nargs="+", default=["onnx"],
-        help="Export formats (default: onnx)"
+        "--export-formats", type=str, nargs="+", default=["ncnn", "onnx"],
+        help="Export formats (default: ncnn, onnx)"
     )
     
     args = parser.parse_args()

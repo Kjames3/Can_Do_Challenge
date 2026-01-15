@@ -119,9 +119,9 @@ DETECTION_INTERVAL = 1
 CONFIDENCE_THRESHOLD = 0.25
 INFERENCE_SIZE = 640
 
-# YOLO Model
-YOLO_MODEL = 'yolo11n_cans.onnx'
-YOLO_FALLBACK = 'yolo11n_cans.pt'
+# YOLO Model (YOLOv26 with NCNN for fast Pi 5 inference)
+YOLO_MODEL = 'yolo26n_cans_ncnn_model'  # NCNN folder for fast inference
+YOLO_FALLBACK = 'yolo26n_cans.pt'
 
 
 # =============================================================================
@@ -167,7 +167,7 @@ def initialize_detection():
         model = YOLO(YOLO_MODEL)
         logger.info("Model loaded successfully")
     except Exception as e:
-        logger.warning(f"Failed to load ONNX model: {e}")
+        logger.warning(f"Failed to load NCNN model: {e}")
         try:
             logger.info(f"Loading fallback model: {YOLO_FALLBACK}")
             model = YOLO(YOLO_FALLBACK)
@@ -764,8 +764,10 @@ async def broadcast_loop():
                             cos_theta = np.cos(robot_state.theta)
                             sin_theta = np.sin(robot_state.theta)
                             
-                            # Apply Rotation - FIX: Use +sin_theta for Y-Forward logic (Backup Math)
-                            target_world_x = robot_state.x + (target_local_x * cos_theta + target_local_y * sin_theta)
+                            # Apply Rotation - FIXED: Use -sin_theta for Y-Forward coordinate system
+                            # World = Robot + LocalX * RightVec + LocalY * ForwardVec
+                            # RightVec = [cos(theta), sin(theta)], ForwardVec = [-sin(theta), cos(theta)]
+                            target_world_x = robot_state.x + (target_local_x * cos_theta - target_local_y * sin_theta)
                             target_world_y = robot_state.y + (target_local_x * sin_theta + target_local_y * cos_theta)
                             
                             target_pose = {
@@ -875,11 +877,11 @@ async def broadcast_loop():
                     # Transform to World Frame
                     # Forward Vector (Local Y) -> [-sin(theta), cos(theta)]
                     # Right Vector (Local X)   -> [cos(theta), sin(theta)]
-                    
+                    # Transform to World Frame (same formula as FSM navigation)
+                    # RightVec = [cos(theta), sin(theta)], ForwardVec = [-sin(theta), cos(theta)]
                     cos_theta = np.cos(robot_state.theta)
                     sin_theta = np.sin(robot_state.theta)
-                    
-                    target_world_x = robot_state.x + (target_local_x * cos_theta + target_local_y * -sin_theta)
+                    target_world_x = robot_state.x + (target_local_x * cos_theta - target_local_y * sin_theta)
                     target_world_y = robot_state.y + (target_local_x * sin_theta + target_local_y * cos_theta)
                     
                     # Update data packet
