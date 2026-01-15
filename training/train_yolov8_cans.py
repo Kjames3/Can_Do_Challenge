@@ -325,39 +325,38 @@ def train_model(
         "verbose": True,
         "seed": 42,
         "deterministic": True,
-        "single_cls": False,
-        "rect": False,
+        "single_cls": True,   # Single class detection (all cans -> class 0)
+        "rect": True,         # Rectangular training - 30-50% faster with minimal accuracy loss
         "cos_lr": True,
-        "close_mosaic": 10,
+        "close_mosaic": 15,   # Disable mosaic for final 15 epochs for stable training
         "resume": resume,
-        "amp": True,  # Automatic mixed precision
-        "patience": 50,  # Early stopping patience
+        "amp": True,          # Automatic mixed precision
+        "patience": 30,       # Early stopping - 30 epochs is usually sufficient
         "save": True,
-        "save_period": -1,  # Save checkpoint every epoch
-        "cache": True,  # Cache images in RAM for faster training
-        "cache": True,  # Cache images in RAM for faster training
-        "workers": 8,  # Increased for Linux/Ubuntu
-        "freeze": 10,  # Freeze backbone
-        "plots": True,  # Generate training plots
-        "device": device,  # Explicitly set device
+        "save_period": 10,    # Save checkpoint every 10 epochs (reduces I/O)
+        "cache": True,        # Cache images in RAM for faster training
+        "workers": 8,         # Parallel data loading (Linux)
+        "freeze": 5,          # Freeze fewer layers for better fine-tuning on small dataset
+        "plots": True,        # Generate training plots
+        "device": device,     # Explicitly set device
     }
 
     
-    # Data augmentation settings (good defaults for object detection)
+    # Data augmentation settings (optimized for can detection)
     train_args.update({
-        "hsv_h": 0.015,  # Hue augmentation
-        "hsv_s": 0.7,    # Saturation augmentation
-        "hsv_v": 0.4,    # Value augmentation
-        "degrees": 0.0,  # Rotation
-        "translate": 0.1,  # Translation
-        "scale": 0.5,    # Scale
-        "shear": 0.0,    # Shear
-        "perspective": 0.0,  # Perspective
-        "flipud": 0.0,   # Vertical flip
-        "fliplr": 0.5,   # Horizontal flip
-        "mosaic": 1.0,   # Mosaic augmentation
-        "mixup": 0.0,    # Mixup augmentation
-        "copy_paste": 0.0,  # Copy-paste augmentation
+        "hsv_h": 0.015,       # Hue augmentation
+        "hsv_s": 0.7,         # Saturation augmentation
+        "hsv_v": 0.4,         # Value augmentation
+        "degrees": 10.0,      # Rotation - cans can be tilted
+        "translate": 0.1,     # Translation
+        "scale": 0.5,         # Scale
+        "shear": 0.0,         # Shear
+        "perspective": 0.0,   # Perspective
+        "flipud": 0.0,        # Vertical flip (cans don't flip upside down)
+        "fliplr": 0.5,        # Horizontal flip
+        "mosaic": 1.0,        # Mosaic augmentation
+        "mixup": 0.1,         # Mixup - helps generalization
+        "copy_paste": 0.1,    # Copy-paste - excellent for object detection
     })
     
     # Start training
