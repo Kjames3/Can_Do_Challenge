@@ -24,14 +24,20 @@
             --bg-primary: #0f172a;
             --bg-secondary: #1e293b;
             --bg-tertiary: #334155;
+            --bg-hover: #475569;
             --text-primary: #f8fafc;
             --text-secondary: #94a3b8;
+            --text-muted: #64748b;
             --accent-cyan: #06b6d4;
             --accent-green: #22c55e;
             --accent-red: #ef4444;
             --accent-yellow: #eab308;
+            --accent-purple: #a855f7;
             --border-color: #475569;
             --radius-md: 10px;
+            --radius-sm: 6px;
+            --glow-cyan: 0 0 20px rgba(6, 182, 212, 0.3);
+            --glow-green: 0 0 20px rgba(34, 197, 94, 0.3);
         }
 
         * {
@@ -41,7 +47,7 @@
         }
 
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             background: var(--bg-primary);
             color: var(--text-primary);
             height: 100vh;
@@ -50,23 +56,59 @@
             flex-direction: column;
         }
 
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--bg-hover);
+            border-radius: 3px;
+            transition: background 0.2s;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+
+        /* Firefox scrollbar */
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: var(--bg-hover) var(--bg-tertiary);
+        }
+
         /* Header */
         header {
-            padding: 1rem 1.5rem;
+            padding: 0.75rem 1.5rem;
             border-bottom: 1px solid var(--border-color);
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: var(--bg-primary);
+            background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
+            gap: 1rem;
         }
 
         h1 {
             font-size: 1.25rem;
             font-weight: 700;
-            color: var(--accent-cyan);
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
             display: flex;
             align-items: center;
             gap: 0.5rem;
+        }
+
+        h1 span {
+            -webkit-text-fill-color: initial;
+            background: none;
         }
 
         .status-badge {
@@ -96,26 +138,31 @@
         /* IP Input */
         .header-controls {
             display: flex;
-            gap: 1rem;
+            gap: 0.75rem;
             align-items: center;
         }
 
         .ip-input {
-            background: var(--bg-secondary);
+            background: var(--bg-tertiary);
             border: 1px solid var(--border-color);
-            color: var(--text-secondary);
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.75rem;
-            width: 140px;
+            color: var(--text-primary);
+            padding: 0.5rem 0.75rem;
+            border-radius: var(--radius-sm);
+            font-family: 'JetBrains Mono', 'SF Mono', 'Monaco', monospace;
+            font-size: 0.8rem;
+            width: 160px;
             text-align: center;
+            transition: all 0.2s;
         }
 
         .ip-input:focus {
             outline: none;
             border-color: var(--accent-cyan);
-            color: var(--text-primary);
+            box-shadow: var(--glow-cyan);
+        }
+
+        .ip-input::placeholder {
+            color: var(--text-muted);
         }
 
         /* Main Layout */
@@ -173,15 +220,46 @@
         .camera-box {
             width: 100%;
             aspect-ratio: 16/9;
-            background: #000;
-            border-radius: 6px;
+            background: linear-gradient(135deg, #0a0f1a 0%, #0f172a 100%);
+            border-radius: var(--radius-sm);
             overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            border: 1px solid var(--border-color);
         }
 
         .camera-box img {
             width: 100%;
             height: 100%;
             object-fit: cover;
+        }
+
+        .camera-box img[src=""],
+        .camera-box img:not([src]) {
+            display: none;
+        }
+
+        .camera-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            color: var(--text-muted);
+            font-size: 0.75rem;
+        }
+
+        .camera-placeholder-icon {
+            font-size: 2rem;
+            opacity: 0.5;
+            animation: pulse-icon 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-icon {
+            0%, 100% { opacity: 0.3; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(1.05); }
         }
 
         /* Controls */
@@ -228,40 +306,58 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 0.5rem;
+            max-height: 200px;
+            overflow-y: auto;
+            padding-right: 0.25rem;
         }
 
         .stat-box {
             background: var(--bg-tertiary);
-            padding: 0.5rem;
-            border-radius: 4px;
+            padding: 0.6rem 0.5rem;
+            border-radius: var(--radius-sm);
+            transition: background 0.2s;
+        }
+
+        .stat-box:hover {
+            background: var(--bg-hover);
         }
 
         .stat-label {
-            font-size: 0.7rem;
-            color: var(--text-secondary);
+            font-size: 0.65rem;
+            color: var(--text-muted);
             display: block;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.2rem;
         }
 
         .stat-value {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.9rem;
+            font-family: 'JetBrains Mono', 'SF Mono', 'Monaco', monospace;
+            font-size: 0.85rem;
             color: var(--accent-cyan);
+            font-weight: 600;
         }
 
         /* Auto Drive Indicator */
         .auto-drive-status {
             margin-top: auto;
-            padding: 1rem;
+            padding: 0.75rem 1rem;
             text-align: center;
             font-weight: 700;
+            font-size: 0.85rem;
+            letter-spacing: 1px;
             border-radius: var(--radius-md);
             background: var(--bg-tertiary);
-            color: var(--text-secondary);
+            color: var(--text-muted);
+            border: 1px solid var(--border-color);
+            transition: all 0.3s ease;
         }
 
         .auto-drive-status.active {
             background: linear-gradient(135deg, var(--accent-cyan), var(--accent-green));
             color: #000;
+            border-color: transparent;
+            box-shadow: var(--glow-green);
             animation: pulse-border 2s infinite;
         }
 
@@ -304,15 +400,19 @@
         <aside>
             <!-- Camera Feed -->
             <div class="panel">
-                <h2>Live Feed</h2>
+                <h2>📹 Live Feed</h2>
                 <div class="camera-box">
-                    <img id="camera-feed" src="" alt="Checking connection...">
+                    <img id="camera-feed" src="" alt="">
+                    <div class="camera-placeholder" id="camera-placeholder">
+                        <span class="camera-placeholder-icon">📷</span>
+                        <span>Awaiting connection...</span>
+                    </div>
                 </div>
             </div>
 
             <!-- Data Toggles -->
             <div class="panel">
-                <h2>Data Channels</h2>
+                <h2>📊 Data Channels</h2>
                 <div class="data-toggles" id="toggles">
                     <!-- Generated by JS -->
                 </div>
@@ -320,7 +420,7 @@
 
             <!-- Numeric Readouts -->
             <div class="panel">
-                <h2>Raw Values</h2>
+                <h2>📈 Raw Values</h2>
                 <div class="stats-grid" id="stats-grid">
                     <!-- Generated by JS -->
                 </div>
@@ -528,7 +628,10 @@
         function handleReadout(data) {
             // Update Camera
             if (data.image) {
-                document.getElementById('camera-feed').src = "data:image/jpeg;base64," + data.image;
+                const feed = document.getElementById('camera-feed');
+                const placeholder = document.getElementById('camera-placeholder');
+                feed.src = "data:image/jpeg;base64," + data.image;
+                if (placeholder) placeholder.style.display = 'none';
             }
 
             // Update Auto-Drive Status

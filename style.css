@@ -20,6 +20,9 @@
 
     --border-color: #475569;
     --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.4);
+    --glow-cyan: 0 0 20px rgba(6, 182, 212, 0.3);
+    --glow-green: 0 0 20px rgba(34, 197, 94, 0.3);
+    --glow-red: 0 0 20px rgba(239, 68, 68, 0.3);
 
     --radius-sm: 6px;
     --radius-md: 10px;
@@ -42,11 +45,34 @@ body {
 }
 
 body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     background: var(--bg-primary);
     color: var(--text-primary);
     line-height: 1.5;
     overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: var(--bg-hover) var(--bg-tertiary);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--bg-hover);
+    border-radius: 3px;
+    transition: background 0.2s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
 }
 
 /* =================================================================
@@ -167,14 +193,19 @@ body {
     border-radius: 50%;
     background: var(--accent-red);
     animation: pulse 2s infinite;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
 }
 
 .status-dot.connected {
     background: var(--accent-green);
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.6);
+    animation: pulse-glow 1.5s infinite;
 }
 
 .status-dot.connecting {
     background: var(--accent-yellow);
+    box-shadow: 0 0 10px rgba(234, 179, 8, 0.5);
+    animation: pulse 1s infinite;
 }
 
 /* Power Stats */
@@ -227,6 +258,44 @@ body {
     }
 }
 
+@keyframes pulse-glow {
+
+    0%,
+    100% {
+        box-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+    }
+
+    50% {
+        box-shadow: 0 0 16px rgba(34, 197, 94, 0.8);
+    }
+}
+
+/* =================================================================
+   FPS Display
+   ================================================================= */
+.fps-display {
+    margin-top: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+    font-family: 'SF Mono', 'Monaco', 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    display: flex;
+    gap: 1.5rem;
+    border: 1px solid var(--border-color);
+}
+
+.fps-display .fps-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.fps-display strong {
+    color: var(--text-primary);
+    font-weight: 700;
+}
+
 /* =================================================================
    Buttons
    ================================================================= */
@@ -257,7 +326,7 @@ body {
 
 .btn-primary:hover:not(:disabled) {
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3);
+    box-shadow: var(--glow-cyan);
 }
 
 .btn-danger {
@@ -267,7 +336,33 @@ body {
 
 .btn-danger:hover:not(:disabled) {
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+    box-shadow: var(--glow-red);
+}
+
+/* =================================================================
+   Input Fields
+   ================================================================= */
+.ip-input {
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-family: 'SF Mono', 'Monaco', 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    width: 160px;
+    margin-right: 0.5rem;
+    transition: all var(--transition);
+}
+
+.ip-input:focus {
+    outline: none;
+    border-color: var(--accent-cyan);
+    box-shadow: var(--glow-cyan);
+}
+
+.ip-input::placeholder {
+    color: var(--text-muted);
 }
 
 /* =================================================================
@@ -539,6 +634,13 @@ body {
     background: var(--bg-tertiary);
     border-radius: var(--radius-md);
     font-size: 0.875rem;
+    transition: all var(--transition);
+}
+
+.controller-status.connected {
+    background: var(--bg-secondary);
+    border: 1px solid var(--accent-green);
+    box-shadow: var(--glow-green);
 }
 
 .controller-icon {
@@ -556,6 +658,36 @@ body {
 .controller-info-hint {
     font-size: 0.75rem;
     color: var(--text-muted);
+}
+
+/* Gamepad Indicator */
+.gamepad-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+    font-size: 0.85rem;
+    transition: all var(--transition);
+    border: 1px solid transparent;
+}
+
+.gamepad-indicator.connected {
+    background: var(--bg-secondary);
+    border-color: var(--accent-green);
+}
+
+.gamepad-indicator .icon {
+    font-size: 1.1rem;
+}
+
+.gamepad-indicator .status-text {
+    color: var(--text-muted);
+}
+
+.gamepad-indicator.connected .status-text {
+    color: var(--accent-green);
 }
 
 /* =================================================================
@@ -689,12 +821,35 @@ body {
     width: 100%;
     aspect-ratio: 16 / 9;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: var(--bg-tertiary);
+    gap: 0.75rem;
+    background: linear-gradient(135deg, #0a0f1a 0%, var(--bg-tertiary) 100%);
     border-radius: var(--radius-md);
     color: var(--text-muted);
     font-size: 0.875rem;
+    border: 1px solid var(--border-color);
+}
+
+.camera-placeholder-icon {
+    font-size: 2.5rem;
+    opacity: 0.4;
+    animation: pulse-camera 2s ease-in-out infinite;
+}
+
+@keyframes pulse-camera {
+
+    0%,
+    100% {
+        opacity: 0.3;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.6;
+        transform: scale(1.08);
+    }
 }
 
 /* =================================================================

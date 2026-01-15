@@ -50,9 +50,9 @@
                 </div>
 
                 <!-- Controller Status -->
-                <div id="gamepad-indicator" class="status-indicator" style="background: var(--bg-tertiary);">
-                    <span style="font-size: 1.2rem;">🎮</span>
-                    <span id="gamepad-status-text" style="color: var(--text-muted);">No Controller</span>
+                <div id="gamepad-indicator" class="gamepad-indicator">
+                    <span class="icon">🎮</span>
+                    <span id="gamepad-status-text" class="status-text">No Controller</span>
                 </div>
 
                 <div class="status-indicator">
@@ -60,8 +60,7 @@
                     <span id="status-text">Disconnected</span>
                 </div>
                 <!-- IP Input -->
-                <input type="text" id="robot-ip" placeholder="Robot IP" value="besto.local"
-                    style="padding: 0.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-primary); margin-right: 0.5rem; width: 140px;">
+                <input type="text" id="robot-ip" class="ip-input" placeholder="Robot IP" value="besto.local">
                 <button id="connect-btn" class="btn btn-primary">Connect</button>
                 <button id="disconnect-btn" class="btn btn-danger"
                     style="display: none; margin-left: 0.5rem;">Disconnect</button>
@@ -98,17 +97,18 @@
             <div class="card-body">
                 <img id="camera-feed" class="camera-feed" alt="Camera feed" style="display: none;">
                 <div id="camera-placeholder" class="camera-placeholder">
-                    Waiting for camera feed...
+                    <span class="camera-placeholder-icon">📷</span>
+                    <span>Awaiting camera feed...</span>
                 </div>
 
                 <!-- FPS Display Overlay -->
-                <div id="fps-display" class="fps-display"
-                    style="display: none; margin-top: 0.5rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: var(--radius-sm); font-family: monospace;">
-                    <span style="color: var(--success);">📷 Camera: <strong id="fps-camera">0</strong>
-                        FPS</span>
-                    <span id="fps-detection-wrapper" style="margin-left: 1rem; display: none;">
-                        <span style="color: var(--warning);">🔍 YOLO: <strong id="fps-detection">0</strong>
-                            FPS</span>
+                <div id="fps-display" class="fps-display" style="display: none;">
+                    <span class="fps-item" style="color: var(--accent-green);">
+                        📷 Camera: <strong id="fps-camera">0</strong> FPS
+                    </span>
+                    <span id="fps-detection-wrapper" class="fps-item"
+                        style="display: none; color: var(--accent-yellow);">
+                        🔍 YOLO: <strong id="fps-detection">0</strong> FPS
                     </span>
                 </div>
 

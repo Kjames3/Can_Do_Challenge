@@ -904,7 +904,7 @@ function handleBlurResponse(data) {
 window.addEventListener("gamepadconnected", (e) => {
     state.gamepadIndex = e.gamepad.index;
     if (elements.controllerName) elements.controllerName.textContent = e.gamepad.id.substring(0, 30);
-    if (elements.gamepadIndicator) elements.gamepadIndicator.style.background = 'var(--bg-secondary)';
+    if (elements.gamepadIndicator) elements.gamepadIndicator.classList.add('connected');
     if (elements.gamepadStatusText) elements.gamepadStatusText.textContent = '✓ Connected';
 });
 
@@ -912,7 +912,7 @@ window.addEventListener("gamepaddisconnected", (e) => {
     if (state.gamepadIndex === e.gamepad.index) {
         state.gamepadIndex = null;
         if (elements.controllerName) elements.controllerName.textContent = "No controller";
-        if (elements.gamepadIndicator) elements.gamepadIndicator.style.background = 'var(--bg-tertiary)';
+        if (elements.gamepadIndicator) elements.gamepadIndicator.classList.remove('connected');
         if (elements.gamepadStatusText) elements.gamepadStatusText.textContent = 'No Controller';
     }
 });
