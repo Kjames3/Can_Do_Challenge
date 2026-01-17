@@ -465,6 +465,24 @@ class NavigationFSM:
         self.tree = self._build_tree()
         self.active = False
         
+    def _build_tree(self):
+        return Selector([
+            # 1. High Priority: Obstacle Avoidance
+            Sequence([CheckObstacle(), AvoidObstacle()]),
+            
+            # 2. Return Home Logic (Overrides search if triggered)
+            Sequence([CheckReturnTrigger(), ReturnHomeSequence()]),
+            
+            # 3. Initial Acquisition (Averaging)
+            AcquireTarget(),
+            
+            # 4. Vision/Goal Navigation (Normal Operation)
+            Sequence([CheckTargetKnown(), ApproachTargetSequence()]),
+            
+            # 5. Default: Search
+            SpinSearch()
+        ])
+        
 class AcquireTarget(Node):
     """
     Startup Phase: Gather samples to average initial detection.
@@ -504,23 +522,7 @@ class AcquireTarget(Node):
                  
         return NodeStatus.RUNNING
 
-    def _build_tree(self):
-        return Selector([
-            # 1. High Priority: Obstacle Avoidance
-            Sequence([CheckObstacle(), AvoidObstacle()]),
-            
-            # 2. Return Home Logic (Overrides search if triggered)
-            Sequence([CheckReturnTrigger(), ReturnHomeSequence()]),
-            
-            # 3. Initial Acquisition (Averaging)
-            AcquireTarget(),
-            
-            # 4. Vision/Goal Navigation (Normal Operation)
-            Sequence([CheckTargetKnown(), ApproachTargetSequence()]),
-            
-            # 5. Default: Search
-            SpinSearch()
-        ])
+
         
     @property
     def state(self):
