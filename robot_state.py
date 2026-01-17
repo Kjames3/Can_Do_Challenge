@@ -109,7 +109,9 @@ class RobotState:
         
         # Encoder polarity: (Right - Left)
         # If Right > Left, turning Left (CCW), theta increases.
-        d_theta = (d_right - d_left) / WHEEL_BASE_CM
+        # FIXED: Robot has inverted steering (R > L = Right Turn).
+        # We need d_theta to be negative when d_right > d_left.
+        d_theta = (d_left - d_right) / WHEEL_BASE_CM
         
         # Use half-angle for better integration accuracy (Runge-Kutta 2nd order approx)
         avg_theta = self.theta + d_theta / 2.0
