@@ -74,9 +74,9 @@ def prepare_combined_dataset(project_root: Path, force_rebuild: bool = False):
     
     # Define all datasets to process
     datasets = [
-        {"name": "can1_dataset", "has_splits": True, "valid_classes": [3, 4]},  # Filter for 'can', 'cans'
+        {"name": "can1_dataset", "has_splits": True, "valid_classes": None},  # Keep all checks
         {"name": "can2_dataset", "has_splits": False, "valid_classes": None},  # Keep all
-        {"name": "can3_dataset", "has_splits": True, "valid_classes": [1]},    # Filter for 'can'
+        {"name": "can3_dataset", "has_splits": True, "valid_classes": None},    # Keep all
         {"name": "can4_dataset", "has_splits": True, "valid_classes": None},   # Keep all
         {"name": "can5_dataset", "has_splits": True, "valid_classes": None},   # Keep all
         {"name": "custom_dataset", "has_splits": True, "valid_classes": None},  # Keep all
@@ -321,24 +321,26 @@ def train_model(
         "name": run_name,
         "exist_ok": True,
         "pretrained": True,
-        "optimizer": "auto",
+        "optimizer": "SGD",   # Explicitly use SGD for stability
         "verbose": True,
         "seed": 42,
         "deterministic": True,
         "single_cls": True,   # Single class detection (all cans -> class 0)
         "rect": True,         # Rectangular training - 30-50% faster with minimal accuracy loss
         "cos_lr": True,
-        "close_mosaic": 15,   # Disable mosaic for final 15 epochs for stable training
+        "close_mosaic": 20,   # Disable mosaic earlier for better fine-tuning
         "resume": resume,
         "amp": True,          # Automatic mixed precision
-        "patience": 30,       # Early stopping - 30 epochs is usually sufficient
+        "patience": 50,       # Early stopping - increased for stability
         "save": True,
         "save_period": 10,    # Save checkpoint every 10 epochs (reduces I/O)
         "cache": True,        # Cache images in RAM for faster training
         "workers": 8,         # Parallel data loading (Linux)
-        "freeze": 5,          # Freeze fewer layers for better fine-tuning on small dataset
+        "freeze": 10,         # Freeze more layers (backbone) to prevent overshooting
         "plots": True,        # Generate training plots
         "device": device,     # Explicitly set device
+        "lr0": 0.001,         # Lower initial learning rate for fine-tuning
+        "lrf": 0.01,          # Final learning rate fraction
     }
 
     
