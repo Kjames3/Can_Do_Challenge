@@ -508,12 +508,21 @@ class NavigationFSM:
             # dx = lx * cos(theta) - ly * sin(theta)
             # dy = lx * sin(theta) + ly * cos(theta)
             
-            lx = avg_dist * np.sin(avg_bearing)
+            lx_biased = avg_dist * np.sin(avg_bearing)
             ly = avg_dist * np.cos(avg_bearing)
             
+            # REMOVE OFFSET: The 'avg_bearing' targets the OFFSET point, not the Can.
+            # We must subtract the offset to find the Real Can's local X.
+            # offset_cm = dist * 1.3 * (offset_px / width)
+            offset_px = self.config.approach_x_offset
+            width = self.config.frame_width
+            offset_cm = avg_dist * 1.3 * (offset_px / width)
+            
+            lx_real = lx_biased - offset_cm
+            
             theta = self.current_theta
-            dx = lx * np.cos(theta) - ly * np.sin(theta)
-            dy = lx * np.sin(theta) + ly * np.cos(theta)
+            dx = lx_real * np.cos(theta) - ly * np.sin(theta)
+            dy = lx_real * np.sin(theta) + ly * np.cos(theta)
             
             self.goal_x = self.current_x + dx
             self.goal_y = self.current_y + dy
@@ -842,8 +851,11 @@ class NavigationFSM:
             # Visual Override (Optional)
             if self.latest_detection:
                 det = self.latest_detection
-                center_x = det.get('center_x', 1536/2)
-                bearing = (center_x - 768) * (66.0 / 1536) * (np.pi / 180.0)
+                width = self.config.frame_width
+                hfov = self.config.camera_hfov_deg
+                
+                center_x = det.get('center_x', width/2)
+                bearing = (center_x - (width/2)) * (hfov / width) * (np.pi / 180.0)
                 target_heading = self.current_theta + bearing
                 print(f"  🎯 Visual Lock! Bearing: {np.degrees(bearing):.1f}°", end='\r')
 
