@@ -366,13 +366,16 @@ class NavigationFSM:
         cos_t = np.cos(self.current_theta)
         sin_t = np.sin(self.current_theta)
         
-        # FIXED: Negate local_x to correct turn direction (was spinning away from target)
+        # FIXED: Correct Dot Product for Y-Forward System
+        # Fwd = (-sin, cos), Right = (cos, sin)
+        # local_x = D dot R = dx*cos + dy*sin
+        # local_y = D dot F = -dx*sin + dy*cos
+        
         # OFFSET INJECTION: Shift target laterally to correct left/right bias
-        # offset_cm ~ distance * tan(FOV/2) * 2 * (pixels / width)
-        # tan(33deg) * 2 = 1.3
         offset_cm = map_dist * 1.3 * (self.config.approach_x_offset / self.config.frame_width)
-        local_x = -(dx * cos_t - dy * sin_t) + offset_cm
-        local_y = dx * sin_t + dy * cos_t      # Forward distance
+        
+        local_x = (dx * cos_t + dy * sin_t) + offset_cm
+        local_y = (-dx * sin_t + dy * cos_t)
         
         # In Y-Forward system: local_y is forward, local_x is right
         # Bearing error = atan2(x, y) - angle from forward axis
@@ -768,9 +771,9 @@ class NavigationFSM:
             cos_t = np.cos(self.current_theta)
             sin_t = np.sin(self.current_theta)
             
-            # Use same transform as approaching (negated X for correct steering)
-            local_x = -(dx * cos_t - dy * sin_t)
-            local_y = dx * sin_t + dy * cos_t
+            # FIXED: Correct Dot Product for Y-Forward System
+            local_x = (dx * cos_t + dy * sin_t)
+            local_y = (-dx * sin_t + dy * cos_t)
             
             # Calculate Bearing (Angle to goal relative to robot)
             map_bearing = np.arctan2(local_x, local_y)
