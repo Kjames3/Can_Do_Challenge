@@ -155,8 +155,15 @@ class AcquireTarget(Node):
         if ctx.nav_state != "ACQUIRING":
             return NodeStatus.FAILURE
             
-        # Check timeout
-        if time.time() - ctx.acquire_start_time > ctx.config.acquire_timeout:
+        elapsed = time.time() - ctx.acquire_start_time
+        
+        # 1. Warmup: Wait 0.5s for robot to settle (prevent "Stop Jerk" floor detection)
+        if elapsed < 0.5:
+            await _stop_motors(ctx)
+            return NodeStatus.RUNNING
+            
+        # 2. Check timeout
+        if elapsed > ctx.config.acquire_timeout:
             logger.warning("Acquire timeout - no target found. Switching to SEARCHING.")
             ctx.nav_state = "SEARCHING"
             return NodeStatus.FAILURE
@@ -165,9 +172,15 @@ class AcquireTarget(Node):
         await _stop_motors(ctx)
             
         if ctx.target_pose and ctx.target_pose.get('x') is not None:
+             # Sanity Check: Ignore suspiciously close targets (Floor?)
+             if ctx.detection and ctx.detection.get('distance_cm', 999) < 35.0:
+                 logger.debug(f"  Ignoring close noise: {ctx.detection.get('distance_cm'):.1f}cm")
+                 return NodeStatus.RUNNING
+
              # Add sample
              ctx.acquire_samples.append(ctx.target_pose)
-             logger.info(f"  Acquiring Target: Sample {len(ctx.acquire_samples)}/{ctx.config.acquire_count}")
+             dist = ctx.target_pose.get('distance_cm', 0)
+             logger.info(f"  Acquiring Target: Sample {len(ctx.acquire_samples)}/{ctx.config.acquire_count} (Dist={dist:.1f}cm)")
              
              if len(ctx.acquire_samples) >= ctx.config.acquire_count:
                  # Average the samples for robust goal
@@ -384,88 +397,48 @@ async def _execute_pure_pursuit(ctx, tx, ty, distance):
     # Coordinate Transform to Robot Frame
     dx = tx - ctx.current_pose['x']
     dy = ty - ctx.current_pose['y']
-    heading = ctx.current_pose['theta']
-    
-    # Transform World Vector (dx, dy) into Robot Frame (local_x, local_y)
-    # Robot Frame: X=Right, Y=Forward.
-    # Heading theta is angle from Y-axis to Robot-Forward?
-    # Based on robot_state.py: x+=sin(th), y+=cos(th). 
-    # This implies 0 is North (+Y), 90 is East (+X).
-    # 
-    # To rotate vector D by -theta:
-    # x_rob = dx * cos(theta) + dy * sin(theta)  <-- This assumes standard X-X alignment?
-    #
-    # Let's stick to the code we backed up which was working:
-    # local_x = -(dx * cos_t - dy * sin_t)
-    # local_y = dx * sin_t + dy * cos_t
-    
-    # Transform World Vector (dx, dy) into Robot Local Frame
-    # World Frame: X=Right, Y=Forward (at theta=0)
-    # Robot State: +Theta = Left Turn.
-    # Forward Unit Vector F = [-sin(theta), cos(theta)]
-    # Right Unit Vector R   = [cos(theta), sin(theta)]
-    
-    # Project D onto R (Local X) and F (Local Y)
-    # Using formulas from Backup/navigation_fsm.py
-    
-    # Project D onto Right Vector (Local X) and Forward Vector (Local Y)
-    # Forward Vector = [-sin(theta), cos(theta)]
-    # Right Vector   = [cos(theta), sin(theta)]
     
     current_theta = ctx.current_pose['theta']
     cos_t = np.cos(current_theta)
     sin_t = np.sin(current_theta)
     
-    # Dot Products for Projection
-    local_x = dx * cos_t + dy * sin_t
-    local_y = dx * -sin_t + dy * cos_t
+    # REVERTED TO BACKUP MATH
+    # FIXED: Negate local_x to correct turn direction (was spinning away from target)
+    local_x = -(dx * cos_t - dy * sin_t)   # Lateral offset (Right, negated for correct steering)
+    local_y = dx * sin_t + dy * cos_t      # Forward distance
     
-    # In Y-Forward system: local_y is forward, local_x is right
     # Bearing error = atan2(x, y) - angle from forward axis
     map_bearing = np.arctan2(local_x, local_y)
     
     # DEBUG LOGGING
     logger.debug(f"Target World: ({tx:.1f}, {ty:.1f})")
     logger.debug(f"Robot Pose: ({ctx.current_pose['x']:.1f}, {ctx.current_pose['y']:.1f}, {np.degrees(ctx.current_pose['theta']):.1f}°)")
-    logger.debug(f"Local Frame: x={local_x:.1f}, y={local_y:.1f}")
-    logger.debug(f"Bearing: {np.degrees(map_bearing):.1f}°")
+    logger.debug(f"Local: x={local_x:.1f}, y={local_y:.1f}, Bear={np.degrees(map_bearing):.1f}°")
     
     if abs(np.degrees(map_bearing)) > 90:
         logger.warning(f"Target BEHIND robot. Bear={np.degrees(map_bearing):.1f}")
 
     # Pure Pursuit steering
-    # Bearing > 0 (Target Left) -> sin > 0.
-    # We want Left Turn -> Right Motor Faster.
-    # L = Base + S, R = Base - S.
-    # To get R > L, we need S < 0.
-    # So S = -sin(bearing).
-    # Wait, simple logic:
-    # Target Left (Bearing Neg? No, Bearing is Angle relative to Forward).
-    # If Local X is Neg -> Bearing is Neg (Left). sin(Neg) -> Neg.
-    # We want Left Turn. Left < Right.
-    # L < R -> Base+S < Base-S -> S < -S -> 2S < 0 -> S < 0.
-    # So we want Curvature < 0.
-    # We have sin(Neg). So just use sin(bearing).
-    curvature = np.sin(map_bearing) * ctx.config.curvature_gain * 0.5
-    
-    logger.debug(f"Curvature: {curvature:.3f}")
+    # Pure Pursuit: curvature = 2 * sin(alpha) / L
+    # FIXED: Reduced gain and flipped sign for correct turn direction
+    steering = -np.sin(map_bearing) * ctx.config.curvature_gain * 0.5
     
     # Speeds
-    base = ctx.config.drive_speed
+    base_speed = ctx.config.drive_speed
     if distance < 30.0:
-        base = max(0.40, base * (distance/30.0))
-        
-    # Motor mixing: Positive curvature = Turn Right
-    # For Right Turn: Left > Right
-    # FIXED: Swapped signs - previous was inverted
-    l_pow = base - curvature
-    r_pow = base + curvature
+        base_speed = max(0.40, base_speed * (distance / 30.0))
+
+    left_power = base_speed + steering
+    right_power = base_speed - steering
+
+    # Clamp values to valid motor range (-1.0 to 1.0)
+    max_pwr = max(abs(left_power), abs(right_power), 1.0)
+    left_power /= max_pwr
+    right_power /= max_pwr
     
-    max_p = max(abs(l_pow), abs(r_pow), 1.0)
+    logger.debug(f"Motor Powers: Left={left_power:.2f}, Right={right_power:.2f}")
     
-    logger.debug(f"Motor Powers: Left={l_pow/max_p:.2f}, Right={r_pow/max_p:.2f}")
-    
-    await _set_motor_power(ctx, l_pow/max_p, r_pow/max_p)
+    await _set_motor_power(ctx, left_power, right_power)
 
 
 # =============================================================================
