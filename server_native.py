@@ -407,7 +407,9 @@ async def handle_client(websocket):
                         
                     if fsm:
                         # Reset FSM state
+                        logger.info("Calling FSM Start...")
                         await fsm.start()
+                        logger.info(f"FSM Started. State: {fsm.state}")
                         
                 elif msg_type == "stop_auto_drive":
                     is_auto_driving = False
@@ -917,8 +919,9 @@ async def broadcast_loop():
                         # Calculate bearing for arc curvature
                         cos_t = np.cos(robot_state.theta)
                         sin_t = np.sin(robot_state.theta)
-                        local_x = -(dx * cos_t - dy * sin_t)
-                        local_y = dx * sin_t + dy * cos_t
+                        # Correct Dot Product Visualization (Y-Forward)
+                        local_x = dx * cos_t + dy * sin_t
+                        local_y = dx * -sin_t + dy * cos_t
                         bearing = np.arctan2(local_x, local_y)
                         
                         # Generate 5 points along a curved path

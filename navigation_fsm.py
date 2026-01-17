@@ -498,6 +498,9 @@ class NavigationFSM:
             return
             
         # Update Blackboard
+        if self.ctx.nav_state == "IDLE":
+            logger.warning("FSM Update called but state is IDLE (Should be SEARCHING/APPROACHING)")
+
         self.ctx.detection = detection
         self.ctx.target_pose = target_pose
         self.ctx.lidar_min_distance = lidar_min_distance_cm
