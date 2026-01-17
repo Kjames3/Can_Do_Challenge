@@ -746,10 +746,14 @@ class NavigationFSM:
             
             # Check arrival
             if map_dist < self.config.return_distance_threshold:
-                print(f"✓ Arrived at start ({map_dist:.1f}cm). Starting Final Alignment...")
+                print(f"✓ Arrived at start ({map_dist:.1f}cm < {self.config.return_distance_threshold}cm). Starting Final Alignment...")
                 await self._stop_motors()
                 self.return_phase = ReturnPhase.ALIGNING
                 return
+            
+            # Print distance occasionally to confirm threshold check is happening
+            if int(time.time() * 2) % 10 == 0:
+                 print(f"  Navigating Return: Dist={map_dist:.1f}cm (Threshold={self.config.return_distance_threshold})", end='\r')
 
             # 2. Coordinate Transform (World -> Robot Frame)
             # Match math from _handle_approaching EXACTLY
