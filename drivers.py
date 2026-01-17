@@ -501,6 +501,17 @@ class Picamera2Driver:
             except Exception as e:
                 logger.warning(f"Focus error: {e}")
 
+    def set_controls(self, controls_dict):
+        """
+        Set arbitrary camera controls (Exposure, Gain, etc.)
+        """
+        if self.picam2:
+            try:
+                self.picam2.set_controls(controls_dict)
+                logger.info(f"Camera controls set: {controls_dict.keys()}")
+            except Exception as e:
+                logger.warning(f"Failed to set controls: {e}")
+
     def _capture_loop(self):
         import cv2
         while self._running and self.picam2:

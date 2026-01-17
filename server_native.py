@@ -120,7 +120,7 @@ CONFIDENCE_THRESHOLD = 0.25
 INFERENCE_SIZE = 640
 
 # YOLO Model (YOLOv26 with NCNN for fast Pi 5 inference)
-YOLO_MODEL = 'yolo26n_cans_ncnn_model'  # NCNN folder for fast inference
+YOLO_MODEL = 'models/yolo26n_cans_ncnn_model'  # NCNN folder for fast inference
 YOLO_FALLBACK = 'yolo26n_cans.pt'
 
 
@@ -272,6 +272,16 @@ def initialize_hardware():
     # camera = NativeCamera(CAMERA_PATH, IMAGE_WIDTH, IMAGE_HEIGHT, sim_mode=SIM_MODE)
     # Using Picamera2 for Zone Focusing
     camera = Picamera2Driver(IMAGE_WIDTH, IMAGE_HEIGHT, sim_mode=SIM_MODE)
+
+    # Reduce motion blur: cap exposure, boost ISO, higher FPS
+    if camera and not SIM_MODE:
+        camera.set_controls({
+            "ExposureTime": 2000,        # ~1/500s (microseconds)
+            "AnalogueGain": 2.0,         # ISO boost
+            "AeEnable": False,           # Disable auto-exposure
+            "AwbEnable": True,           # Keep auto white balance
+            "FrameDurationLimits": (1, 50000) # Force high FPS capabilities
+        })
     
     # LIDAR
     logger.info("LIDAR:")

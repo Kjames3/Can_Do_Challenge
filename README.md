@@ -133,7 +133,13 @@ viam_projects/
 - **Drift compensation** for straight-line driving
 
 ### Object Detection
-- **YOLO11n** trained on soda can dataset
+### Object Detection
+- **YOLOv26n (Nano)**: Optimized for edge inference.
+- **Performance Metrics**:
+  - Inference: ~1.6ms (GPU) / Extremely fast on Pi 5 (NCNN)
+  - mAP50: 84.2%
+  - mAP50-95: 64.5%
+  - Precision: 82.8%
 - **Distance estimation** via pinhole camera model
 - Real-time bounding box overlay
 

@@ -111,6 +111,7 @@ pip install numpy
 pip install opencv-python-headless  # Headless for server (no GUI)
 pip install websockets
 pip install ultralytics  # YOLO11/YOLOv8
+pip install ncnn  # NCNN inference support
 
 # GPIO libraries (try multiple for Pi 5 compatibility)
 pip install gpiozero
