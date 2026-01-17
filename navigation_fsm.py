@@ -486,6 +486,8 @@ class NavigationConfig:
     return_distance_threshold = 15.0
     curvature_gain = 0.8  # Reduced from 1.2 to prevent spiraling
     drift_compensation = -0.10 # Restored to fix Right Pull (Left Motor is faster)
+    acquire_count = 5          # Number of samples to average
+    acquire_timeout = 2.5      # Seconds to wait for target
 
 class NavigationFSM:
     """
