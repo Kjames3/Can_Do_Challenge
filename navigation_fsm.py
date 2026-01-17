@@ -77,7 +77,7 @@ class NavigationConfig:
     drift_compensation: float = -0.10     # 10% reduction on LEFT motor
     
     # Offsets
-    approach_x_offset: float = 0.0       # Pixel offset (Positive = Shifts aim RIGHT)
+    approach_x_offset: float = 40.0       # Pixel offset (Positive = Shifts aim RIGHT)
 
     # Pure Pursuit / Curved Drive Settings
     curvature_gain: float = 1.2           # Controls sharpness of turns (higher = sharper)
