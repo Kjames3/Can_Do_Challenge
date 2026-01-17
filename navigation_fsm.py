@@ -71,11 +71,14 @@ class NavigationConfig:
     
     # Return navigation
     auto_return: bool = True              # Automatically return after reaching target
-    return_distance_threshold: float = 15.0  # cm - close enough to start position
+    return_distance_threshold: float = 30.0  # cm - Increased to 30cm (1ft) to avoid singularity
     
-    # Motor drift compensation (negative = reduce left motor, positive = reduce right motor)
-    drift_compensation: float = -0.10     # 10% reduction on LEFT motor (left is faster)
+    # Motor drift compensation
+    drift_compensation: float = -0.10     # 10% reduction on LEFT motor
     
+    # Offsets
+    approach_x_offset: float = 0.0        # Pixel offset for centering (Positive = shift target Right)
+
     # Pure Pursuit / Curved Drive Settings
     curvature_gain: float = 1.2           # Controls sharpness of turns (higher = sharper)
     min_drive_speed: float = 0.25         # Minimum speed to keep moving while turning
