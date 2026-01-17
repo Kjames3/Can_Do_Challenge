@@ -54,7 +54,7 @@ class NavigationConfig:
     # Motor speeds (higher = fewer small movements = fewer API calls)
     rotate_speed: float = 0.40            # Tank turn speed (increased for heavy bot)
     pivot_speed: float = 0.40             # Pivot turn speed (increased for heavy bot)
-    drive_speed: float = 0.50             # Forward drive speed (increased for faster approach)
+    drive_speed: float = 0.40             # Forward drive speed (increased for faster approach)
     search_speed: float = 0.20            # Search rotation speed (slowed to not miss objects)
     backup_speed: float = 0.25            # Backup speed for avoiding
     
@@ -63,7 +63,7 @@ class NavigationConfig:
     frame_width: int = 1280        # Must match camera resolution in server_native.py
     
     # Acquire samples
-    acquire_count: int = 3
+    acquire_count: int = 5
     
     # Obstacle avoidance
     obstacle_min_distance_cm: float = 20.0  # Back up if closer than this
@@ -418,9 +418,7 @@ class NavigationFSM:
         
         # 6. SUB-PHASE LOGIC - Use Pure Pursuit (curved approach)
         if self.approach_phase == ApproachPhase.ACQUIRE:
-            # Skip acquire phase - go straight to curved driving
-            self.approach_phase = ApproachPhase.DRIVE
-            print(f"  ⚡ Switching to Curved Approach: Goal=({self.goal_x:.1f}, {self.goal_y:.1f}), Dist={map_dist:.1f}cm")
+            await self._handle_acquire(map_dist, map_bearing)
         
         # Combine ROTATE and DRIVE into a single "Curved Drive" phase
         if self.approach_phase == ApproachPhase.DRIVE or self.approach_phase == ApproachPhase.ROTATE:
