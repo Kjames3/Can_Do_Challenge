@@ -375,10 +375,12 @@ async def _execute_pure_pursuit(ctx, tx, ty, distance):
         logger.warning(f"Target BEHIND robot. Bear={np.degrees(map_bearing):.1f}")
 
     # Pure Pursuit steering
-    # Bearing < 0 (Right) -> sin < 0.
-    # We want Curvature > 0 (Right Turn).
-    # So we must NEGATE sine.
-    curvature = -np.sin(map_bearing) * ctx.config.curvature_gain * 0.5
+    # Bearing > 0 (Left) -> sin > 0.
+    # We want Curvature > 0 (Left Turn) to increase Right Motor Speed.
+    # PREVIOUS INCORRECT: curvature = -np.sin(map_bearing) ...
+    
+    # CORRECT:
+    curvature = np.sin(map_bearing) * ctx.config.curvature_gain * 0.5
     
     logger.debug(f"Curvature: {curvature:.3f}")
     
