@@ -490,17 +490,7 @@ body {
 }
 
 /* Custom Vertical Range Input */
-.vertical-slider {
-    -webkit-appearance: none;
-    width: 80px;
-    height: 300px;
-    background: transparent;
-    cursor: pointer;
-    writing-mode: bt-lr;
-    -webkit-appearance: slider-vertical;
-    appearance: slider-vertical;
-    display: none;
-}
+
 
 .slider-wrapper {
     position: relative;

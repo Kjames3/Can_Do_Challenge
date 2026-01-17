@@ -353,13 +353,17 @@ async def _execute_pure_pursuit(ctx, tx, ty, distance):
     # Project D onto R (Local X) and F (Local Y)
     # Using formulas from Backup/navigation_fsm.py
     
+    # Project D onto Right Vector (Local X) and Forward Vector (Local Y)
+    # Forward Vector = [-sin(theta), cos(theta)]
+    # Right Vector   = [cos(theta), sin(theta)]
+    
     current_theta = ctx.current_pose['theta']
     cos_t = np.cos(current_theta)
     sin_t = np.sin(current_theta)
     
-    # Reverted to Backup Math:
-    local_x = -(dx * cos_t - dy * sin_t)
-    local_y = dx * sin_t + dy * cos_t
+    # Dot Products for Projection
+    local_x = dx * cos_t + dy * sin_t
+    local_y = dx * -sin_t + dy * cos_t
     
     # In Y-Forward system: local_y is forward, local_x is right
     # Bearing error = atan2(x, y) - angle from forward axis
@@ -375,11 +379,18 @@ async def _execute_pure_pursuit(ctx, tx, ty, distance):
         logger.warning(f"Target BEHIND robot. Bear={np.degrees(map_bearing):.1f}")
 
     # Pure Pursuit steering
-    # Bearing > 0 (Left) -> sin > 0.
-    # We want Curvature > 0 (Left Turn) to increase Right Motor Speed.
-    # PREVIOUS INCORRECT: curvature = -np.sin(map_bearing) ...
-    
-    # CORRECT:
+    # Bearing > 0 (Target Left) -> sin > 0.
+    # We want Left Turn -> Right Motor Faster.
+    # L = Base + S, R = Base - S.
+    # To get R > L, we need S < 0.
+    # So S = -sin(bearing).
+    # Wait, simple logic:
+    # Target Left (Bearing Neg? No, Bearing is Angle relative to Forward).
+    # If Local X is Neg -> Bearing is Neg (Left). sin(Neg) -> Neg.
+    # We want Left Turn. Left < Right.
+    # L < R -> Base+S < Base-S -> S < -S -> 2S < 0 -> S < 0.
+    # So we want Curvature < 0.
+    # We have sin(Neg). So just use sin(bearing).
     curvature = np.sin(map_bearing) * ctx.config.curvature_gain * 0.5
     
     logger.debug(f"Curvature: {curvature:.3f}")

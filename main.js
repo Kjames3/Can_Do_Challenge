@@ -28,7 +28,10 @@ const state = {
 
     // Flags for dirty checking (optional optimization)
     needsLidarUpdate: false,
-    needs3DUpdate: false
+    needs3DUpdate: false,
+
+    // Logging
+    logThrottle: 0
 };
 
 const DEFAULT_PORT = 8081;
@@ -327,6 +330,25 @@ function handleMessage(data) {
         state.latestData.power = data.power; // Power stats from INA219
 
         state.needs3DUpdate = true;
+
+        // Telemetry Logging (Throttled ~1Hz at 20fps)
+        state.logThrottle++;
+        if (state.logThrottle % 20 === 0) {
+            const rp = data.robot_pose;
+            const tp = data.target_pose;
+            const thetaDeg = (rp.theta * 180 / Math.PI).toFixed(1);
+
+            console.groupCollapsed(`🤖 State: ${data.nav_phase || 'IDLE'}`);
+            console.log(`📍 Pose:   X=${rp.x.toFixed(1)}, Y=${rp.y.toFixed(1)}, θ=${thetaDeg}°`);
+            if (tp && tp.x !== null) {
+                console.log(`🎯 Target: X=${tp.x.toFixed(1)}, Y=${tp.y.toFixed(1)}, Dist=${tp.distance_cm.toFixed(0)}cm`);
+            } else {
+                console.log(`🎯 Target: None`);
+            }
+            console.log(`⚙️ Motors: L=${data.left_power.toFixed(2)}, R=${data.right_power.toFixed(2)}`);
+            console.log(`🔋 Power:  ${data.power ? data.power.voltage.toFixed(2) + 'V' : '--'}`);
+            console.groupEnd();
+        }
 
     } else if (data.type === "capture_response") {
         const category = data.category || "saved";
