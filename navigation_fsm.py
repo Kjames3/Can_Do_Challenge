@@ -43,7 +43,7 @@ class ReturnPhase:
 class NavigationConfig:
     """Configuration for navigation behavior"""
     # Target distance
-    target_distance_cm: float = 5.0   # Stop this close to target (gripper range)
+    target_distance_cm: float = 4.0   # Stop closer (4cm) as requested
     dist_threshold_cm: float = 2.0    # Tolerance (+/- 2cm)
     
     # Bearing thresholds (radians)
@@ -71,13 +71,13 @@ class NavigationConfig:
     
     # Return navigation
     auto_return: bool = True              # Automatically return after reaching target
-    return_distance_threshold: float = 30.0  # cm - Increased to 30cm (1ft) to avoid singularity
+    return_distance_threshold: float = 50.0  # cm - Increased to 50cm to catch "fly-by"
     
     # Motor drift compensation
     drift_compensation: float = -0.10     # 10% reduction on LEFT motor
     
     # Offsets
-    approach_x_offset: float = 0.0        # Pixel offset for centering (Positive = shift target Right)
+    approach_x_offset: float = 40.0       # Pixel offset (Positive = Shifts aim RIGHT)
 
     # Pure Pursuit / Curved Drive Settings
     curvature_gain: float = 1.2           # Controls sharpness of turns (higher = sharper)
@@ -367,7 +367,11 @@ class NavigationFSM:
         sin_t = np.sin(self.current_theta)
         
         # FIXED: Negate local_x to correct turn direction (was spinning away from target)
-        local_x = -(dx * cos_t - dy * sin_t)   # Lateral offset (Right, negated for correct steering)
+        # OFFSET INJECTION: Shift target laterally to correct left/right bias
+        # offset_cm ~ distance * tan(FOV/2) * 2 * (pixels / width)
+        # tan(33deg) * 2 = 1.3
+        offset_cm = map_dist * 1.3 * (self.config.approach_x_offset / self.config.frame_width)
+        local_x = -(dx * cos_t - dy * sin_t) + offset_cm
         local_y = dx * sin_t + dy * cos_t      # Forward distance
         
         # In Y-Forward system: local_y is forward, local_x is right
@@ -397,8 +401,10 @@ class NavigationFSM:
         
         # 5. CHECK ARRIVAL - Increased threshold to 15cm to prevent 180 spins at close range
         # When very close, small coordinate jitter can flip bearing from "front" to "behind"
-        print(f"DEBUG: Check {map_dist:.2f} <= 10.0? {map_dist <= 10.0}")
-        if map_dist <= 10.0:
+        # 5. CHECK ARRIVAL
+        threshold = self.config.target_distance_cm + self.config.dist_threshold_cm
+        print(f"DEBUG: Check {map_dist:.2f} <= {threshold:.1f}? {map_dist <= threshold}")
+        if map_dist <= threshold:
             print(f"✓ TARGET REACHED! Map distance: {map_dist:.1f}cm")
             self._set_state(NavigationState.ARRIVED)
             await self._stop_motors()
@@ -424,8 +430,10 @@ class NavigationFSM:
         """
         
         # 1. Check if we are close enough to stop
-        print(f"DEBUG: Check {distance:.2f} <= 10.0? {distance <= 10.0}")
-        if distance <= 10.0:  # Increased threshold to prevent 180 spins
+        # 1. Check if we are close enough to stop
+        threshold = self.config.target_distance_cm + self.config.dist_threshold_cm
+        print(f"DEBUG: Check {distance:.2f} <= {threshold:.1f}? {distance <= threshold}")
+        if distance <= threshold:
             print(f"✓ TARGET REACHED (Curved)! Dist: {distance:.1f}cm")
             self._set_state(NavigationState.ARRIVED)
             await self._stop_motors()
