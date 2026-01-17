@@ -77,7 +77,7 @@ class NavigationConfig:
     drift_compensation: float = -0.10     # 10% reduction on LEFT motor
     
     # Offsets
-    approach_x_offset: float = 40.0       # Pixel offset (Positive = Shifts aim RIGHT)
+    approach_x_offset: float = 0.0       # Pixel offset (Positive = Shifts aim RIGHT)
 
     # Pure Pursuit / Curved Drive Settings
     curvature_gain: float = 1.2           # Controls sharpness of turns (higher = sharper)
@@ -808,7 +808,7 @@ class NavigationFSM:
             target_heading = self._align_target_heading
             
             # 2. Dynamic Thresholds
-            THRESHOLD = np.radians(4) if self.latest_detection else np.radians(8)
+            THRESHOLD = np.radians(6) if self.latest_detection else np.radians(10)
             
             # Visual Override (Optional)
             if self.latest_detection:
@@ -841,15 +841,15 @@ class NavigationFSM:
             # 5. [FIX 2] GENTLER PULSE LOGIC
             # If error is small (< 25 deg), use very short pulses
             if abs(heading_error) < np.radians(25):
-                # Cycle: 0.1s ON, 0.6s OFF (Total 0.7s)
+                # Cycle: 0.05s ON, 0.65s OFF (Total 0.7s)
                 cycle_time = time.time() % 0.7
                 
-                if cycle_time > 0.1: # OFF PHASE (0.6s) - Long coast to stop
+                if cycle_time > 0.05: # OFF PHASE (0.65s) - Long coast to stop
                     await self._stop_motors()
                     return
                 
-                # ON PHASE (0.1s) - Quick nudge
-                pivot_power = 0.35 
+                # ON PHASE (0.05s) - Quick nudge
+                pivot_power = 0.32 
             else:
                 # Standard Control
                 MIN_MOVING_POWER = 0.32
