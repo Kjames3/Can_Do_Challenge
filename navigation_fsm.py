@@ -21,43 +21,59 @@ class NodeStatus(Enum):
     FAILURE = auto()
     RUNNING = auto()
 
-class Context:
-    """Shared blackboard for BT nodes"""
+# Assuming NavigationConfig is defined elsewhere or will be added.
+# For now, a placeholder to avoid NameError.
+class NavigationConfig:
     def __init__(self):
+        self.obstacle_min_distance_cm = 30
+        self.backup_duration_sec = 2.0
+        self.backup_speed = 0.3
+        self.auto_return = True
+        self.return_distance_threshold = 10.0
+        self.drift_compensation = -0.10 # Restored to fix Right Pull (Left Motor is faster)
+        self.acquire_count = 5          # Number of samples to average
+        self.acquire_timeout = 2.5      # Seconds to wait for target
+
+class Context:
+    """Shared blackboard state"""
+    def __init__(self):
+        self.nav_state = "IDLE" #"IDLE", "SEARCHING", "ACQUIRING", "APPROACHING", "ARRIVED", "AVOIDING"
+        self.approach_phase = "ACQUIRE"
         self.left_motor = None
         self.right_motor = None
-        self.imu = None
         self.camera = None
-        self.config = None
+        self.imu = None
+        self.config = NavigationConfig()
         
-        # Inputs (Per Frame)
+        # Sensor Data
         self.detection = None
         self.target_pose = None
         self.lidar_min_distance = None
         self.current_pose = {'x':0, 'y':0, 'theta':0}
+        self.start_pose = {'x':0, 'y':0, 'theta':0}
         
-        # Persistent State
+        # Goal State
         self.goal_x = None
         self.goal_y = None
         self.goal_distance = 0.0
-        self.start_pose = {'x':0, 'y':0, 'theta':0}
-        self.nav_state = "IDLE"  # For external reporting
-        self.approach_phase = "SEARCH"
+        self.goal_frozen = False
         
-        # Internal Logic State
-        self.acquire_samples = []
-        self.target_imu_rotation = 0.0
+        # Internal State
         self.avoid_start_time = 0.0
         self.return_phase = "WAITING"
         self.return_start_time = 0.0
         self.backup_start_pos = None
         self.target_lost_time = 0.0
-        self.goal_frozen = False
         self.last_focus_val = -1.0
         
+        # Acquisition State
+        self.acquire_samples = []
+        self.acquire_start_time = 0.0
+        
         # Output callbacks
-        self.on_arrived = None
+        self.on_state_change = None
         self.on_returned = None
+        self.on_arrived = None
 
 class Node:
     """Base Behavior Tree Node"""
@@ -449,6 +465,45 @@ class NavigationFSM:
         self.tree = self._build_tree()
         self.active = False
         
+class AcquireTarget(Node):
+    """
+    Startup Phase: Gather samples to average initial detection.
+    Prevents jerky start if first detection is noisy.
+    """
+    async def tick(self, ctx: Context) -> NodeStatus:
+        if ctx.nav_state != "ACQUIRING":
+            return NodeStatus.FAILURE
+            
+        # Check timeout
+        if time.time() - ctx.acquire_start_time > ctx.config.acquire_timeout:
+            logger.warning("Acquire timeout - no target found. Switching to SEARCHING.")
+            ctx.nav_state = "SEARCHING"
+            return NodeStatus.FAILURE
+            
+        # Stop motors while acquiring
+        await _stop_motors(ctx)
+            
+        if ctx.target_pose and ctx.target_pose.get('x') is not None:
+             # Add sample
+             ctx.acquire_samples.append(ctx.target_pose)
+             logger.info(f"  Acquiring Target: Sample {len(ctx.acquire_samples)}/{ctx.config.acquire_count}")
+             
+             if len(ctx.acquire_samples) >= ctx.config.acquire_count:
+                 # Average the samples for robust goal
+                 avg_x = np.mean([p['x'] for p in ctx.acquire_samples])
+                 avg_y = np.mean([p['y'] for p in ctx.acquire_samples])
+                 avg_dist = np.mean([p['distance_cm'] for p in ctx.acquire_samples])
+                 
+                 ctx.goal_x = avg_x
+                 ctx.goal_y = avg_y
+                 ctx.nav_state = "APPROACHING"
+                 ctx.approach_phase = "DRIVE" # Skip old acquire phase
+                 
+                 logger.info(f"✓ Target Locked! Avg Dist: {avg_dist:.1f}cm @ ({avg_x:.1f}, {avg_y:.1f})")
+                 return NodeStatus.SUCCESS
+                 
+        return NodeStatus.RUNNING
+
     def _build_tree(self):
         return Selector([
             # 1. High Priority: Obstacle Avoidance
@@ -457,10 +512,13 @@ class NavigationFSM:
             # 2. Return Home Logic (Overrides search if triggered)
             Sequence([CheckReturnTrigger(), ReturnHomeSequence()]),
             
-            # 3. Vision/Goal Navigation
+            # 3. Initial Acquisition (Averaging)
+            AcquireTarget(),
+            
+            # 4. Vision/Goal Navigation (Normal Operation)
             Sequence([CheckTargetKnown(), ApproachTargetSequence()]),
             
-            # 4. Default: Search
+            # 5. Default: Search
             SpinSearch()
         ])
         
@@ -482,10 +540,13 @@ class NavigationFSM:
         
     async def start(self, start_pose=None):
         self.active = True
-        self.ctx.nav_state = "SEARCHING"
+        self.ctx.nav_state = "ACQUIRING" # Start by averaging samples
+        self.ctx.acquire_samples = []
+        self.ctx.acquire_start_time = time.time()
+        
         self.ctx.goal_x = None # Reset goal
         self.ctx.start_pose = start_pose or {'x':0, 'y':0, 'theta':0}
-        logger.info("BT Nav Started")
+        logger.info("BT Nav Started - ACQUIRING Target...")
 
     async def stop(self):
         self.active = False
