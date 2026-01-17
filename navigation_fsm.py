@@ -146,6 +146,45 @@ class CheckReturnTrigger(Node):
             return NodeStatus.SUCCESS
         return NodeStatus.FAILURE
 
+class AcquireTarget(Node):
+    """
+    Startup Phase: Gather samples to average initial detection.
+    Prevents jerky start if first detection is noisy.
+    """
+    async def tick(self, ctx: Context) -> NodeStatus:
+        if ctx.nav_state != "ACQUIRING":
+            return NodeStatus.FAILURE
+            
+        # Check timeout
+        if time.time() - ctx.acquire_start_time > ctx.config.acquire_timeout:
+            logger.warning("Acquire timeout - no target found. Switching to SEARCHING.")
+            ctx.nav_state = "SEARCHING"
+            return NodeStatus.FAILURE
+            
+        # Stop motors while acquiring
+        await _stop_motors(ctx)
+            
+        if ctx.target_pose and ctx.target_pose.get('x') is not None:
+             # Add sample
+             ctx.acquire_samples.append(ctx.target_pose)
+             logger.info(f"  Acquiring Target: Sample {len(ctx.acquire_samples)}/{ctx.config.acquire_count}")
+             
+             if len(ctx.acquire_samples) >= ctx.config.acquire_count:
+                 # Average the samples for robust goal
+                 avg_x = np.mean([p['x'] for p in ctx.acquire_samples])
+                 avg_y = np.mean([p['y'] for p in ctx.acquire_samples])
+                 avg_dist = np.mean([p['distance_cm'] for p in ctx.acquire_samples])
+                 
+                 ctx.goal_x = avg_x
+                 ctx.goal_y = avg_y
+                 ctx.nav_state = "APPROACHING"
+                 ctx.approach_phase = "DRIVE" # Skip old acquire phase
+                 
+                 logger.info(f"✓ Target Locked! Avg Dist: {avg_dist:.1f}cm @ ({avg_x:.1f}, {avg_y:.1f})")
+                 return NodeStatus.SUCCESS
+                 
+        return NodeStatus.RUNNING
+
 class ReturnHomeSequence(Node):
     """Complex sequence for returning home: Wait -> Backup -> Navigate -> Align"""
     async def tick(self, ctx: Context) -> NodeStatus:
@@ -483,44 +522,6 @@ class NavigationFSM:
             SpinSearch()
         ])
         
-class AcquireTarget(Node):
-    """
-    Startup Phase: Gather samples to average initial detection.
-    Prevents jerky start if first detection is noisy.
-    """
-    async def tick(self, ctx: Context) -> NodeStatus:
-        if ctx.nav_state != "ACQUIRING":
-            return NodeStatus.FAILURE
-            
-        # Check timeout
-        if time.time() - ctx.acquire_start_time > ctx.config.acquire_timeout:
-            logger.warning("Acquire timeout - no target found. Switching to SEARCHING.")
-            ctx.nav_state = "SEARCHING"
-            return NodeStatus.FAILURE
-            
-        # Stop motors while acquiring
-        await _stop_motors(ctx)
-            
-        if ctx.target_pose and ctx.target_pose.get('x') is not None:
-             # Add sample
-             ctx.acquire_samples.append(ctx.target_pose)
-             logger.info(f"  Acquiring Target: Sample {len(ctx.acquire_samples)}/{ctx.config.acquire_count}")
-             
-             if len(ctx.acquire_samples) >= ctx.config.acquire_count:
-                 # Average the samples for robust goal
-                 avg_x = np.mean([p['x'] for p in ctx.acquire_samples])
-                 avg_y = np.mean([p['y'] for p in ctx.acquire_samples])
-                 avg_dist = np.mean([p['distance_cm'] for p in ctx.acquire_samples])
-                 
-                 ctx.goal_x = avg_x
-                 ctx.goal_y = avg_y
-                 ctx.nav_state = "APPROACHING"
-                 ctx.approach_phase = "DRIVE" # Skip old acquire phase
-                 
-                 logger.info(f"✓ Target Locked! Avg Dist: {avg_dist:.1f}cm @ ({avg_x:.1f}, {avg_y:.1f})")
-                 return NodeStatus.SUCCESS
-                 
-        return NodeStatus.RUNNING
 
 
         
