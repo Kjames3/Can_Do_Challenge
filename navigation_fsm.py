@@ -190,6 +190,7 @@ class NavigationFSM:
         self.target_bearing = 0.0
         self.last_turn_dir = 0
         self._goal_frozen = False  # Reset goal freeze for new navigation
+        self._goal_locked = False  # Reset goal lock
         
         # Clear previous goal only when starting a FRESH search
         self.goal_x = None
@@ -212,6 +213,7 @@ class NavigationFSM:
     async def start_approach(self):
         """Start direct approach - skips SEARCHING (for when target already visible)"""
         self.acquire_samples.clear()
+        self._goal_locked = False
         self._set_state(NavigationState.APPROACHING, ApproachPhase.ACQUIRE)
         print("🎯 Approaching target - ACQUIRING")
     
@@ -267,7 +269,13 @@ class NavigationFSM:
             dy = self.goal_y - self.current_y
             current_map_dist = np.sqrt(dx*dx + dy*dy)
         
-        if target_pose and target_pose.get('x') is not None:
+        if hasattr(self, '_goal_locked') and self._goal_locked:
+            # Goal is locked - pure pursuit using odometry - ignore visual updates for goal pos
+            # We still reset target_lost_time if we see it, to prevent "blind drive" logic if possible
+            # but we definitely don't move the goal post.
+            if target_pose or (detection and detection.get('distance_cm')):
+                 self.target_lost_time = 0
+        elif target_pose and target_pose.get('x') is not None:
             # Only update goal if we're far enough away (or don't have a goal yet)
             if current_map_dist is None or current_map_dist > GOAL_FREEZE_THRESHOLD:
                 self.goal_x = target_pose['x']
@@ -279,8 +287,11 @@ class NavigationFSM:
                     print(f"  🔒 Goal frozen at {current_map_dist:.1f}cm - trusting odometry")
                     self._goal_frozen = True
             self.target_lost_time = 0  # Reset lost timer - we see the target
-        elif detection:
+        
+        elif detection and not (hasattr(self, '_goal_locked') and self._goal_locked):
             # Fallback: if only detection passed (legacy), reset lost timer
+            # BUT only if goal is not locked. IF LOCKED, we ignore "detection only" updates 
+            # (which shouldn't happen here anyway as this block is for goal setting)
             self.target_lost_time = 0
         else:
             # Target lost! Start timer if not already started
@@ -489,6 +500,26 @@ class NavigationFSM:
             self.target_bearing = avg_bearing
             
             print(f"✓ Target acquired: dist={avg_dist:.1f}cm, bearing={np.degrees(avg_bearing):.1f}°")
+            
+            # LOCK THE GOAL
+            # Calculate World Coordinates for the target
+            # Inverse of _handle_approaching logic:
+            # lx = dist * sin(bear), ly = dist * cos(bear)
+            # dx = lx * cos(theta) - ly * sin(theta)
+            # dy = lx * sin(theta) + ly * cos(theta)
+            
+            lx = avg_dist * np.sin(avg_bearing)
+            ly = avg_dist * np.cos(avg_bearing)
+            
+            theta = self.current_theta
+            dx = lx * np.cos(theta) - ly * np.sin(theta)
+            dy = lx * np.sin(theta) + ly * np.cos(theta)
+            
+            self.goal_x = self.current_x + dx
+            self.goal_y = self.current_y + dy
+            self._goal_locked = True
+            
+            print(f"  🔒 GOAL LOCKED: ({self.goal_x:.1f}, {self.goal_y:.1f})")
             
             # Decide next phase
             if abs(avg_bearing) > self.config.bearing_threshold:
