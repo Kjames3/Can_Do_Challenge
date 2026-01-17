@@ -387,11 +387,13 @@ async def _pivot_towards(ctx, diff_angle):
     # Increased minimum power from 0.32 to 0.45 to prevent stalling
     speed = max(0.45, min(0.6, abs(diff_angle) * 1.8))
     if diff_angle > 0:
-        # Turn Left (CCW): Right motor forward, Left stopped/back
-        await _set_motor_power(ctx, 0, speed) 
+        # Turn Left (CCW): Expected L < R (Right wheel drives), BUT Robot physics inverted:
+        # Empirical: L > R causes Left Turn (Theta increases)
+        await _set_motor_power(ctx, speed, 0) 
     else:
-        # Turn Right (CW): Left motor forward
-        await _set_motor_power(ctx, speed, 0)
+        # Turn Right (CW): Expected L > R (Left wheel drives), BUT Robot physics inverted:
+        # Empirical: R > L causes Right Turn (Theta decreases)
+        await _set_motor_power(ctx, 0, speed)
 
 async def _execute_pure_pursuit(ctx, tx, ty, distance):
     # Coordinate Transform to Robot Frame
@@ -402,10 +404,11 @@ async def _execute_pure_pursuit(ctx, tx, ty, distance):
     cos_t = np.cos(current_theta)
     sin_t = np.sin(current_theta)
     
-    # REVERTED TO BACKUP MATH
-    # FIXED: Negate local_x to correct turn direction (was spinning away from target)
-    local_x = -(dx * cos_t - dy * sin_t)   # Lateral offset (Right, negated for correct steering)
-    local_y = dx * sin_t + dy * cos_t      # Forward distance
+    # FIXED: Robot Physics Inversion Handling
+    # 1. Target on RIGHT should have Positive X
+    # Standard: local_x = dx*cos + dy*sin
+    local_x = dx * cos_t + dy * sin_t   
+    local_y = dx * -sin_t + dy * cos_t
     
     # Bearing error = atan2(x, y) - angle from forward axis
     map_bearing = np.arctan2(local_x, local_y)
