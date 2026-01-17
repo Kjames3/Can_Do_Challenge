@@ -347,7 +347,14 @@ function handleMessage(data) {
             }
             console.log(`⚙️ Motors: L=${data.left_power.toFixed(2)}, R=${data.right_power.toFixed(2)}`);
             console.log(`🔋 Power:  ${data.power ? data.power.voltage.toFixed(2) + 'V' : '--'}`);
+            console.log(`⚙️ Motors: L=${data.left_power.toFixed(2)}, R=${data.right_power.toFixed(2)}`);
             console.groupEnd();
+        }
+
+        // Piped Server Logging
+        if (data.latest_log && data.latest_log.time > (state.lastLogTime || 0)) {
+            console.log(`%c🐍 SERVER: ${data.latest_log.msg}`, "color: #4ade80; font-weight: bold;");
+            state.lastLogTime = data.latest_log.time;
         }
 
     } else if (data.type === "capture_response") {

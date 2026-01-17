@@ -152,6 +152,13 @@ _stuck_start_time = None
 _last_encoder_count = 0
 
 connected_clients = set()
+latest_log = {"msg": "", "time": 0}
+
+def broadcast_log(msg):
+    """Update the latest log message to be sent to clients."""
+    global latest_log
+    logger.info(msg)
+    latest_log = {"msg": msg, "time": time.time()}
 
 
 # =============================================================================
@@ -390,30 +397,32 @@ async def handle_client(websocket):
                         logger.debug("Camera set to autofocus")
                     
                 elif msg_type == "start_auto_drive":
+                    broadcast_log("Received START_AUTO_DRIVE command")
                     global is_auto_driving
                     is_auto_driving = True
-                    logger.info("AUTO-DRIVE ENGAGED")
+                    broadcast_log("AUTO-DRIVE ENGAGED")
                     
                     # RESET ALL STATE (Zero Heading/Position)
-                    logger.info("Resetting Robot State & IMU to (0,0)")
+                    broadcast_log("Resetting Robot State & IMU to (0,0)")
                     if robot_state:
+                         # ... existing reset logic ...
                         robot_state.x = 0.0
                         robot_state.y = 0.0
                         robot_state.theta = 0.0
-                        robot_state.initialized = False # Force re-init of encoder baseline
+                        robot_state.initialized = False
                     
                     if imu:
                         imu.reset_heading()
                         
                     if fsm:
                         # Reset FSM state
-                        logger.info("Calling FSM Start...")
+                        broadcast_log("Calling FSM Start...")
                         await fsm.start()
-                        logger.info(f"FSM Started. State: {fsm.state}")
+                        broadcast_log(f"FSM Started. State: {fsm.state}")
                         
                 elif msg_type == "stop_auto_drive":
                     is_auto_driving = False
-                    logger.info("AUTO-DRIVE DISENGAGED")
+                    broadcast_log("AUTO-DRIVE DISENGAGED")
                     if left_motor: left_motor.stop()
                     if right_motor: right_motor.stop()
                     
@@ -867,7 +876,8 @@ async def broadcast_loop():
                     } if fsm and (is_auto_driving or fsm.state != "IDLE") else None,
                     "lidar_points": lidar.get_points_xy()[:360] if lidar else [],
                     "fsm_state": fsm.state_summary if fsm else "IDLE",
-                    "power": power_sensor.get_all() if power_sensor else None
+                    "power": power_sensor.get_all() if power_sensor else None,
+                    "latest_log": latest_log
                 }
                 
                 # Update target_pose from best detection (live refinement)
