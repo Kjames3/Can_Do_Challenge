@@ -7,7 +7,7 @@ from queue import Queue
 # Configuration
 ROBOT_PORT = 8081
 TIMEOUT = 0.4  # Fast timeout
-THREAD_COUNT = 500  # Higher thread count for wider scan
+THREAD_COUNT = 1000  # Higher thread count for wider scan
 
 def get_local_ip():
     """Finds the local IP address of this computer."""
@@ -46,21 +46,18 @@ def main():
     print(f"📍 Your IP:     {local_ip}")
 
     # Determine Subnet to Scan 
-    # The user's network is VERY large (IPs observed: .232.x and .244.x).
-    # This implies at least a /19 subnet (blocks of 32 in the third octet).
+    # Scanning the entire /16 subnet (10.13.x.x) to ensure we find the robot
+    # regardless of which specific block it's in.
     try:
         octets = list(map(int, local_ip.split('.')))
         network_prefix = ".".join(map(str, octets[:2])) # e.g. "10.13"
-        third_octet = octets[2]
         
-        # Calculate start of the /19 block (32 * 256 = 8192 IPs)
-        # /19 blocks: 0-31, 32-63, ... 224-255
-        BLOCK_SIZE = 32
-        block_start = (third_octet // BLOCK_SIZE) * BLOCK_SIZE
-        block_end = block_start + (BLOCK_SIZE - 1)
+        # Scan all subnets in the /16 range (0-255)
+        block_start = 0
+        block_end = 255
         
-        print(f" Target Range: {network_prefix}.{block_start}.1  --->  {network_prefix}.{block_end}.254")
-        print(f" Scanning approx {BLOCK_SIZE * 255} IPs with {THREAD_COUNT} threads...")
+        print(f" Target Range: {network_prefix}.0.1  --->  {network_prefix}.255.254")
+        print(f" Scanning approx {256 * 255} IPs with {THREAD_COUNT} threads...")
         
     except Exception as e:
         print(f"Error parsing IP: {e}")

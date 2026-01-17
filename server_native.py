@@ -276,9 +276,9 @@ def initialize_hardware():
     # Reduce motion blur: cap exposure, boost ISO, higher FPS
     if camera and not SIM_MODE:
         camera.set_controls({
-            "ExposureTime": 2000,        # ~1/500s (microseconds)
-            "AnalogueGain": 2.0,         # ISO boost
-            "AeEnable": False,           # Disable auto-exposure
+            # "ExposureTime": 2000,        # ~1/500s (microseconds)
+            # "AnalogueGain": 2.0,         # ISO boost
+            "AeEnable": True,           # Enable auto-exposure
             "AwbEnable": True,           # Keep auto white balance
             "FrameDurationLimits": (1, 50000) # Force high FPS capabilities
         })
