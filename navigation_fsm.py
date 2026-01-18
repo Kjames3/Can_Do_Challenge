@@ -269,30 +269,35 @@ class NavigationFSM:
             dy = self.goal_y - self.current_y
             current_map_dist = np.sqrt(dx*dx + dy*dy)
         
-        if hasattr(self, '_goal_locked') and self._goal_locked:
-            # Goal is locked - pure pursuit using odometry - ignore visual updates for goal pos
-            # We still reset target_lost_time if we see it, to prevent "blind drive" logic if possible
-            # but we definitely don't move the goal post.
-            if target_pose or (detection and detection.get('distance_cm')):
-                 self.target_lost_time = 0
-        elif target_pose and target_pose.get('x') is not None:
-            # Only update goal if we're far enough away (or don't have a goal yet)
-            if current_map_dist is None or current_map_dist > GOAL_FREEZE_THRESHOLD:
-                self.goal_x = target_pose['x']
-                self.goal_y = target_pose['y']
-                self.last_valid_distance = target_pose.get('distance_cm', 0)
-            else:
-                # Goal frozen - trust odometry for final approach
-                if not hasattr(self, '_goal_frozen') or not self._goal_frozen:
-                    print(f"  🔒 Goal frozen at {current_map_dist:.1f}cm - trusting odometry")
-                    self._goal_frozen = True
-            self.target_lost_time = 0  # Reset lost timer - we see the target
-        
-        elif detection and not (hasattr(self, '_goal_locked') and self._goal_locked):
-            # Fallback: if only detection passed (legacy), reset lost timer
-            # BUT only if goal is not locked. IF LOCKED, we ignore "detection only" updates 
-            # (which shouldn't happen here anyway as this block is for goal setting)
+        if detection and detection.get('distance_cm'):
+            # HYBRID NAV: Update goal if we have a new valid detection
+            # Filter large jumps (> 30cm) unless it's the first update
             self.target_lost_time = 0
+            
+            if target_pose and target_pose.get('x') is not None:
+                new_x = target_pose['x']
+                new_y = target_pose['y']
+                
+                # Check distance from current goal (if exists)
+                if self.goal_x is not None:
+                    g_dx = new_x - self.goal_x
+                    g_dy = new_y - self.goal_y
+                    jump_dist = np.sqrt(g_dx*g_dx + g_dy*g_dy)
+                    
+                    if jump_dist > 30.0:
+                        print(f"  ⚠ Goal Jump {jump_dist:.1f}cm Rejected (Filter)")
+                    else:
+                        # Smooth update (Low Pass Filter)
+                        alpha = 0.3
+                        self.goal_x = self.goal_x * (1-alpha) + new_x * alpha
+                        self.goal_y = self.goal_y * (1-alpha) + new_y * alpha
+                        self.last_valid_distance = target_pose.get('distance_cm', 0)
+                else:
+                    self.goal_x = new_x
+                    self.goal_y = new_y
+        
+        elif detection:
+             self.target_lost_time = 0
         else:
             # Target lost! Start timer if not already started
             if self.target_lost_time == 0:
@@ -362,78 +367,62 @@ class NavigationFSM:
                 await self._stop_motors()
             return
         
-        # 2. Calculate MAP-BASED bearing and distance (Source of Truth)
-        dx = self.goal_x - self.current_x
-        dy = self.goal_y - self.current_y
+        # 2. HYBRID DRIVE SELECTION
+        # Priority: Visual Servoing (Local) > Map Navigation (Global)
         
-        # Distance to goal coordinate (from map, not camera)
-        map_dist = np.sqrt(dx*dx + dy*dy)
-        self.goal_distance = map_dist
+        use_visual = False
+        final_dist = 0.0
+        final_bearing = 0.0
         
-        # Vector to target (Corrected Inverse Transform for Y-Forward System)
-        # We un-rotate the World Vector (dx, dy) by the Robot's Heading (theta)
-        # x_local (Right)   = dx * cos(theta) - dy * sin(theta)
-        # y_local (Forward) = dx * sin(theta) + dy * cos(theta)
-        cos_t = np.cos(self.current_theta)
-        sin_t = np.sin(self.current_theta)
-        
-        # FIXED: Correct Dot Product for Y-Forward System
-        # Fwd = (-sin, cos), Right = (cos, sin)
-        # local_x = D dot R = dx*cos + dy*sin
-        # local_y = D dot F = -dx*sin + dy*cos
-        
-        # OFFSET INJECTION: Shift target laterally to correct left/right bias
-        offset_cm = map_dist * 1.3 * (self.config.approach_x_offset / self.config.frame_width)
-        
-        local_x = (dx * cos_t + dy * sin_t) + offset_cm
-        local_y = (-dx * sin_t + dy * cos_t)
-        
-        # In Y-Forward system: local_y is forward, local_x is right
-        # Bearing error = atan2(x, y) - angle from forward axis
-        map_bearing = np.arctan2(local_x, local_y)
-        
-        # 3. DYNAMIC FOCUS (if camera available and target visible)
+        # A. Visual Servoing (If Visible)
         if detection and detection.get('distance_cm'):
-            det_distance = detection['distance_cm']
-            if hasattr(self.camera, 'set_focus'):
-                if det_distance > 100:
-                    new_focus = 0.0
-                else:
-                    # Calibrated formula based on user data:
-                    # 10cm->6.5 (65), 20cm->3.5 (70), 50cm->1.5 (75) => Avg constant ~70
-                    new_focus = max(0.0, min(14.0, 70.0 / det_distance))
+             det_dist = detection['distance_cm']
+             
+             # Calculate Visual Bearing directly from center_x
+             center_x = detection.get('center_x', self.config.frame_width/2)
+             vis_bearing = (center_x - (self.config.frame_width/2)) * (self.config.camera_hfov_deg / self.config.frame_width) * (np.pi / 180.0)
+             
+             final_dist = det_dist
+             final_bearing = vis_bearing
+             use_visual = True
+             
+             # Dynamic Focus
+             if hasattr(self.camera, 'set_focus'):
+                if det_dist > 100: new_focus = 0.0
+                else: new_focus = max(0.0, min(14.0, 70.0 / det_dist))
                 if abs(new_focus - self.last_focus_val) > 0.2:
                     self.camera.set_focus(new_focus)
                     self.last_focus_val = new_focus
-                    print(f"DEBUG: Focus set to {new_focus:.2f} for dist {det_distance:.1f}cm")
+
+        # B. Map Navigation (Fallback)
+        else:
+             time_since_loss = time.time() - self.target_lost_time if self.target_lost_time > 0 else 0
+             if time_since_loss > self.COAST_TIME_LIMIT:
+                 print(f"  🙈 Blind Nav: MapDist={map_dist:.1f}cm, MapBear={np.degrees(map_bearing):.1f}°")
+             
+             final_dist = map_dist
+             final_bearing = map_bearing  # This comes from the filtered goal_x/y
         
-        # 4. BLIND SPOT LOGGING (for debugging)
-        if not detection or not detection.get('distance_cm'):
-            time_since_loss = time.time() - self.target_lost_time if self.target_lost_time > 0 else 0
-            if time_since_loss > self.COAST_TIME_LIMIT:
-                print(f"  🙈 Blind Nav: MapDist={map_dist:.1f}cm, MapBear={np.degrees(map_bearing):.1f}°")
-        
-        # 5. CHECK ARRIVAL - Increased threshold to 15cm to prevent 180 spins at close range
-        # When very close, small coordinate jitter can flip bearing from "front" to "behind"
-        # 5. CHECK ARRIVAL
+        # 3. CHECK ARRIVAL
         threshold = self.config.target_distance_cm + self.config.dist_threshold_cm
-        print(f"DEBUG: Check {map_dist:.2f} <= {threshold:.1f}? {map_dist <= threshold}")
-        if map_dist <= threshold:
-            print(f"✓ TARGET REACHED! Map distance: {map_dist:.1f}cm")
+        if final_dist <= threshold:
+            print(f"✓ TARGET REACHED! Dist: {final_dist:.1f}cm")
             self._set_state(NavigationState.ARRIVED)
             await self._stop_motors()
-            # Goal preserved for return alignment logic
-            if self.on_arrived:
-                self.on_arrived()
+            if self.on_arrived: self.on_arrived()
             return
-        
-        # 6. SUB-PHASE LOGIC - Use Pure Pursuit (curved approach)
+
+        # 4. EXECUTE PURE PURSUIT (With the selected data)
         if self.approach_phase == ApproachPhase.ACQUIRE:
-            await self._handle_acquire(map_dist, map_bearing)
+             await self._handle_acquire(final_dist, final_bearing)
+             return
         
-        # Combine ROTATE and DRIVE into a single "Curved Drive" phase
         if self.approach_phase == ApproachPhase.DRIVE or self.approach_phase == ApproachPhase.ROTATE:
-            await self._handle_pure_pursuit(map_dist, map_bearing)
+            await self._handle_pure_pursuit(final_dist, final_bearing)
+            return
+
+        # (Skip old logic below)
+        return
     
     async def _handle_pure_pursuit(self, distance: float, bearing: float):
         """
@@ -526,9 +515,9 @@ class NavigationFSM:
             
             self.goal_x = self.current_x + dx
             self.goal_y = self.current_y + dy
-            self._goal_locked = True
+            # self._goal_locked = True  <- REMOVED (Allow updates)
             
-            print(f"  🔒 GOAL LOCKED: ({self.goal_x:.1f}, {self.goal_y:.1f})")
+            print(f"  🎯 Goal Set: ({self.goal_x:.1f}, {self.goal_y:.1f}) [Offset Removed]")
             
             # Decide next phase
             if abs(avg_bearing) > self.config.bearing_threshold:
@@ -881,16 +870,37 @@ class NavigationFSM:
             
             # 5. [FIX 2] GENTLER PULSE LOGIC
             # If error is small (< 25 deg), use very short pulses
+            # 4. Check Completion
+            if abs(heading_error) <= THRESHOLD:
+                await self._stop_motors()
+                self._set_state(NavigationState.IDLE)
+                # ... check visual stop ...
+                print(f"\n✓ ALIGN COMPLETE! Final Error: {np.degrees(heading_error):.1f}°")
+                if hasattr(self, '_align_target_heading'): del self._align_target_heading
+                if self.on_returned: self.on_returned()
+                return
+            
+            # [FIX 3] VISUAL STOP
+            if self.latest_detection and abs(heading_error) < np.radians(3):
+                 await self._stop_motors()
+                 self._set_state(NavigationState.IDLE)
+                 print(f"\n✓ VISUAL ALIGN COMPLETE! (<3° Error)")
+                 if hasattr(self, '_align_target_heading'): del self._align_target_heading
+                 if self.on_returned: self.on_returned()
+                 return
+            
+            # 5. [FIX 2] GENTLER PULSE LOGIC
+            # If error is small (< 25 deg), use very short pulses
             if abs(heading_error) < np.radians(25):
-                # Cycle: 0.1s ON, 0.6s OFF (Total 0.7s)
+                # Cycle: 0.05s ON, 0.65s OFF (Total 0.7s)
                 cycle_time = time.time() % 0.7
                 
-                if cycle_time > 0.1: # OFF PHASE (0.6s) - Long coast to stop
+                if cycle_time > 0.05: # OFF PHASE (0.65s) - Long coast to stop
                     await self._stop_motors()
                     return
                 
-                # ON PHASE (0.1s) - Quick nudge
-                pivot_power = 0.35 
+                # ON PHASE (0.05s) - Quick nudge
+                pivot_power = 0.32 
             else:
                 # Standard Control
                 MIN_MOVING_POWER = 0.32
