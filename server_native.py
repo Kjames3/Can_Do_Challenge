@@ -103,7 +103,7 @@ DRIFT_COMPENSATION = 0.00 # Temporarily disabled
 
 # Detection Configuration
 KNOWN_HEIGHT_BOTTLE = 20.0
-KNOWN_HEIGHT_CAN = 15.7  # Updated to 15.7cm (16oz Coke can)
+KNOWN_HEIGHT_CAN = 12.3  # Standard 12oz can height (safe default)
 FOCAL_LENGTH = 1298
 TARGET_CLASSES = [0]  # 0=can
 
@@ -119,9 +119,11 @@ DETECTION_INTERVAL = 1
 CONFIDENCE_THRESHOLD = 0.25
 INFERENCE_SIZE = 640
 
-# YOLO Model (YOLOv26 with NCNN for fast Pi 5 inference)
-YOLO_MODEL = 'models/yolo26n_cans_ncnn_model'  # NCNN folder for fast inference
-YOLO_FALLBACK = 'yolo26n_cans.pt'
+# YOLO Model
+YOLO_MODEL = 'models/yolo8n_cans.pt' # Fallback to v8 as v11 caused issues? User asked for v11.
+# User said "yolov11_can". File list showed "yolo11n_cans.pt".
+YOLO_MODEL = 'yolo11n_cans.pt' 
+YOLO_FALLBACK = 'yolov8n.pt'
 
 
 # =============================================================================

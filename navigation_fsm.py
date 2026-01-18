@@ -808,8 +808,23 @@ class NavigationFSM:
             await self._handle_pure_pursuit(map_dist, map_bearing)
 
         # --- PHASE 4: ALIGNING TO OLD TARGET ---
+        # --- PHASE 4: ALIGNING TO OLD TARGET ---
         elif self.return_phase == ReturnPhase.ALIGNING:
             
+            # Initialize Timeout
+            if not hasattr(self, '_align_start_time'):
+                self._align_start_time = time.time()
+                
+            # Timeout Check (5 Seconds)
+            if time.time() - self._align_start_time > 5.0:
+                 print("\n⚠ ALIGN TIMEOUT - Stopping.")
+                 await self._stop_motors()
+                 self._set_state(NavigationState.IDLE)
+                 if hasattr(self, '_align_target_heading'): del self._align_target_heading
+                 if hasattr(self, '_align_start_time'): del self._align_start_time
+                 if self.on_returned: self.on_returned()
+                 return
+
             # 1. Calculate Target Heading (With 180 Degree Flip)
             if not hasattr(self, '_align_target_heading'):
                 if self.goal_x is not None and self.goal_y is not None:
@@ -834,8 +849,8 @@ class NavigationFSM:
 
             target_heading = self._align_target_heading
             
-            # 2. Dynamic Thresholds
-            THRESHOLD = np.radians(4) if self.latest_detection else np.radians(8)
+            # 2. Dynamic Thresholds (Relaxed)
+            THRESHOLD = np.radians(8) # Relaxed from 4 deg to 8 deg for stability
             
             # Visual Override (Optional)
             if self.latest_detection:
@@ -862,48 +877,36 @@ class NavigationFSM:
                 await self._stop_motors()
                 self._set_state(NavigationState.IDLE)
                 print(f"\n✓ ALIGN COMPLETE! Final Error: {np.degrees(heading_error):.1f}°")
-                if hasattr(self, '_align_target_heading'):
-                    del self._align_target_heading
-                if self.on_returned:
-                    self.on_returned()
-                return
-            
-            # 5. [FIX 2] GENTLER PULSE LOGIC
-            # If error is small (< 25 deg), use very short pulses
-            # 4. Check Completion
-            if abs(heading_error) <= THRESHOLD:
-                await self._stop_motors()
-                self._set_state(NavigationState.IDLE)
-                # ... check visual stop ...
-                print(f"\n✓ ALIGN COMPLETE! Final Error: {np.degrees(heading_error):.1f}°")
                 if hasattr(self, '_align_target_heading'): del self._align_target_heading
+                if hasattr(self, '_align_start_time'): del self._align_start_time
                 if self.on_returned: self.on_returned()
                 return
             
             # [FIX 3] VISUAL STOP
-            if self.latest_detection and abs(heading_error) < np.radians(3):
+            if self.latest_detection and abs(heading_error) < np.radians(5):
                  await self._stop_motors()
                  self._set_state(NavigationState.IDLE)
-                 print(f"\n✓ VISUAL ALIGN COMPLETE! (<3° Error)")
+                 print(f"\n✓ VISUAL ALIGN COMPLETE! (<5° Error)")
                  if hasattr(self, '_align_target_heading'): del self._align_target_heading
+                 if hasattr(self, '_align_start_time'): del self._align_start_time
                  if self.on_returned: self.on_returned()
                  return
             
-            # 5. [FIX 2] GENTLER PULSE LOGIC
-            # If error is small (< 25 deg), use very short pulses
+            # 5. [FIX 2] GENTLER PULSE LOGIC (Increased Cycle Time)
+            # If error is small (< 25 deg), use pulse width modulation
             if abs(heading_error) < np.radians(25):
-                # Cycle: 0.05s ON, 0.65s OFF (Total 0.7s)
-                cycle_time = time.time() % 0.7
+                # Cycle: 0.1s ON, 0.4s OFF (Total 0.5s) - More power, longer wait
+                cycle_time = time.time() % 0.5
                 
-                if cycle_time > 0.05: # OFF PHASE (0.65s) - Long coast to stop
+                if cycle_time > 0.1: # OFF PHASE (0.4s) - Coast to stop
                     await self._stop_motors()
                     return
                 
-                # ON PHASE (0.05s) - Quick nudge
-                pivot_power = 0.32 
+                # ON PHASE (0.1s) - Quick nudge
+                pivot_power = 0.35 # Slightly higher power to overcome stiction
             else:
                 # Standard Control
-                MIN_MOVING_POWER = 0.32
+                MIN_MOVING_POWER = 0.35
                 gain = 0.8
                 pivot_power = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(heading_error) * gain))
             
