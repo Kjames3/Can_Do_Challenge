@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 # CALIBRATED VALUE (Effective Circumference)
 # This represents the distance traveled per 1000 encoder ticks.
 # Derived from calibration (1.36mm/12 ticks) -> 113.3mm/1000 ticks.
-# UPDATE 5: Set to 55.0 (+4%) to fix 5cm overshoot.
-WHEEL_CIRCUMFERENCE_MM = 65.0
+# UPDATE 6: Reset to 55.0. (User set 75 manually, but 55 was calibrated).
+WHEEL_CIRCUMFERENCE_MM = 55.0
 # WHEEL_DIAMETER_CM = 6.8  # Physical diameter (kept for reference, do not use for calc)
 # Effective Track Width for Skid Steer (Calibrated for Rotation)
 # Physical is 356mm, but high friction scrubbing requires larger effective width.

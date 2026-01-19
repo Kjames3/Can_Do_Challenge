@@ -1038,18 +1038,21 @@ class NavigationFSM:
                     return
                 
                 # ON PHASE (0.1s) - Quick nudge
-                pivot_power = 0.35 # Slightly higher power to overcome stiction
+                pivot_power = 0.50 # Increased power to overcome stiction
             else:
                 # Standard Control
-                MIN_MOVING_POWER = 0.35
+                MIN_MOVING_POWER = 0.50  # Needed for skid steer rotation
                 gain = 0.8
                 pivot_power = max(MIN_MOVING_POWER, min(self.config.pivot_speed, abs(heading_error) * gain))
             
             # Apply Motor Power
+            # [FIX] Invert Logic to match Pure Pursuit
+            # Error > 0 means Target is LEFT. We must turn LEFT.
+            # Left Turn = Left Motor FWD (+), Right Motor BACK (-)
             if heading_error > 0:
-                await self._set_motor_power(-pivot_power, pivot_power) 
+                await self._set_motor_power(pivot_power, -pivot_power) 
             else:
-                await self._set_motor_power(pivot_power, -pivot_power)
+                await self._set_motor_power(-pivot_power, pivot_power)
 
     
     # =========================================================================
