@@ -85,7 +85,7 @@ python server_native.py --sim
 
 ### 3. Open the GUI
 
-Open `GUI.html` in a web browser on any device on the same network.
+Open `web/GUI.html` in a web browser on any device on the same network.
 
 ### 4. Connect
 
@@ -98,10 +98,12 @@ Enter the Pi's IP address and click **Connect**.
 ```
 viam_projects/
 ├── server_native.py      # Main server (native GPIO control)
-├── GUI.html              # Web control interface
 ├── drivers.py            # Hardware driver classes
 ├── robot_state.py        # Odometry & pose tracking
 ├── navigation_fsm.py     # Autonomous navigation FSM
+├── web/                  # Web control interface (GUI)
+├── yahboom/              # Yahboom X3 specific drivers & server
+├── models/               # YOLO detection models
 ├── install_native.sh     # Installation script
 │
 ├── viam/                 # Viam SDK implementations
@@ -118,10 +120,13 @@ viam_projects/
 
 | Folder | Description | When to Use |
 |--------|-------------|-------------|
-| [viam/](viam/) | Viam SDK server implementations | Cloud monitoring, remote access |
-| [calibration/](calibration/) | Motor & camera calibration | After hardware changes |
-| [training/](training/) | YOLO model training | Improving detection accuracy |
-| [tests/](tests/) | Hardware verification | Debugging, validation |
+| [web/](web/README.md) | Web GUI Source | Editing the frontend interface |
+| [yahboom/](yahboom/README.md) | X3 Robot Drivers | Running on Jetson Orin Nano |
+| [models/](models/README.md) | AI Models | Managing YOLO versions |
+| [viam/](viam/README.md) | Viam SDK server implementations | Cloud monitoring, remote access |
+| [calibration/](calibration/README.md) | Motor & camera calibration | After hardware changes |
+| [training/](training/README.md) | YOLO model training | Improving detection accuracy |
+| [tests/](tests/README.md) | Hardware verification | Debugging, validation |
 
 ---
 

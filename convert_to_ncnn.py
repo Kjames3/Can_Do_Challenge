@@ -1,7 +1,7 @@
 from ultralytics import YOLO
 
 # Load the YOLOv11 model
-model_path = 'yolo11n_cans.pt'
+model_path = 'models/yolo11n_cans.pt'
 print(f"Loading model: {model_path}...")
 model = YOLO(model_path)
 

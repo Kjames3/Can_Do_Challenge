@@ -121,8 +121,8 @@ INFERENCE_SIZE = 640
 
 # YOLO Model
 # NCNN Model for Raspberry Pi 5 (Converted via convert_to_ncnn.py)
-YOLO_MODEL = 'yolo11n_cans_ncnn_model'
-YOLO_FALLBACK = 'yolo11n_cans.pt'
+YOLO_MODEL = 'models/yolo11n_cans_ncnn_model'
+YOLO_FALLBACK = 'models/yolo11n_cans.pt'
 
 
 # =============================================================================

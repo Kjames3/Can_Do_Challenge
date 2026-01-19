@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Viam Rover Control Panel</title>
+    <!-- Three.js (for 3D visualization) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-title">
+                <div class="logo">🤖</div>
+                <h1>Viam Rover Control</h1>
+            </div>
+
+            <div class="connection-status">
+                <div id="power-stats" class="power-readout" style="display: none;">
+                    <div class="power-item">
+                        <small>Volts</small>
+                        <span id="stat-volts">-- V</span>
+                    </div>
+                    <div class="separator"></div>
+                    <div class="power-item">
+                        <small>Amps</small>
+                        <span id="stat-amps">-- A</span>
+                    </div>
+                    <div class="separator"></div>
+                    <div class="power-item">
+                        <small>Power</small>
+                        <span id="stat-watts">-- W</span>
+                    </div>
+                    <div class="separator"></div>
+                    <div class="power-item">
+                        <small>Session</small>
+                        <span id="stat-uptime">0:00</span>
+                    </div>
+                    <div class="separator"></div>
+                    <div class="power-item" id="time-remaining-container">
+                        <small>Time Left</small>
+                        <span id="stat-time-remaining" style="color: var(--accent-green);">OK</span>
+                    </div>
+                </div>
+
+                <!-- Controller Status -->
+                <div id="gamepad-indicator" class="gamepad-indicator">
+                    <span class="icon">🎮</span>
+                    <span id="gamepad-status-text" class="status-text">No Controller</span>
+                </div>
+
+                <div class="status-indicator">
+                    <span id="status-dot" class="status-dot"></span>
+                    <span id="status-text">Disconnected</span>
+                </div>
+                <!-- IP Input -->
+                <input type="text" id="robot-ip" class="ip-input" placeholder="Robot IP" value="besto.local">
+                <button id="connect-btn" class="btn btn-primary">Connect</button>
+                <button id="disconnect-btn" class="btn btn-danger"
+                    style="display: none; margin-left: 0.5rem;">Disconnect</button>
+            </div>
+        </header>
+
+        <!-- Camera Feed (Full Width) -->
+        <div class="card">
+            <div class="card-header">
+                <h2><span class="icon">📹</span> Camera Feed</h2>
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <button id="capture-btn" class="btn btn-primary" style="padding: 0.4rem 0.8rem; font-size: 0.75rem;"
+                        title="Capture image for training">
+                        📸 Capture
+                    </button>
+                    <span id="capture-count" style="font-size: 0.75rem; color: var(--text-secondary);">0
+                        saved</span>
+                    <button id="download-images-btn" class="btn"
+                        style="padding: 0.4rem 0.8rem; font-size: 0.75rem; background: var(--bg-tertiary); border: 1px solid var(--border-color);"
+                        title="Download all captured images as ZIP">
+                        💾 Download All
+                    </button>
+                    <button id="blur-sweep-btn" class="btn"
+                        style="padding: 0.4rem 0.8rem; font-size: 0.75rem; background: linear-gradient(135deg, #a855f7, #7c3aed); color: white; border: none; box-shadow: 0 4px 12px rgba(168, 85, 247, 0.3);"
+                        title="Capture 25 images with focus 0.0-12.0 (step 0.5)">
+                        🌊 Blur Sweep
+                    </button>
+                    <div class="toggle-wrapper">
+                        <span class="toggle-label">Detection</span>
+                        <div id="detection-toggle" class="toggle" title="Toggle object detection"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <img id="camera-feed" class="camera-feed" alt="Camera feed" style="display: none;">
+                <div id="camera-placeholder" class="camera-placeholder">
+                    <span class="camera-placeholder-icon">📷</span>
+                    <span>Awaiting camera feed...</span>
+                </div>
+
+                <!-- FPS Display Overlay -->
+                <div id="fps-display" class="fps-display" style="display: none;">
+                    <span class="fps-item" style="color: var(--accent-green);">
+                        📷 Camera: <strong id="fps-camera">0</strong> FPS
+                    </span>
+                    <span id="fps-detection-wrapper" class="fps-item"
+                        style="display: none; color: var(--accent-yellow);">
+                        🔍 YOLO: <strong id="fps-detection">0</strong> FPS
+                    </span>
+                </div>
+
+                <!-- Detection Results -->
+                <div id="detection-panel" class="detection-panel" style="display: none;">
+                    <div class="detection-header">
+                        <span class="detection-count">
+                            <strong id="detection-count">0</strong> objects detected
+                    </div>
+                    <div id="detection-list" class="detection-list">
+                        <div class="no-detections">No objects detected</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Combined Controls Card: Motor Control + Status + Position all in one -->
+        <div class="card" style="margin-top: 0.5rem;">
+            <div class="card-header">
+                <h2><span class="icon">🎮</span> Controls & Status</h2>
+                <!-- Controller Status inline -->
+                <div id="controller-status"
+                    style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">
+                    <span>🎮</span>
+                    <span id="controller-name">No controller</span>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="control-area" class="combined-controls disabled-overlay">
+                    <!-- Motor Control Section -->
+                    <div class="control-section-item motor-control-section">
+                        <div class="sliders-container">
+                            <div class="slider-group">
+                                <span class="slider-label">LEFT</span>
+                                <div class="slider-wrapper">
+                                    <div class="slider-fill" id="left-fill" style="bottom: 50%; height: 0%;"></div>
+                                    <div class="slider-thumb" id="left-thumb" style="bottom: 50%;"></div>
+                                    <input type="range" id="left-slider" class="slider-input" min="-100" max="100"
+                                        value="0" step="1">
+                                </div>
+                                <span id="left-slider-value" class="slider-value">0</span>
+                            </div>
+
+                            <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center;">
+                                <button id="stop-btn" class="stop-btn">STOP</button>
+                                <button id="auto-drive-btn" class="btn btn-primary"
+                                    style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                                    Auto-Drive
+                                </button>
+                                <!-- Compact WASD -->
+                                <div class="d-pad" style="transform: scale(0.8);">
+                                    <button class="d-btn" id="btn-w">↑</button>
+                                    <button class="d-btn" id="btn-a">↶</button>
+                                    <button class="d-btn" id="btn-s">↓</button>
+                                    <button class="d-btn" id="btn-d">↷</button>
+                                </div>
+                                <!-- Keyboard Toggle -->
+                                <label
+                                    style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.7rem; color: var(--text-secondary); cursor: pointer; margin-top: 0.3rem;">
+                                    <input type="checkbox" id="keyboard-toggle" style="cursor: pointer;">
+                                    <span>⌨️ Keyboard</span>
+                                </label>
+                            </div>
+
+                            <div class="slider-group">
+                                <span class="slider-label">RIGHT</span>
+                                <div class="slider-wrapper">
+                                    <div class="slider-fill" id="right-fill" style="bottom: 50%; height: 0%;"></div>
+                                    <div class="slider-thumb" id="right-thumb" style="bottom: 50%;"></div>
+                                    <input type="range" id="right-slider" class="slider-input" min="-100" max="100"
+                                        value="0" step="1">
+                                </div>
+                                <span id="right-slider-value" class="slider-value">0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Motor Status Section -->
+                    <div class="control-section-item">
+                        <h3 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; color: var(--text-secondary);">📊 Status
+                        </h3>
+                        <div class="motor-grid">
+                            <div class="motor-card">
+                                <h3>Left</h3>
+                                <div id="left-pos" class="motor-value">0.00</div>
+                                <div class="motor-label">rev</div>
+                                <div id="left-power" class="motor-value mt-1">0%</div>
+                            </div>
+                            <div class="motor-card">
+                                <h3>Right</h3>
+                                <div id="right-pos" class="motor-value">0.00</div>
+                                <div class="motor-label">rev</div>
+                                <div id="right-power" class="motor-value mt-1">0%</div>
+                            </div>
+                        </div>
+                        <!-- FPS Stats -->
+                        <div
+                            style="margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid var(--border-color);">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.8rem;">
+                                <span style="color: var(--accent-green);">📷 <span id="fps-camera-inline">0</span>
+                                    FPS</span>
+                                <span style="color: var(--warning);">🔍 <span id="fps-yolo-inline">0</span> FPS</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Position Section -->
+                    <div class="control-section-item">
+                        <h3 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; color: var(--text-secondary);">📍 Position
+                        </h3>
+                        <div class="motor-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+                            <div class="motor-card">
+                                <h3>Robot</h3>
+                                <div id="robot-x" class="motor-value" style="font-size: 0.9rem;">X: 0.0</div>
+                                <div id="robot-y" class="motor-value" style="font-size: 0.9rem;">Y: 0.0</div>
+                                <div id="robot-theta" class="motor-value"
+                                    style="font-size: 0.75rem; color: var(--text-secondary);">θ: 0.0°</div>
+                            </div>
+                            <div class="motor-card">
+                                <h3>Start</h3>
+                                <div id="start-x" class="motor-value"
+                                    style="font-size: 0.9rem; color: var(--text-muted);">X: --</div>
+                                <div id="start-y" class="motor-value"
+                                    style="font-size: 0.9rem; color: var(--text-muted);">Y: --</div>
+                                <div id="start-msg" class="motor-value"
+                                    style="font-size: 0.75rem; color: var(--text-muted);">Not Set</div>
+                            </div>
+                            <div class="motor-card">
+                                <h3>Target</h3>
+                                <div id="target-x" class="motor-value" style="font-size: 0.9rem;">X: --</div>
+                                <div id="target-y" class="motor-value" style="font-size: 0.9rem;">Y: --</div>
+                                <div id="target-dist" class="motor-value"
+                                    style="font-size: 0.75rem; color: var(--accent-green);">Dist: --</div>
+                            </div>
+                        </div>
+
+                        <!-- Power Readout Section -->
+                        <div
+                            style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color);">
+                            <h3 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; color: var(--text-secondary);">🔋 Power
+                            </h3>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.8rem;">
+                                <div
+                                    style="background: var(--bg-tertiary); padding: 0.4rem; border-radius: var(--radius-sm); text-align: center;">
+                                    <div style="color: var(--text-muted); font-size: 0.65rem;">VOLTAGE</div>
+                                    <div id="power-voltage" style="font-weight: 700; color: var(--accent-cyan);">-- V
+                                    </div>
+                                </div>
+                                <div
+                                    style="background: var(--bg-tertiary); padding: 0.4rem; border-radius: var(--radius-sm); text-align: center;">
+                                    <div style="color: var(--text-muted); font-size: 0.65rem;">CURRENT</div>
+                                    <div id="power-current" style="font-weight: 700; color: var(--accent-cyan);">-- A
+                                    </div>
+                                </div>
+                                <div
+                                    style="background: var(--bg-tertiary); padding: 0.4rem; border-radius: var(--radius-sm); text-align: center;">
+                                    <div style="color: var(--text-muted); font-size: 0.65rem;">POWER</div>
+                                    <div id="power-watts" style="font-weight: 700; color: var(--accent-cyan);">-- W
+                                    </div>
+                                </div>
+                                <div
+                                    style="background: var(--bg-tertiary); padding: 0.4rem; border-radius: var(--radius-sm); text-align: center;">
+                                    <div style="color: var(--text-muted); font-size: 0.65rem;">BATTERY</div>
+                                    <div id="power-battery-pct" style="font-weight: 700; color: var(--accent-green);">
+                                        --%</div>
+                                </div>
+                            </div>
+                            <div style="margin-top: 0.5rem; text-align: center; font-size: 0.75rem;">
+                                <span style="color: var(--text-muted);">Est. Time:</span>
+                                <span id="power-time-remaining"
+                                    style="font-weight: 700; color: var(--accent-green);">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Row: Lidar and 3D View side by side -->
+        <div class="controls-row" style="margin-top: 1rem;">
+            <!-- Lidar -->
+            <div class="card">
+                <div class="card-header">
+                    <h2><span class="icon">📡</span> Lidar View</h2>
+                    <div class="toggle-wrapper">
+                        <span class="toggle-label">Enable</span>
+                        <div id="lidar-toggle" class="toggle"></div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="lidar-container">
+                        <canvas id="lidar-canvas" class="lidar-canvas" width="300" height="300"></canvas>
+                        <span class="lidar-scale">100px = 1 meter</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3D Visualization (Three.js) -->
+            <div id="viewport-3d-card" class="card">
+                <div class="card-header">
+                    <h2><span class="icon">🎮</span> 3D View</h2>
+                    <div id="nav-phase-display"
+                        style="font-size: 0.75rem; color: var(--accent-cyan); font-family: monospace;">IDLE</div>
+                </div>
+                <div class="card-body" style="padding: 0;">
+                    <div id="viewport-3d-container" style="width: 100%; height: 300px; position: relative;">
+                        <canvas id="viewport-3d-canvas" style="width: 100%; height: 100%;"></canvas>
+                    </div>
+                    <div
+                        style="display: flex; gap: 1rem; padding: 0.5rem 1rem; font-size: 0.7rem; color: var(--text-muted); background: var(--bg-tertiary);">
+                        <span>🔵 Robot</span>
+                        <span style="color: #22c55e;">🟢 Start</span>
+                        <span style="color: #ef4444;">🔴 Target</span>
+                        <span style="color: #64748b;">⬜ Grid = 1m</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="main.js"></script>
+</body>
+
+</html>
