@@ -683,7 +683,7 @@ class NavigationFSM:
         # Trust camera distance if available and < 30cm, otherwise trust map
         check_dist = distance if (distance > 0 and distance < 30) else map_dist
         
-        if check_dist < self.config.target_distance:
+        if check_dist < self.config.target_distance_cm:
             await self._stop_motors()
             print(f"✓ Arrived at Target! (Dist={check_dist:.1f}cm)")
             self._set_state(NavigationState.ARRIVED)
