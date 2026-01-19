@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 # CALIBRATED VALUE (Effective Circumference)
 # This represents the distance traveled per 1000 encoder ticks.
 # Derived from calibration (1.36mm/12 ticks) -> 113.3mm/1000 ticks.
-# UPDATE 3: Set to 47.5 (Midpoint binary search). 38.3 was too low (overshoot), 56.6 was too high (undershoot).
-WHEEL_CIRCUMFERENCE_MM = 47.5
+# UPDATE 4: Set to 53.0 (+12%) to fix 10cm overshoot (Undercounting).
+WHEEL_CIRCUMFERENCE_MM = 53.0
 # WHEEL_DIAMETER_CM = 6.8  # Physical diameter (kept for reference, do not use for calc)
 WHEEL_BASE_MM = 356             # mm (width between wheels)
 WHEEL_BASE_CM = WHEEL_BASE_MM / 10

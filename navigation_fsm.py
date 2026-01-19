@@ -52,8 +52,8 @@ class NavigationConfig:
     large_turn_threshold: float = 0.35    # ~20° - use tank turn above this
     
     # Motor speeds (higher = fewer small movements = fewer API calls)
-    rotate_speed: float = 0.40            # Tank turn speed (increased for heavy bot)
-    pivot_speed: float = 0.40             # Pivot turn speed (increased for heavy bot)
+    rotate_speed: float = 0.35            # Reduced for smoother turning
+    pivot_speed: float = 0.35             # Reduced for smoother pivoting
     drive_speed: float = 0.40             # Forward drive speed (increased for faster approach)
     search_speed: float = 0.20            # Search rotation speed (slowed to not miss objects)
     backup_speed: float = 0.25            # Backup speed for avoiding
@@ -80,7 +80,7 @@ class NavigationConfig:
     approach_x_offset: float = 40.0       # Pixel offset (Positive = Shifts aim RIGHT)
 
     # Pure Pursuit / Curved Drive Settings
-    curvature_gain: float = 1.2           # Controls sharpness of turns (higher = sharper)
+    curvature_gain: float = 1.0           # Reduced to 1.0 for gentler curves
     min_drive_speed: float = 0.25         # Minimum speed to keep moving while turning
 
 
