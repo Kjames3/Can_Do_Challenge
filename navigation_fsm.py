@@ -967,10 +967,10 @@ class NavigationFSM:
                     gy = self.goal_y - self.start_y
                     
                     # [FIX 1] 180 DEGREE OFFSET
-                    # We calculate the vector, then add PI (180 deg) to face the "Old Target"
-                    # as requested (since aligning to 0.0 pointed the wrong way).
-                    raw_angle = np.arctan2(-gx, gy) # Standard Y-Forward math
-                    self._align_target_heading = raw_angle + np.pi 
+                    # We calculate the vector from Start to Goal
+                    # Goal is at (gx, gy) relative to Start
+                    # To face Goal, we want atan2(delta_y, delta_x)
+                    self._align_target_heading = np.arctan2(gy, gx)
                     
                     # Normalize to -pi to +pi
                     while self._align_target_heading > np.pi: self._align_target_heading -= 2*np.pi
@@ -978,9 +978,9 @@ class NavigationFSM:
 
                     print(f"  👀 Aligning to Target Vector: {np.degrees(self._align_target_heading):.1f}°")
                 else:
-                    # Default to 180 if no goal recorded
-                    self._align_target_heading = np.pi
-                    print("  👀 No Goal recorded - Defaulting to 180°")
+                    # Default to 0 (Face Forward) if no goal
+                    self._align_target_heading = 0.0
+                    print("  👀 No Goal recorded - Defaulting to 0°")
 
             target_heading = self._align_target_heading
             
