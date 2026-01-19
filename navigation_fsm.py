@@ -325,7 +325,21 @@ class NavigationFSM:
         if self.state == NavigationState.SEARCHING:
             await self._handle_searching(detection)
         elif self.state == NavigationState.APPROACHING:
-            await self._handle_approaching(detection)
+            # Extract nav parameters from detection if available
+            dist = 0.0
+            bearing = 0.0
+            
+            if detection:
+                dist = detection.get('distance_cm', 0.0)
+                # Calculate bearing from center_x if not present
+                if 'center_x' in detection:
+                    width = self.config.frame_width
+                    hfov = self.config.camera_hfov_deg
+                    center_x = detection['center_x']
+                    # Standard bearing calculation (Positive = Right)
+                    bearing = (center_x - (width/2)) * (hfov / width) * (np.pi / 180.0)
+            
+            await self._handle_approaching(dist, bearing)
         elif self.state == NavigationState.AVOIDING:
             await self._handle_avoiding()
         elif self.state == NavigationState.RETURNING:
