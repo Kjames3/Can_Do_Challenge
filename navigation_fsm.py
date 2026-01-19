@@ -950,8 +950,8 @@ class NavigationFSM:
             if not hasattr(self, '_align_start_time'):
                 self._align_start_time = time.time()
                 
-            # Timeout Check (5 Seconds)
-            if time.time() - self._align_start_time > 5.0:
+            # Timeout Check (12 Seconds - Increased for slower turns)
+            if time.time() - self._align_start_time > 12.0:
                  print("\n⚠ ALIGN TIMEOUT - Stopping.")
                  await self._stop_motors()
                  self._set_state(NavigationState.IDLE)
