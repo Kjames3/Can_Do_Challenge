@@ -794,16 +794,32 @@ class NavigationFSM:
                  print(f"  Navigating Return: Dist={map_dist:.1f}cm (Threshold={self.config.return_distance_threshold})", end='\r')
 
             # 2. Coordinate Transform (World -> Robot Frame)
-            # Match math from _handle_approaching EXACTLY
+            # Standard Rotation Matrix (Theta = Angle of X-axis w.r.t Global X)
+            # Local X (Forward) =  dx * cos(t) + dy * sin(t)
+            # Local Y (Left)    = -dx * sin(t) + dy * cos(t)
+            
             cos_t = np.cos(self.current_theta)
             sin_t = np.sin(self.current_theta)
             
-            # FIXED: Correct Dot Product for Y-Forward System
-            local_x = (dx * cos_t + dy * sin_t)
-            local_y = (-dx * sin_t + dy * cos_t)
+            # Standard Rotation Transpose (Project World Vector onto Body Axes)
+            # Body X (Forward) axis is at 'theta'
+            # Body Y (Left) axis is at 'theta + 90'
+            
+            # Global Vector
+            gx = dx 
+            gy = dy
+            
+            # Project onto Body X (Forward): Dot Product
+            # forward_vec = [cos(t), sin(t)]
+            local_x = gx * cos_t + gy * sin_t
+            
+            # Project onto Body Y (Left): Dot Product
+            # left_vec = [-sin(t), cos(t)]  (Rotated 90 deg CCW)
+            local_y = gx * -sin_t + gy * cos_t
             
             # Calculate Bearing (Angle to goal relative to robot)
-            map_bearing = np.arctan2(local_x, local_y)
+            # atan2(y, x) -> Angle from Forward (+X) to Target
+            map_bearing = np.arctan2(local_y, local_x)
 
             await self._handle_pure_pursuit(map_dist, map_bearing)
 

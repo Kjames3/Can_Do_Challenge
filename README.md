@@ -169,21 +169,26 @@ viam_projects/
 
 ## Coordinate System & Navigation Math
 
-The robot uses a **Y-Forward / Right-Handed** coordinate system:
+The robot now uses a **Standard Right-Hand (X-Forward)** coordinate system (ROS compatible):
 
-- **X+** = Right (East)
-- **Y+** = Forward (North)
-- **Theta=0°** = Facing Y+ (North)
-- **Theta=+90°** = Facing Left (West) - *Standard mathematical convention*
+- **X+** = Forward (North)
+- **Y+** = Left (West)
+- **Theta=0°** = Facing X+ (Forward)
+- **Theta=+90°** = Facing Y+ (Left) - *Counter-Clockwise is Positive*
 
 ### Navigation Heading
 To calculate the heading from Point A (Start) to Point B (Goal):
 
 ```python
-# Standard atan2(y, x) is for X-Forward systems.
-# For Y-Forward, we rotate the inputs:
-heading = np.arctan2(-delta_x, delta_y)
+# Standard atan2 for Right-Hand Rule
+heading = np.arctan2(delta_y, delta_x)
 ```
+
+## 🔄 Recent Updates (Jan 2026)
+- **Coordinate System Overhaul**: Switched to Standard Right-Hand Rule. Fixed "Mirror World" & 70° turn bugs.
+- **YOLOv11 Upgrade**: Switched to `yolo11n_cans.pt`.
+- **Improved Alignment**: Added timeout (5s) and relaxed thresholds (8°).
+- **Sensor Polarity**: Fixed encoder delta calculation to match IMU.
 
 ### Auto-Return Logic
 1.  **Goal Persistence**: The robot remembers the (X, Y) of the target even after driving back.

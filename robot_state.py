@@ -108,20 +108,20 @@ class RobotState:
         ds = (d_left + d_right) / 2.0
         
         # Encoder polarity: (Right - Left)
-        # If Right > Left, turning Left (CCW), theta increases.
-        # FIXED: Standard Convention (CCW = Positive)
-        # If Right Wheel moves more (d_right > d_left), robot turns LEFT (CCW).
-        # We want d_theta to be POSITIVE.
+        # If right wheel moves more, we turn LEFT (CCW).
+        # Standard: CCW is Positive Theta.
         d_theta = (d_right - d_left) / WHEEL_BASE_CM
         
         # Use half-angle for better integration accuracy (Runge-Kutta 2nd order approx)
         avg_theta = self.theta + d_theta / 2.0
         
-        # Motion Model (Y-Forward System):
-        # Theta=0 -> +Y
-        # Theta=90 (Left) -> -X
-        self.x -= ds * np.sin(avg_theta)
-        self.y += ds * np.cos(avg_theta)
+        # Motion Model (Standard X-Forward System):
+        # Theta=0 -> +X (East)
+        # Theta=90 -> +Y (North/Left)
+        # x += ds * cos(theta)
+        # y += ds * sin(theta)
+        self.x += ds * np.cos(avg_theta)
+        self.y += ds * np.sin(avg_theta)
         self.theta += d_theta
         
         # Normalize theta
@@ -132,8 +132,9 @@ class RobotState:
 
         # Jacobian F (df/dx, df/dy, df/dtheta)
         F = np.eye(3)
-        F[0, 2] = -ds * np.cos(avg_theta)
-        F[1, 2] = -ds * np.sin(avg_theta)
+        # df/dtheta derivatives
+        F[0, 2] = -ds * np.sin(avg_theta)
+        F[1, 2] =  ds * np.cos(avg_theta)
         
         # Covariance Prediction: P = F*P*F.T + Q
         self.P = F @ self.P @ F.T + self.Q

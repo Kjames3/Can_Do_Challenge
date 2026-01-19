@@ -775,21 +775,19 @@ async def broadcast_loop():
                             pixel_offset = det_center_x - (IMAGE_WIDTH / 2)
                             bearing = pixel_offset * (CAMERA_HFOV_DEG / IMAGE_WIDTH) * (np.pi / 180.0)
                             
-                            # Local frame (Y-forward)
-                            target_local_x = det_distance * np.sin(bearing)
-                            target_local_y = det_distance * np.cos(bearing)
+                            # Local frame (X-forward)
+                            # Target is at (distance, bearing) relative to X-axis
+                            target_local_x = det_distance * np.cos(bearing)
+                            target_local_y = det_distance * np.sin(bearing)
                             
                             # World frame transformation
-                            # Robot State: +Theta is Left Turn (Moving towards -X)
-                            # Forward Vector (Local Y) -> [-sin(theta), cos(theta)] in World
-                            # Right Vector (Local X)   -> [cos(theta), sin(theta)] in World
+                            # Standard 2D Rotation:
+                            # WorldX = RobotX + LocalX*cos(th) - LocalY*sin(th)
+                            # WorldY = RobotY + LocalX*sin(th) + LocalY*cos(th)
                             
                             cos_theta = np.cos(robot_state.theta)
                             sin_theta = np.sin(robot_state.theta)
                             
-                            # Apply Rotation - FIXED: Use -sin_theta for Y-Forward coordinate system
-                            # World = Robot + LocalX * RightVec + LocalY * ForwardVec
-                            # RightVec = [cos(theta), sin(theta)], ForwardVec = [-sin(theta), cos(theta)]
                             target_world_x = robot_state.x + (target_local_x * cos_theta - target_local_y * sin_theta)
                             target_world_y = robot_state.y + (target_local_x * sin_theta + target_local_y * cos_theta)
                             
