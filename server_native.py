@@ -103,7 +103,7 @@ DRIFT_COMPENSATION = 0.00 # Temporarily disabled
 
 # Detection Configuration
 KNOWN_HEIGHT_BOTTLE = 20.0
-KNOWN_HEIGHT_CAN = 16.0  # Tuned from 12.3 to match observed distance (Real 90cm vs Est 67cm)
+KNOWN_HEIGHT_CAN = 16.2  # Confirmed: 16oz can height
 FOCAL_LENGTH = 1298
 TARGET_CLASSES = [0]  # 0=can
 

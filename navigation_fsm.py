@@ -71,7 +71,7 @@ class NavigationConfig:
     
     # Return navigation
     auto_return: bool = True              # Automatically return after reaching target
-    return_distance_threshold: float = 50.0  # cm - Increased to 50cm to catch "fly-by"
+    return_distance_threshold: float = 15.0  # cm - Reduced to prevent early arrival trigger
     
     # Motor drift compensation
     drift_compensation: float = -0.10     # 10% reduction on LEFT motor
