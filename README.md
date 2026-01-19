@@ -185,8 +185,9 @@ heading = np.arctan2(delta_y, delta_x)
 ```
 
 ## 🔄 Recent Updates (Jan 2026)
+- **Navigation Engine (Global-Only)**: Removed Hybrid Navigation logic. Robot now navigates using exclusively Global Map Coordinates (Pure Pursuit Gain=1.5) to prevent "random turns" and "wide circles".
+- **NCNN Upgrade**: Switched model to `yolo11n_cans_ncnn_model` for high-performance detection on Raspberry Pi 5.
 - **Coordinate System Overhaul**: Switched to Standard Right-Hand Rule. Fixed "Mirror World" & 70° turn bugs.
-- **YOLOv11 Upgrade**: Switched to `yolo11n_cans.pt`.
 - **Improved Alignment**: Added timeout (5s) and relaxed thresholds (8°).
 - **Sensor Polarity**: Fixed encoder delta calculation to match IMU.
 

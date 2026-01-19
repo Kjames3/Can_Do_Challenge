@@ -618,26 +618,123 @@ class NavigationFSM:
             
         await self._set_motor_power(l_pow, r_pow)
     
-    async def _handle_drive(self, distance: float, bearing: float):
-        """DRIVE sub-phase: Drive straight to target"""
-        # Check if bearing drifted too much
-        if abs(bearing) > self.config.bearing_threshold * 2:
-            print(f"⚠ Target drifted ({np.degrees(bearing):.1f}°) - re-rotating")
-            self.approach_phase = ApproachPhase.ROTATE
-            await self._stop_motors()
-            return
+    async def _handle_approaching(self, distance: float, bearing: float):
+        """
+        APPROACHING Phase: Drive using Global Map Coordinates (Pure Pursuit)
         
-        # Check if arrived
-        if distance <= self.config.target_distance_cm + self.config.dist_threshold_cm:
-            print(f"✓ TARGET REACHED! Distance: {distance:.1f}cm")
+        Refactored to rely 100% on Map/Odometry logic.
+        - If Detection: Updates the Global Goal (refines the map).
+        - If No Detection: Drives to the last known Global Goal.
+        """
+        
+        # 1. Update Global Goal (Fusion)
+        # Only if we have a valid detection (passed in as distance/bearing)
+        if distance > 0:
+            # Calculate new goal candidate from current camera frame
+            # Standard X-Forward Geometry
+            # LocalX = dist * cos(bear)  (Forward)
+            # LocalY = dist * sin(bear)  (Left)
+            lx = distance * np.cos(bearing)
+            ly = distance * np.sin(bearing)
+            
+            # Transform to World
+            # WorldX = RobotX + lx*cos(th) - ly*sin(th)
+            # WorldY = RobotY + lx*sin(th) + ly*cos(th)
+            theta = self.current_theta
+            cos_t = np.cos(theta)
+            sin_t = np.sin(theta)
+            
+            new_goal_x = self.current_x + (lx * cos_t - ly * sin_t)
+            new_goal_y = self.current_y + (lx * sin_t + ly * cos_t)
+            
+            # Low-pass filter the goal to prevent jumpiness
+            # Trust new vision 30%, keep old map 70%
+            if self.goal_x is None:
+                self.goal_x = new_goal_x
+                self.goal_y = new_goal_y
+            else:
+                ALPHA = 0.3
+                self.goal_x = self.goal_x * (1-ALPHA) + new_goal_x * ALPHA
+                self.goal_y = self.goal_y * (1-ALPHA) + new_goal_y * ALPHA
+                
+            print(f"  📍 Goal Update: ({self.goal_x:.1f}, {self.goal_y:.1f}) Dist={distance:.1f}cm")
+
+        # 2. Check Arrival
+        # Calculate remaining distance to Global Goal
+        dx = self.goal_x - self.current_x
+        dy = self.goal_y - self.current_y
+        map_dist = np.hypot(dx, dy)
+        
+        # 3. Stop if Close Enough (using odometry, or camera if very close)
+        # Trust camera distance if available and < 30cm, otherwise trust map
+        check_dist = distance if (distance > 0 and distance < 30) else map_dist
+        
+        if check_dist < self.config.target_distance:
+            await self._stop_motors()
+            print(f"✓ Arrived at Target! (Dist={check_dist:.1f}cm)")
             self._set_state(NavigationState.ARRIVED)
-            await self._stop_motors()
-            if self.on_arrived:
-                self.on_arrived()
             return
+
+        # 4. Pure Pursuit Control (Global Frame)
+        # Calculate error to the Global Goal
+        # Heading to goal = atan2(dy, dx) - current_theta
+        global_bearing_to_goal = np.arctan2(dy, dx)
+        heading_error = global_bearing_to_goal - self.current_theta
         
-        # Drive forward
-        await self._set_motor_power(self.config.drive_speed, self.config.drive_speed)
+        # Normalize
+        while heading_error > np.pi: heading_error -= 2*np.pi
+        while heading_error < -np.pi: heading_error += 2*np.pi
+        
+        await self._handle_pure_pursuit(map_dist, heading_error)
+
+    async def _handle_pure_pursuit(self, map_dist, heading_error):
+        """Standard Pure Pursuit Controller"""
+        
+        # 1. Calculate Lookahead point
+        # Dynamic lookahead: Farther = look ahead more
+        # Min 40cm, Max 100cm
+        lookahead = max(40.0, min(100.0, map_dist * 0.8))
+        
+        # 2. Calculate Curvature (Gamma)
+        # curvature = 2 * sin(alpha) / L
+        # alpha is the heading error to the point at lookahead distance
+        
+        # Steering Gain: P-Controller
+        # Reduce "Wide Circles" by increasing gain (turn sharper)
+        # But prevent oscillation.
+        GAIN = 1.5 
+        
+        # Driving Logic
+        base_speed = self.config.drive_speed
+        
+        # If error is huge (>90 deg), Turn in Place first
+        if abs(heading_error) > np.radians(60):
+             # Pivot
+             pivot_pwr = 0.4
+             if heading_error > 0:
+                 await self._set_motor_power(-pivot_pwr, pivot_pwr) # Left Turn
+             else:
+                 await self._set_motor_power(pivot_pwr, -pivot_pwr) # Right Turn
+             print(f"  🔄 Pivot Adjust: Err={np.degrees(heading_error):.1f}°")
+             return
+
+        # Smooth Drive
+        steering = np.sin(heading_error) * GAIN
+        
+        left_power = base_speed - steering
+        right_power = base_speed + steering
+        
+        # Normalization (Maintain forward speed)
+        # If one motor saturated > 1.0, scale both down
+        max_pwr = max(abs(left_power), abs(right_power), 1.0)
+        left_power /= max_pwr
+        right_power /= max_pwr
+        
+        # Debug
+        if int(time.time()*4) % 4 == 0:
+             print(f"  🚗 PP: Dist={map_dist:.1f}, Err={np.degrees(heading_error):.1f}°, L={left_power:.2f}, R={right_power:.2f}")
+
+        await self._set_motor_power(left_power, right_power)
     
     async def _execute_blind_drive(self, target_distance_cm: float):
         """

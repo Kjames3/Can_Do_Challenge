@@ -120,10 +120,9 @@ CONFIDENCE_THRESHOLD = 0.25
 INFERENCE_SIZE = 640
 
 # YOLO Model
-YOLO_MODEL = 'models/yolo8n_cans.pt' # Fallback to v8 as v11 caused issues? User asked for v11.
-# User said "yolov11_can". File list showed "yolo11n_cans.pt".
-YOLO_MODEL = 'yolo11n_cans.pt' 
-YOLO_FALLBACK = 'yolov8n.pt'
+# NCNN Model for Raspberry Pi 5 (Converted via convert_to_ncnn.py)
+YOLO_MODEL = 'yolo11n_cans_ncnn_model'
+YOLO_FALLBACK = 'yolo11n_cans.pt'
 
 
 # =============================================================================
