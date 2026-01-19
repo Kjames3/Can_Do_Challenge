@@ -721,22 +721,30 @@ class NavigationFSM:
         # Driving Logic
         base_speed = self.config.drive_speed
         
-        # If error is huge (>90 deg), Turn in Place first
+        # If error is huge (>60 deg), Turn in Place first
         if abs(heading_error) > np.radians(60):
              # Pivot
              pivot_pwr = 0.4
              if heading_error > 0:
-                 await self._set_motor_power(-pivot_pwr, pivot_pwr) # Left Turn
+                 # Target is LEFT (+). We need to turn LEFT.
+                 # Previous: (-p, +p) caused Right turn.
+                 # New: (+p, -p) should cause Left turn.
+                 await self._set_motor_power(pivot_pwr, -pivot_pwr) # Left Turn
              else:
-                 await self._set_motor_power(pivot_pwr, -pivot_pwr) # Right Turn
+                 await self._set_motor_power(-pivot_pwr, pivot_pwr) # Right Turn
              print(f"  🔄 Pivot Adjust: Err={np.degrees(heading_error):.1f}°")
              return
 
         # Smooth Drive
+        # Previous: left = base - steering (ERROR: Caused Right turn when steering > 0)
+        # We want Left Turn when steering > 0.
+        # If (+L, -R) = Left Turn, then we need left > right.
+        # left = base + steering
+        # right = base - steering
         steering = np.sin(heading_error) * GAIN
         
-        left_power = base_speed - steering
-        right_power = base_speed + steering
+        left_power = base_speed + steering
+        right_power = base_speed - steering
         
         # Normalization (Maintain forward speed)
         # If one motor saturated > 1.0, scale both down
