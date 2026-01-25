@@ -704,45 +704,56 @@ class NavigationFSM:
     async def _handle_pure_pursuit(self, map_dist, heading_error):
         """Standard Pure Pursuit Controller"""
         
-        # 1. Calculate Lookahead point
-        # Dynamic lookahead: Farther = look ahead more
-        # Min 40cm, Max 100cm
-        lookahead = max(40.0, min(100.0, map_dist * 0.8))
-        
-        # 2. Calculate Curvature (Gamma)
-        # curvature = 2 * sin(alpha) / L
-        # alpha is the heading error to the point at lookahead distance
-        
-        # Steering Gain: P-Controller
-        # Reduce "Wide Circles" by increasing gain (turn sharper)
-        # But prevent oscillation.
-        GAIN = 1.5 
-        
-        # Driving Logic
+        # 1. Determine Base Speed
         base_speed = self.config.drive_speed
+        
+        # Slow down when very close for precision
+        if map_dist < 30.0:
+            base_speed = max(self.config.min_drive_speed, base_speed * (map_dist / 30.0))
+
+        # 2. Calculate Dynamic Lookahead
+        # Lookahead should be proportional to speed to ensure stability
+        # Logic: At full speed (0.5), lookahead ~ 100cm. At slow speed (0.2), lookahead ~ 40cm.
+        # Formula: Speed * 200.0 (e.g. 0.4 * 200 = 80cm)
+        lookahead = base_speed * 200.0
+        
+        # Clamp Lookahead:
+        # - Min: 40cm (stability)
+        # - Max: 100cm (don't cut corners too much)
+        # - Goal Constraint: min(..., map_dist) -> Don't look past the goal!
+        lookahead = max(40.0, min(100.0, lookahead, map_dist))
+        
+        # 3. Calculate Curvature-Based Steering
+        # Pure Pursuit Law: Curvature (k) = 2 * sin(alpha) / lookahead
+        # Steering command needs to be proportional to Curvature * Speed
+        # steering ~ speed * k * (WheelBase/2)
+        # steering = speed * (2 * sin(err) / lookahead) * (WheelBase/2)
+        # steering = speed * sin(err) * (WheelBase / lookahead)
+        
+        # Effective Wheel Base ~ 60cm (from robot_state.py)
+        WHEEL_BASE_EFFECTIVE = 60.0 
+        
+        # Apply Gain to tune response (1.0 = Theoretical Pure Pursuit)
+        # Slightly higher gain (1.2) helps correct errors faster on loose ground
+        PP_GAIN = 1.2
+        
+        steering = base_speed * np.sin(heading_error) * (WHEEL_BASE_EFFECTIVE / lookahead) * PP_GAIN
+
+        # 4. Driving Logic
         
         # If error is huge (>60 deg), Turn in Place first
         if abs(heading_error) > np.radians(60):
              # Pivot
              pivot_pwr = 0.4
              if heading_error > 0:
-                 # Target is LEFT (+). We need to turn LEFT.
-                 # Previous: (-p, +p) caused Right turn.
-                 # New: (+p, -p) should cause Left turn.
-                 await self._set_motor_power(pivot_pwr, -pivot_pwr) # Left Turn
+                 # Target is LEFT (+). Turn LEFT.
+                 await self._set_motor_power(pivot_pwr, -pivot_pwr) 
              else:
-                 await self._set_motor_power(-pivot_pwr, pivot_pwr) # Right Turn
+                 await self._set_motor_power(-pivot_pwr, pivot_pwr) 
              print(f"  🔄 Pivot Adjust: Err={np.degrees(heading_error):.1f}°")
              return
 
-        # Smooth Drive
-        # Previous: left = base - steering (ERROR: Caused Right turn when steering > 0)
-        # We want Left Turn when steering > 0.
-        # If (+L, -R) = Left Turn, then we need left > right.
-        # left = base + steering
-        # right = base - steering
-        steering = np.sin(heading_error) * GAIN
-        
+        # Differential Drive
         left_power = base_speed + steering
         right_power = base_speed - steering
         
@@ -754,7 +765,7 @@ class NavigationFSM:
         
         # Debug
         if int(time.time()*4) % 4 == 0:
-             print(f"  🚗 PP: Dist={map_dist:.1f}, Err={np.degrees(heading_error):.1f}°, L={left_power:.2f}, R={right_power:.2f}")
+             print(f"  🚗 PP: Dist={map_dist:.1f}, Spd={base_speed:.2f}, L_Ahead={lookahead:.1f}, Err={np.degrees(heading_error):.1f}°, Steer={steering:.2f}")
 
         await self._set_motor_power(left_power, right_power)
     
