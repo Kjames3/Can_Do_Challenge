@@ -85,11 +85,14 @@ python server_native.py --sim
 
 ### 3. Open the GUI
 
-Open `web/GUI.html` in a web browser on any device on the same network.
+**Recommended**: Run the launcher tool on your laptop/PC:
+```bash
+python launcher.py
+```
+This automatically opens the GUI in your browser and lets you sync images later.
 
-### 4. Connect
-
-Enter the Pi's IP address and click **Connect**.
+**Manual Method**: 
+Open `web/GUI.html` in a web browser. Enter the Pi's IP address and click **Connect**.
 
 ---
 
@@ -97,22 +100,38 @@ Enter the Pi's IP address and click **Connect**.
 
 ```
 viam_projects/
-├── server_native.py      # Main server (native GPIO control)
-├── drivers.py            # Hardware driver classes
-├── robot_state.py        # Odometry & pose tracking
-├── navigation_fsm.py     # Autonomous navigation FSM
-├── web/                  # Web control interface (GUI)
-├── yahboom/              # Yahboom X3 specific drivers & server
-├── models/               # YOLO detection models
-├── install_native.sh     # Installation script
+├── server_native.py        # Main server (native GPIO control)
+├── drivers.py              # Hardware driver classes
+├── robot_state.py          # Odometry & pose tracking
+├── navigation_fsm.py       # Autonomous navigation FSM
+├── launcher.py             # PC-side: Launches GUI & syncs images
+├── scan_for_robot.py       # PC-side: Finds robot IP on network
+├── convert_to_ncnn.py      # Utilities: Converts YOLO .pt to .ncnn
+├── monitor_sensor_noise.py # Utilities: Debugs IMU/Encoder noise
+├── web/                    # Web control interface (GUI)
+├── yahboom/                # Yahboom X3 specific drivers & server
+├── models/                 # YOLO detection models
+├── training_images/        # Captured datasets (created at runtime)
+├── install_native.sh       # Installation script
 │
-├── viam/                 # Viam SDK implementations
-├── calibration/          # Hardware calibration scripts
-├── training/             # YOLO model training
-├── tests/                # Test & verification scripts
-├── datasets/             # Training data
-└── runs/                 # Training run history
+├── viam/                   # Viam SDK implementations
+├── calibration/            # Hardware calibration scripts
+├── training/               # YOLO model training
+├── tests/                  # Test & verification scripts
+├── datasets/               # Training data
+└── runs/                   # Training run history
 ```
+
+---
+
+## Helper Tools
+
+| Tool | Description | usage |
+|------|-------------|-------|
+| `launcher.py` | **Recommended** client-side tool. Opens the GUI in your default browser and syncs captured images from the robot via SSH/SCP. | `python launcher.py` |
+| `scan_for_robot.py` | Scans the local network (all subnets) to find the Raspberry Pi's IP address if you don't know it. | `python scan_for_robot.py` |
+| `convert_to_ncnn.py` | Converts a trained YOLOv8/v11 `.pt` model into an NCNN optimized model for the Pi 5. | `python convert_to_ncnn.py` |
+| `monitor_sensor_noise.py`| Real-time graph of sensor data to look for vibrations or hardware faults (requires `matplotlib`). | `python monitor_sensor_noise.py` |
 
 ---
 
@@ -269,7 +288,7 @@ Default: `ws://<pi-ip>:8081`
 
 ## Future Improvements
 
-While the current system uses robust deterministic logic (dead reckoning), the project roadmap includes upgrading to probabilistic state refinenent:
+While the current system uses robust deterministic logic (dead reckoning), the project roadmap includes upgrading to probabilistic state refinement and advanced sensor fusion:
 
 ### 1. Probabilistic Perception (Bayesian/Fisher)
 Moving from binary "trust" to probabilistic updates.
@@ -280,6 +299,11 @@ Moving from binary "trust" to probabilistic updates.
 Calibrating physical constants mathematically rather than manually.
 - **Concept**: The "Calibration Problem" involves solving for the *true* physical parameters that minimize error over time.
 - **Application**: Driving the robot in a closed loop and using **Least Squares Estimation (LSE)** on the start/end drift to calculate the *exact* effective wheel diameter (to 0.01mm) and track width. This would significantly reduce systematic odometry errors.
+
+### 3. Gyro-Aided Algorithm (Best for Rolling Shutter)
+Eliminate "jello" / smearing effects that confuse YOLO for object detection.
+- **Problem**: Rolling shutter sensors capture frames line-by-line. High-frequency vibrations or rapid turns cause skew/distortion ("jello effect"), making objects unrecognizable to YOLO.
+- **Solution**: Use the **"Gyro-Aided" Algorithm** to leverage high-frequency IMU data. By correlating gyro readings with the camera readout timing, we can mathematically "un-distort" the image in real-time before inference, ensuring reliable detection even during motion.
 
 ---
 
