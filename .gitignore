@@ -1,12 +1,19 @@
 # Datasets (large files - download from Roboflow)
 datasets/
 
+project/
+
+.agent/
+
+docs/
+
 # Training runs (generated output)
 runs/
 
 # STL 3D Model Files (large binary files)
 *.STL
 *.stl
+*.txt
 
 # Python
 __pycache__/
