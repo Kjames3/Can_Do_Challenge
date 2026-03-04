@@ -152,6 +152,11 @@ is_tilted = False
 _stuck_start_time = None
 _last_encoder_count = 0
 
+# Golden Dataset Collection
+golden_collection_active = False
+golden_collected_count = 0
+TARGET_GOLDEN_IMAGES = 600
+
 connected_clients = set()
 latest_log = {"msg": "", "time": 0}
 
@@ -629,6 +634,20 @@ async def handle_client(websocket):
                             "status": "error",
                             "message": "Camera not initialized"
                         }))
+                        
+                elif msg_type == "start_golden_collection":
+                    global golden_collection_active, golden_collected_count
+                    if not golden_collection_active:
+                        golden_collection_active = True
+                        golden_collected_count = 0
+                        broadcast_log(f"Golden SET active sampling started! target: {TARGET_GOLDEN_IMAGES}")
+                    else:
+                        broadcast_log("Golden SET sampling already running.")
+                
+                elif msg_type == "stop_golden_collection":
+                    if golden_collection_active:
+                        golden_collection_active = False
+                        broadcast_log(f"Golden SET sampling STOPPED manually. Collected: {golden_collected_count}/{TARGET_GOLDEN_IMAGES}")
 
                             
             except Exception as e:
@@ -764,6 +783,51 @@ async def broadcast_loop():
                         for d in last_detections:
                             x1, y1, x2, y2 = d['bbox']
                             cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 255), 2)
+                    
+                    # === GOLDEN DATASET COLLECTION ===
+                    if golden_collection_active and frame is not None:
+                        linear_velocity_mag = abs((vel_l + vel_r) / 2.0)
+                        angular_velocity_mag = abs(imu.get_gyro()[2]) if imu else 0.0
+                        
+                        is_moving = linear_velocity_mag > 0.5 or angular_velocity_mag > 0.1
+                        if is_moving:
+                            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                            blur_metric = cv2.Laplacian(gray, cv2.CV_64F).var()
+                            
+                            if blur_metric < 200.0:
+                                import os
+                                from datetime import datetime
+                                base_dir = "training_images/golden_set"
+                                os.makedirs(os.path.join(base_dir, "images"), exist_ok=True)
+                                os.makedirs(os.path.join(base_dir, "metadata"), exist_ok=True)
+                                
+                                timestamp = time.time()
+                                base_filename = f"blur_frame_{int(timestamp * 1000)}"
+                                img_path = os.path.join(base_dir, "images", f"{base_filename}.jpg")
+                                meta_path = os.path.join(base_dir, "metadata", f"{base_filename}.json")
+
+                                cv2.imwrite(img_path, frame)
+                                
+                                metadata_record = {
+                                    "timestamp": timestamp,
+                                    "linear_velocity": linear_velocity_mag,
+                                    "angular_velocity": angular_velocity_mag,
+                                    "laplacian_variance": blur_metric,
+                                    "robot_pose": {
+                                        "x": float(robot_state.x),
+                                        "y": float(robot_state.y),
+                                        "theta": float(robot_state.theta)
+                                    }
+                                }
+                                with open(meta_path, 'w') as f:
+                                    json.dump(metadata_record, f, indent=4)
+                                    
+                                golden_collected_count += 1
+                                logger.info(f"[{golden_collected_count}/{TARGET_GOLDEN_IMAGES}] Golden frame saved (Blur: {blur_metric:.1f})")
+                                
+                                if golden_collected_count >= TARGET_GOLDEN_IMAGES:
+                                    golden_collection_active = False
+                                    broadcast_log("Golden collection COMPLETE.")
                     
                     # Calculate FPS
                     fps_elapsed = current_time - fps_last_time
