@@ -155,6 +155,17 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.robotIp.value = savedIP;
     }
 
+    const modelSelect = document.getElementById('model-select');
+    if (modelSelect) {
+        modelSelect.addEventListener('change', (e) => {
+            const selectedModel = e.target.value;
+            sendMessage({
+                type: "set_model",
+                model: selectedModel
+            });
+        });
+    }
+
     // Init Visuals
     updateVisuals(0, elements.leftFill, elements.leftThumb);
     updateVisuals(0, elements.rightFill, elements.rightThumb);

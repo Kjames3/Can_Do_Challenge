@@ -27,7 +27,13 @@ import websockets
 # ==============================================================================
 
 # ----------------- CONFIGURATION -----------------
-SERVER_URI = "ws://localhost:8081"
+import sys
+# Default to the robot's IP, but allow passing a custom one
+ROBOT_IP = "192.168.137.91"
+if len(sys.argv) > 1:
+    ROBOT_IP = sys.argv[1]
+    
+SERVER_URI = f"ws://{ROBOT_IP}:8081"
 
 # Dataset configuration
 TARGET_IMAGES = 600

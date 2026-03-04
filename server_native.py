@@ -396,6 +396,24 @@ async def handle_client(websocket):
                     if not detection_enabled and camera and hasattr(camera, 'set_focus'):
                         camera.set_focus(0.0)
                         logger.debug("Camera set to autofocus")
+
+                elif msg_type == "set_model":
+                    global YOLO_MODEL, YOLO_FALLBACK
+                    req_model = data.get("model", "yolo11n")
+                    logger.info(f"Received request to change active YOLO model to: {req_model}")
+                    
+                    if req_model == "yolo11n":
+                        YOLO_MODEL = 'models/yolo11n_cans_ncnn_model'
+                        YOLO_FALLBACK = 'models/yolo11n_cans.pt'
+                    elif req_model == "yolov8n":
+                        YOLO_MODEL = 'models/yolov8n_cans_ncnn_model'
+                        YOLO_FALLBACK = 'models/yolov8n_cans.pt'
+                    elif req_model == "yolo26n":
+                        YOLO_MODEL = 'models/yolo26n_cans_ncnn_model'
+                        YOLO_FALLBACK = 'models/yolo26n_cans.pt'
+                        
+                    # Re-initialize
+                    initialize_detection()
                     
                 elif msg_type == "start_auto_drive":
                     broadcast_log("Received START_AUTO_DRIVE command")

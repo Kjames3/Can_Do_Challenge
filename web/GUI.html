@@ -92,6 +92,14 @@
                         <span class="toggle-label">Detection</span>
                         <div id="detection-toggle" class="toggle" title="Toggle object detection"></div>
                     </div>
+                    <!-- Model Selection -->
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-left: 0.5rem;">
+                        <select id="model-select" class="btn" style="padding: 0.3rem 0.6rem; font-size: 0.75rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); outline: none;">
+                            <option value="yolo11n">YOLOv11 Cans</option>
+                            <option value="yolov8n">YOLOv8 Cans</option>
+                            <option value="yolo26n">YOLOv26 Cans</option>
+                        </select>
+                    </div>
                 </div>
             </div>
             <div class="card-body">
