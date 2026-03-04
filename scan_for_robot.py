@@ -42,26 +42,25 @@ def main():
     print(f"\n🚀 STARTING WIDE NETWORK SCANNER (Port {ROBOT_PORT})")
     print("="*50)
     
-    local_ip = get_local_ip()
-    print(f"📍 Your IP:     {local_ip}")
-
-    # Determine Subnet to Scan 
-    # Scanning the entire /16 subnet (10.13.x.x) to ensure we find the robot
-    # regardless of which specific block it's in.
+    # Get all active local IPs
+    local_ips = []
     try:
-        octets = list(map(int, local_ip.split('.')))
-        network_prefix = ".".join(map(str, octets[:2])) # e.g. "10.13"
-        
-        # Scan all subnets in the /16 range (0-255)
-        block_start = 0
-        block_end = 255
-        
-        print(f" Target Range: {network_prefix}.0.1  --->  {network_prefix}.255.254")
-        print(f" Scanning approx {256 * 255} IPs with {THREAD_COUNT} threads...")
-        
+        _, _, ips = socket.gethostbyname_ex(socket.gethostname())
+        local_ips = [ip for ip in ips if not ip.startswith("127.")]
     except Exception as e:
-        print(f"Error parsing IP: {e}")
-        return
+        local_ips = [get_local_ip()]
+        
+    print(f"📍 Your active IPs: {', '.join(local_ips)}")
+
+    # Collect /24 subnets to scan based on actual active adapters
+    subnets = set()
+    for ip in local_ips:
+        parts = ip.split('.')
+        if len(parts) == 4:
+            subnets.add(f"{parts[0]}.{parts[1]}.{parts[2]}")
+            
+    print(f" Target Subnets: {', '.join([s + '.x' for s in subnets])}")
+    print(f" Scanning approx {len(subnets) * 254} IPs with {THREAD_COUNT} threads...")
 
     ip_queue = Queue()
     result_queue = Queue()
@@ -76,15 +75,15 @@ def main():
 
     # Queue IPs
     total_queued = 0
-    for third in range(block_start, block_end + 1):
+    for subnet in subnets:
         for fourth in range(1, 255):
-            target_ip = f"{network_prefix}.{third}.{fourth}"
-            if target_ip != local_ip:
+            target_ip = f"{subnet}.{fourth}"
+            if target_ip not in local_ips:
                 ip_queue.put(target_ip)
                 total_queued += 1
 
     # Wait
-    print(f"⏳ Scanning... (This may take ~10-15 seconds)")
+    print(f"⏳ Scanning {total_queued} IPs... (This should take < 2 seconds)")
     ip_queue.join()
 
     # Stop threads
