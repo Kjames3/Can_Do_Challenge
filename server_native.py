@@ -424,25 +424,45 @@ async def handle_client(websocket):
                         "yolo26n_student": ('colab_results/detect/yolov26/weights/best.pt',  None),
                     }
 
-                    if req_model in MODEL_MAP:
-                        primary, fallback = MODEL_MAP[req_model]
-                        YOLO_MODEL   = primary
-                        YOLO_FALLBACK = fallback if fallback else primary
-                    else:
+                    if req_model not in MODEL_MAP:
                         logger.warning(f"Unknown model key '{req_model}', ignoring.")
+                        await websocket.send(json.dumps({
+                            "type": "model_changed", "model": req_model,
+                            "path": YOLO_MODEL, "success": False,
+                            "error": f"Unknown model key: {req_model}"
+                        }))
+                    else:
+                        # ── Save current working state so we can roll back on failure ──
+                        prev_model_obj   = model
+                        prev_yolo_model  = YOLO_MODEL
+                        prev_yolo_fb     = YOLO_FALLBACK
 
-                    # Re-initialize detection with the new model
-                    initialize_detection()
-                    loaded_ok = model is not None
-                    logger.info(f"Model switch {'succeeded' if loaded_ok else 'FAILED'}: {req_model} -> {YOLO_MODEL}")
+                        primary, fallback = MODEL_MAP[req_model]
+                        YOLO_MODEL    = primary
+                        YOLO_FALLBACK = fallback if fallback else primary
 
-                    # Notify the client so the UI can show which model loaded
-                    await websocket.send(json.dumps({
-                        "type":    "model_changed",
-                        "model":   req_model,
-                        "path":    YOLO_MODEL,
-                        "success": loaded_ok,
-                    }))
+                        # Attempt to load new model
+                        initialize_detection()
+                        loaded_ok = model is not None
+
+                        if loaded_ok:
+                            logger.info(f"Model switch succeeded: {req_model} -> {YOLO_MODEL}")
+                        else:
+                            # ── ROLLBACK: restore the previously working model ──────────
+                            logger.error(f"Model switch FAILED for '{req_model}'. Rolling back to previous model.")
+                            model        = prev_model_obj
+                            YOLO_MODEL   = prev_yolo_model
+                            YOLO_FALLBACK = prev_yolo_fb
+                            logger.info(f"Rolled back to: {YOLO_MODEL} (detection still active)")
+
+                        # Notify the client of the outcome
+                        await websocket.send(json.dumps({
+                            "type":    "model_changed",
+                            "model":   req_model,
+                            "path":    YOLO_MODEL,
+                            "success": loaded_ok,
+                            "error":   None if loaded_ok else f"Failed to load {primary}. Previous model restored.",
+                        }))
                     
                 elif msg_type == "start_auto_drive":
                     broadcast_log("Received START_AUTO_DRIVE command")

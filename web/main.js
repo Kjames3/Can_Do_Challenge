@@ -389,7 +389,8 @@ function handleMessage(data) {
         if (data.success) {
             console.log(`%c✅ Model loaded: ${label}`, "color: #4ade80; font-weight: bold;");
         } else {
-            console.warn(`❌ Model FAILED to load: ${label} (path: ${data.path})`);
+            const reason = data.error || 'Unknown error';
+            console.warn(`❌ Model FAILED to load: ${label}\n   Reason: ${reason}\n   Path tried: ${data.path}`);
         }
         // Flash the dropdown border green/red so there's a visible cue
         if (modelSelect) {
@@ -635,8 +636,16 @@ function init3DViewport() {
     camera3D.position.set(0, 2, 2);
     camera3D.lookAt(0, 0, 0);
 
-    // Renderer
-    renderer3D = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+    // Renderer — wrap in try/catch: WebGL may be unavailable in some
+    // environments (software renderer, remote desktop, headless browser).
+    try {
+        renderer3D = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+    } catch (e) {
+        console.warn('WebGL context creation failed — hiding 3D viewport.', e);
+        const card = document.getElementById('viewport-3d-card');
+        if (card) card.style.display = 'none';
+        return;
+    }
     renderer3D.setSize(container.clientWidth, container.clientHeight);
     renderer3D.setPixelRatio(window.devicePixelRatio);
 
