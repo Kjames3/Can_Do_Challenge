@@ -122,6 +122,7 @@ const elements = {
     captureCount: document.getElementById('capture-count'),
     downloadImagesBtn: document.getElementById('download-images-btn'),
     blurSweepBtn: document.getElementById('blur-sweep-btn'),
+    goldenSetBtn: document.getElementById('golden-set-btn'),
 
     // WSAD / D-Pad
     btnW: document.getElementById('btn-w'),
@@ -365,6 +366,15 @@ function handleMessage(data) {
         // Piped Server Logging
         if (data.latest_log && data.latest_log.time > (state.lastLogTime || 0)) {
             console.log(`%c🐍 SERVER: ${data.latest_log.msg}`, "color: #4ade80; font-weight: bold;");
+
+            // Auto-reset Golden Set button if complete
+            if (data.latest_log.msg.includes("Golden collection COMPLETE") || data.latest_log.msg.includes("STOPPED")) {
+                if (elements.goldenSetBtn) {
+                    elements.goldenSetBtn.textContent = '✨ Golden Set: Start';
+                    window.goldenSetActive = false;
+                }
+            }
+
             state.lastLogTime = data.latest_log.time;
         }
 
@@ -372,6 +382,21 @@ function handleMessage(data) {
         const category = data.category || "saved";
         const dist = data.distance_cm ? ` (${Math.round(data.distance_cm)}cm)` : "";
         if (elements.captureCount) elements.captureCount.textContent = `${data.count} total • ${category}${dist}`;
+
+    } else if (data.type === "model_changed") {
+        const modelSelect = document.getElementById('model-select');
+        const label = modelSelect ? modelSelect.options[modelSelect.selectedIndex].text : data.model;
+        if (data.success) {
+            console.log(`%c✅ Model loaded: ${label}`, "color: #4ade80; font-weight: bold;");
+        } else {
+            console.warn(`❌ Model FAILED to load: ${label} (path: ${data.path})`);
+        }
+        // Flash the dropdown border green/red so there's a visible cue
+        if (modelSelect) {
+            modelSelect.style.transition = 'border-color 0.3s';
+            modelSelect.style.borderColor = data.success ? '#4ade80' : '#f87171';
+            setTimeout(() => { modelSelect.style.borderColor = ''; }, 2000);
+        }
 
     } else if (data.type === "download_images_response") {
         handleDownloadResponse(data);
@@ -900,6 +925,21 @@ if (elements.blurSweepBtn) elements.blurSweepBtn.addEventListener('click', () =>
         sendMessage({ type: "collect_blur_dataset" });
     }
 });
+
+window.goldenSetActive = false;
+if (elements.goldenSetBtn) {
+    elements.goldenSetBtn.addEventListener('click', () => {
+        if (!state.connected) return;
+        window.goldenSetActive = !window.goldenSetActive;
+        if (window.goldenSetActive) {
+            elements.goldenSetBtn.textContent = '⏹️ Golden Set: Stop';
+            sendMessage({ type: "start_golden_collection" });
+        } else {
+            elements.goldenSetBtn.textContent = '✨ Golden Set: Start';
+            sendMessage({ type: "stop_golden_collection" });
+        }
+    });
+}
 
 function handleDownloadResponse(data) {
     elements.downloadImagesBtn.disabled = false;

@@ -152,6 +152,11 @@ is_tilted = False
 _stuck_start_time = None
 _last_encoder_count = 0
 
+# Golden Dataset Collection
+golden_collection_active = False
+golden_collected_count = 0
+TARGET_GOLDEN_IMAGES = 600
+
 connected_clients = set()
 latest_log = {"msg": "", "time": 0}
 
@@ -401,19 +406,43 @@ async def handle_client(websocket):
                     global YOLO_MODEL, YOLO_FALLBACK
                     req_model = data.get("model", "yolo11n")
                     logger.info(f"Received request to change active YOLO model to: {req_model}")
-                    
-                    if req_model == "yolo11n":
-                        YOLO_MODEL = 'models/yolo11n_cans_ncnn_model'
-                        YOLO_FALLBACK = 'models/yolo11n_cans.pt'
-                    elif req_model == "yolov8n":
-                        YOLO_MODEL = 'models/yolov8n_cans_ncnn_model'
-                        YOLO_FALLBACK = 'models/yolov8n_cans.pt'
-                    elif req_model == "yolo26n":
-                        YOLO_MODEL = 'models/yolo26n_cans_ncnn_model'
-                        YOLO_FALLBACK = 'models/yolo26n_cans.pt'
-                        
-                    # Re-initialize
+
+                    # Map of dropdown value -> (primary path, fallback path)
+                    # Colab-trained models live at colab_results/{teacher,detect}/{arch}/weights/best.pt
+                    MODEL_MAP = {
+                        # ── Original models (NCNN on-device + .pt fallback) ──────────────────
+                        "yolo11n":         ('models/yolo11n_cans_ncnn_model',  'models/yolo11n_cans.pt'),
+                        "yolov8n":         ('models/yolov8n_cans_ncnn_model',  'models/yolov8n_cans.pt'),
+                        "yolo26n":         ('models/yolo26n_cans_ncnn_model',  'models/yolo26n_cans.pt'),
+                        # ── Colab teacher models (full-size, trained on cans dataset) ────────
+                        "yolo11n_teacher": ('colab_results/teacher/yolov11/weights/best.pt', None),
+                        "yolov8n_teacher": ('colab_results/teacher/yolov8/weights/best.pt',  None),
+                        "yolo26n_teacher": ('colab_results/teacher/yolov26/weights/best.pt', None),
+                        # ── Colab student models (distilled / detection fine-tuned) ──────────
+                        "yolo11n_student": ('colab_results/detect/yolov11/weights/best.pt',  None),
+                        "yolov8n_student": ('colab_results/detect/yolov8/weights/best.pt',   None),
+                        "yolo26n_student": ('colab_results/detect/yolov26/weights/best.pt',  None),
+                    }
+
+                    if req_model in MODEL_MAP:
+                        primary, fallback = MODEL_MAP[req_model]
+                        YOLO_MODEL   = primary
+                        YOLO_FALLBACK = fallback if fallback else primary
+                    else:
+                        logger.warning(f"Unknown model key '{req_model}', ignoring.")
+
+                    # Re-initialize detection with the new model
                     initialize_detection()
+                    loaded_ok = model is not None
+                    logger.info(f"Model switch {'succeeded' if loaded_ok else 'FAILED'}: {req_model} -> {YOLO_MODEL}")
+
+                    # Notify the client so the UI can show which model loaded
+                    await websocket.send(json.dumps({
+                        "type":    "model_changed",
+                        "model":   req_model,
+                        "path":    YOLO_MODEL,
+                        "success": loaded_ok,
+                    }))
                     
                 elif msg_type == "start_auto_drive":
                     broadcast_log("Received START_AUTO_DRIVE command")
@@ -629,6 +658,20 @@ async def handle_client(websocket):
                             "status": "error",
                             "message": "Camera not initialized"
                         }))
+                        
+                elif msg_type == "start_golden_collection":
+                    global golden_collection_active, golden_collected_count
+                    if not golden_collection_active:
+                        golden_collection_active = True
+                        golden_collected_count = 0
+                        broadcast_log(f"Golden SET active sampling started! target: {TARGET_GOLDEN_IMAGES}")
+                    else:
+                        broadcast_log("Golden SET sampling already running.")
+                
+                elif msg_type == "stop_golden_collection":
+                    if golden_collection_active:
+                        golden_collection_active = False
+                        broadcast_log(f"Golden SET sampling STOPPED manually. Collected: {golden_collected_count}/{TARGET_GOLDEN_IMAGES}")
 
                             
             except Exception as e:
@@ -765,6 +808,9 @@ async def broadcast_loop():
                             x1, y1, x2, y2 = d['bbox']
                             cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 255), 2)
                     
+                    # === GOLDEN DATASET COLLECTION STATE ===
+                    # Evaluated and collected externally via gather_golden_set.py
+                    
                     # Calculate FPS
                     fps_elapsed = current_time - fps_last_time
                     if fps_elapsed >= 1.0:
@@ -867,6 +913,7 @@ async def broadcast_loop():
                     "is_auto_driving": bool(is_auto_driving),
                     "is_stuck": bool(is_stuck),
                     "is_tilted": bool(is_tilted),
+                    "golden_collection_active": bool(golden_collection_active),
                     "fps_camera": float(fps_camera),
                     "fps_detection": float(fps_detection),
                     "robot_pose": {
