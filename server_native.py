@@ -489,14 +489,28 @@ async def handle_client(websocket):
                             logger.info(f"Rolled back to: {YOLO_MODEL} (detection still active)")
 
                         # Notify the client of the outcome
+                        # all_classes tells the GUI whether to sync the toggle button
                         await websocket.send(json.dumps({
-                            "type":    "model_changed",
-                            "model":   req_model,
-                            "path":    YOLO_MODEL,
-                            "success": loaded_ok,
-                            "error":   None if loaded_ok else f"Failed to load {primary}. Previous model restored.",
+                            "type":       "model_changed",
+                            "model":      req_model,
+                            "path":       YOLO_MODEL,
+                            "success":    loaded_ok,
+                            "all_classes": active_target_classes is None,
+                            "error":      None if loaded_ok else f"Failed to load {primary}. Previous model restored.",
                         }))
-                    
+
+                elif msg_type == "set_classes":
+                    global active_target_classes
+                    want_all = data.get("all_classes", False)
+                    active_target_classes = None if want_all else [0]
+                    mode_str = "ALL COCO classes" if want_all else "Cans only (class 0)"
+                    logger.info(f"Class filter set to: {mode_str}")
+                    await websocket.send(json.dumps({
+                        "type":       "classes_updated",
+                        "all_classes": want_all,
+                        "mode":        mode_str,
+                    }))
+
                 elif msg_type == "start_auto_drive":
                     broadcast_log("Received START_AUTO_DRIVE command")
                     global is_auto_driving

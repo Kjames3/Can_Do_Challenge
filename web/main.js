@@ -144,6 +144,21 @@ const elements = {
 };
 
 // =================================================================
+// Class Filter Toggle Helper
+// =================================================================
+function updateClassFilterBtn(btn, allClasses) {
+    if (allClasses) {
+        btn.textContent = '🌐 All Classes';
+        btn.style.color = '#4ade80';                   // green
+        btn.style.borderColor = '#4ade80';
+    } else {
+        btn.textContent = '🥫 Cans Only';
+        btn.style.color = 'var(--accent-warning, #facc15)'; // yellow
+        btn.style.borderColor = 'var(--accent-warning, #facc15)';
+    }
+}
+
+// =================================================================
 // Initialization
 // =================================================================
 document.addEventListener('DOMContentLoaded', () => {
@@ -164,6 +179,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 type: "set_model",
                 model: selectedModel
             });
+        });
+    }
+
+    // Class filter toggle — Cans Only ↔ All Classes
+    const classFilterBtn = document.getElementById('class-filter-toggle');
+    if (classFilterBtn) {
+        // Track state locally so button is instant-feeling
+        let allClassesActive = false;
+
+        classFilterBtn.addEventListener('click', () => {
+            allClassesActive = !allClassesActive;
+            sendMessage({ type: "set_classes", all_classes: allClassesActive });
+            updateClassFilterBtn(classFilterBtn, allClassesActive);
         });
     }
 
@@ -398,6 +426,17 @@ function handleMessage(data) {
             modelSelect.style.borderColor = data.success ? '#4ade80' : '#f87171';
             setTimeout(() => { modelSelect.style.borderColor = ''; }, 2000);
         }
+        // Sync the class-filter button to whatever the server now has active
+        if (data.success && data.all_classes !== undefined) {
+            const btn = document.getElementById('class-filter-toggle');
+            if (btn) updateClassFilterBtn(btn, data.all_classes);
+        }
+
+    } else if (data.type === "classes_updated") {
+        // Server confirmed the class filter changed
+        const btn = document.getElementById('class-filter-toggle');
+        if (btn) updateClassFilterBtn(btn, data.all_classes);
+        console.log(`%c🔍 Class filter: ${data.all_classes ? 'All COCO classes' : 'Cans only'}`, 'color: #60a5fa;');
 
     } else if (data.type === "download_images_response") {
         handleDownloadResponse(data);
