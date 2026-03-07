@@ -107,7 +107,7 @@ KNOWN_HEIGHT_CAN = 16.2  # Confirmed: 16oz can height
 FOCAL_LENGTH = 1298
 TARGET_CLASSES = [0]  # 0=can (original can-only models)
 # Active filter applied at runtime — None means all classes (used for colab/COCO models)
-active_target_classes = [0]
+active_target_classes = None
 
 # Camera Settings
 CAMERA_HFOV_DEG = 66.0  # IMX708 Standard FOV
