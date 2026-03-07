@@ -105,7 +105,9 @@ DRIFT_COMPENSATION = 0.00 # Temporarily disabled
 KNOWN_HEIGHT_BOTTLE = 20.0
 KNOWN_HEIGHT_CAN = 16.2  # Confirmed: 16oz can height
 FOCAL_LENGTH = 1298
-TARGET_CLASSES = [0]  # 0=can
+TARGET_CLASSES = [0]  # 0=can (original can-only models)
+# Active filter applied at runtime — None means all classes (used for colab/COCO models)
+active_target_classes = [0]
 
 # Camera Settings
 CAMERA_HFOV_DEG = 66.0  # IMX708 Standard FOV
@@ -194,55 +196,80 @@ def process_detection(frame):
     global model
     if model is None:
         return frame, []
-    
+
     detections = []
-    
+
+    # Resolve real class names from the model (works for any YOLO model)
+    class_names = model.names if hasattr(model, 'names') else {}
+
+    # Per-class colour palette so multi-class scenes are easy to read
+    PALETTE = [
+        (0, 255, 0),    # green
+        (0, 128, 255),  # orange-blue
+        (255, 64, 64),  # red
+        (255, 255, 0),  # yellow
+        (0, 255, 255),  # cyan
+        (255, 0, 255),  # magenta
+        (128, 255, 128),
+        (255, 128, 0),
+    ]
+
     try:
         results = model.predict(
-            frame, 
-            conf=CONFIDENCE_THRESHOLD, 
-            imgsz=INFERENCE_SIZE, 
+            frame,
+            conf=CONFIDENCE_THRESHOLD,
+            imgsz=INFERENCE_SIZE,
             verbose=False,
-            classes=TARGET_CLASSES
+            classes=active_target_classes  # None = all classes, [0] = can only
         )
-        
+
         for r in results:
             boxes = r.boxes
             for box in boxes:
                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                cls = int(box.cls[0])
+                cls  = int(box.cls[0])
                 conf = float(box.conf[0])
-                
-                # Draw bounding box
-                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
-                
-                # Calculate center and distance
+
+                # Real class name from model (falls back to numeric id)
+                class_name = class_names.get(cls, str(cls))
+
+                color = PALETTE[cls % len(PALETTE)]
+
+                # Calculate center
                 center_x = (x1 + x2) / 2
                 center_y = (y1 + y2) / 2
-                
-                # Height-based distance estimation
-                height_px = y2 - y1
-                # Distance = (Real Height * Focal Length) / Image Height
+
+                # Height-based distance — only meaningful for cans (class 0)
+                height_px   = max(y2 - y1, 1)  # guard div/0
                 distance_cm = (KNOWN_HEIGHT_CAN * FOCAL_LENGTH) / height_px
-                
-                label = f"Can: {distance_cm:.1f}cm ({conf:.2f})"
-                cv2.putText(frame, label, (int(x1), int(y1) - 10), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                
+
+                # Draw bounding box
+                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
+
+                # Overlay label  (show distance only for the can class)
+                if cls == 0 and active_target_classes == [0]:
+                    overlay = f"{class_name}: {distance_cm:.1f}cm ({conf:.0%})"
+                else:
+                    overlay = f"{class_name} ({conf:.0%})"
+
+                cv2.putText(frame, overlay, (int(x1), int(y1) - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
                 detections.append({
-                    'class': cls,
-                    'confidence': conf,
-                    'bbox': [float(x1), float(y1), float(x2), float(y2)],
-                    'center_x': float(center_x),
-                    'center_y': float(center_y),
-                    'width': float(x2 - x1),
-                    'height': float(y2 - y1),
-                    'distance_cm': float(distance_cm)
+                    'class':       cls,
+                    'label':       class_name,
+                    'confidence':  conf,
+                    'bbox':        [float(x1), float(y1), float(x2), float(y2)],
+                    'center_x':    float(center_x),
+                    'center_y':    float(center_y),
+                    'width':       float(x2 - x1),
+                    'height':      float(y2 - y1),
+                    'distance_cm': float(distance_cm),
                 })
-                
+
     except Exception as e:
         logger.error(f"Detection error: {e}")
-        
+
     return frame, detections
 
 
@@ -403,25 +430,26 @@ async def handle_client(websocket):
                         logger.debug("Camera set to autofocus")
 
                 elif msg_type == "set_model":
-                    global YOLO_MODEL, YOLO_FALLBACK
+                    global YOLO_MODEL, YOLO_FALLBACK, active_target_classes
                     req_model = data.get("model", "yolo11n")
                     logger.info(f"Received request to change active YOLO model to: {req_model}")
 
-                    # Map of dropdown value -> (primary path, fallback path)
-                    # Colab-trained models live at colab_results/{teacher,detect}/{arch}/weights/best.pt
+                    # Map of dropdown value -> (primary path, fallback path, all_classes)
+                    # all_classes=True  -> active_target_classes = None  (every COCO class)
+                    # all_classes=False -> active_target_classes = [0]   (can only)
                     MODEL_MAP = {
                         # ── Original models (NCNN on-device + .pt fallback) ──────────────────
-                        "yolo11n":         ('models/yolo11n_cans_ncnn_model',  'models/yolo11n_cans.pt'),
-                        "yolov8n":         ('models/yolov8n_cans_ncnn_model',  'models/yolov8n_cans.pt'),
-                        "yolo26n":         ('models/yolo26n_cans_ncnn_model',  'models/yolo26n_cans.pt'),
-                        # ── Colab teacher models (full-size, trained on cans dataset) ────────
-                        "yolo11n_teacher": ('colab_results/teacher/yolov11/weights/best.pt', None),
-                        "yolov8n_teacher": ('colab_results/teacher/yolov8/weights/best.pt',  None),
-                        "yolo26n_teacher": ('colab_results/teacher/yolov26/weights/best.pt', None),
+                        "yolo11n":         ('models/yolo11n_cans_ncnn_model',  'models/yolo11n_cans.pt',  False),
+                        "yolov8n":         ('models/yolov8n_cans_ncnn_model',  'models/yolov8n_cans.pt',  False),
+                        "yolo26n":         ('models/yolo26n_cans_ncnn_model',  'models/yolo26n_cans.pt',  False),
+                        # ── Colab teacher models (full COCO head) ────────────────────────────
+                        "yolo11n_teacher": ('colab_results/teacher/yolov11/weights/best.pt', None, True),
+                        "yolov8n_teacher": ('colab_results/teacher/yolov8/weights/best.pt',  None, True),
+                        "yolo26n_teacher": ('colab_results/teacher/yolov26/weights/best.pt', None, True),
                         # ── Colab student models (distilled / detection fine-tuned) ──────────
-                        "yolo11n_student": ('colab_results/detect/yolov11/weights/best.pt',  None),
-                        "yolov8n_student": ('colab_results/detect/yolov8/weights/best.pt',   None),
-                        "yolo26n_student": ('colab_results/detect/yolov26/weights/best.pt',  None),
+                        "yolo11n_student": ('colab_results/detect/yolov11/weights/best.pt',  None, True),
+                        "yolov8n_student": ('colab_results/detect/yolov8/weights/best.pt',   None, True),
+                        "yolo26n_student": ('colab_results/detect/yolov26/weights/best.pt',  None, True),
                     }
 
                     if req_model not in MODEL_MAP:
@@ -433,11 +461,12 @@ async def handle_client(websocket):
                         }))
                     else:
                         # ── Save current working state so we can roll back on failure ──
-                        prev_model_obj   = model
-                        prev_yolo_model  = YOLO_MODEL
-                        prev_yolo_fb     = YOLO_FALLBACK
+                        prev_model_obj        = model
+                        prev_yolo_model       = YOLO_MODEL
+                        prev_yolo_fb          = YOLO_FALLBACK
+                        prev_active_classes   = active_target_classes
 
-                        primary, fallback = MODEL_MAP[req_model]
+                        primary, fallback, all_classes = MODEL_MAP[req_model]
                         YOLO_MODEL    = primary
                         YOLO_FALLBACK = fallback if fallback else primary
 
@@ -446,13 +475,17 @@ async def handle_client(websocket):
                         loaded_ok = model is not None
 
                         if loaded_ok:
-                            logger.info(f"Model switch succeeded: {req_model} -> {YOLO_MODEL}")
+                            # Set class filter: None = detect all COCO classes
+                            active_target_classes = None if all_classes else [0]
+                            logger.info(f"Model switch succeeded: {req_model} -> {YOLO_MODEL} "
+                                        f"(classes: {'ALL' if all_classes else 'can only'})")
                         else:
                             # ── ROLLBACK: restore the previously working model ──────────
-                            logger.error(f"Model switch FAILED for '{req_model}'. Rolling back to previous model.")
-                            model        = prev_model_obj
-                            YOLO_MODEL   = prev_yolo_model
-                            YOLO_FALLBACK = prev_yolo_fb
+                            logger.error(f"Model switch FAILED for '{req_model}'. Rolling back.")
+                            model                 = prev_model_obj
+                            YOLO_MODEL            = prev_yolo_model
+                            YOLO_FALLBACK         = prev_yolo_fb
+                            active_target_classes = prev_active_classes
                             logger.info(f"Rolled back to: {YOLO_MODEL} (detection still active)")
 
                         # Notify the client of the outcome
