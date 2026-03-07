@@ -500,7 +500,6 @@ async def handle_client(websocket):
                         }))
 
                 elif msg_type == "set_classes":
-                    global active_target_classes
                     want_all = data.get("all_classes", False)
                     active_target_classes = None if want_all else [0]
                     mode_str = "ALL COCO classes" if want_all else "Cans only (class 0)"
