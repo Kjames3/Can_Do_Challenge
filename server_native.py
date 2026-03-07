@@ -406,19 +406,43 @@ async def handle_client(websocket):
                     global YOLO_MODEL, YOLO_FALLBACK
                     req_model = data.get("model", "yolo11n")
                     logger.info(f"Received request to change active YOLO model to: {req_model}")
-                    
-                    if req_model == "yolo11n":
-                        YOLO_MODEL = 'models/yolo11n_cans_ncnn_model'
-                        YOLO_FALLBACK = 'models/yolo11n_cans.pt'
-                    elif req_model == "yolov8n":
-                        YOLO_MODEL = 'models/yolov8n_cans_ncnn_model'
-                        YOLO_FALLBACK = 'models/yolov8n_cans.pt'
-                    elif req_model == "yolo26n":
-                        YOLO_MODEL = 'models/yolo26n_cans_ncnn_model'
-                        YOLO_FALLBACK = 'models/yolo26n_cans.pt'
-                        
-                    # Re-initialize
+
+                    # Map of dropdown value -> (primary path, fallback path)
+                    # Colab-trained models live at colab_results/{teacher,detect}/{arch}/weights/best.pt
+                    MODEL_MAP = {
+                        # ── Original models (NCNN on-device + .pt fallback) ──────────────────
+                        "yolo11n":         ('models/yolo11n_cans_ncnn_model',  'models/yolo11n_cans.pt'),
+                        "yolov8n":         ('models/yolov8n_cans_ncnn_model',  'models/yolov8n_cans.pt'),
+                        "yolo26n":         ('models/yolo26n_cans_ncnn_model',  'models/yolo26n_cans.pt'),
+                        # ── Colab teacher models (full-size, trained on cans dataset) ────────
+                        "yolo11n_teacher": ('colab_results/teacher/yolov11/weights/best.pt', None),
+                        "yolov8n_teacher": ('colab_results/teacher/yolov8/weights/best.pt',  None),
+                        "yolo26n_teacher": ('colab_results/teacher/yolov26/weights/best.pt', None),
+                        # ── Colab student models (distilled / detection fine-tuned) ──────────
+                        "yolo11n_student": ('colab_results/detect/yolov11/weights/best.pt',  None),
+                        "yolov8n_student": ('colab_results/detect/yolov8/weights/best.pt',   None),
+                        "yolo26n_student": ('colab_results/detect/yolov26/weights/best.pt',  None),
+                    }
+
+                    if req_model in MODEL_MAP:
+                        primary, fallback = MODEL_MAP[req_model]
+                        YOLO_MODEL   = primary
+                        YOLO_FALLBACK = fallback if fallback else primary
+                    else:
+                        logger.warning(f"Unknown model key '{req_model}', ignoring.")
+
+                    # Re-initialize detection with the new model
                     initialize_detection()
+                    loaded_ok = model is not None
+                    logger.info(f"Model switch {'succeeded' if loaded_ok else 'FAILED'}: {req_model} -> {YOLO_MODEL}")
+
+                    # Notify the client so the UI can show which model loaded
+                    await websocket.send(json.dumps({
+                        "type":    "model_changed",
+                        "model":   req_model,
+                        "path":    YOLO_MODEL,
+                        "success": loaded_ok,
+                    }))
                     
                 elif msg_type == "start_auto_drive":
                     broadcast_log("Received START_AUTO_DRIVE command")

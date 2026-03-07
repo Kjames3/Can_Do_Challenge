@@ -383,6 +383,21 @@ function handleMessage(data) {
         const dist = data.distance_cm ? ` (${Math.round(data.distance_cm)}cm)` : "";
         if (elements.captureCount) elements.captureCount.textContent = `${data.count} total • ${category}${dist}`;
 
+    } else if (data.type === "model_changed") {
+        const modelSelect = document.getElementById('model-select');
+        const label = modelSelect ? modelSelect.options[modelSelect.selectedIndex].text : data.model;
+        if (data.success) {
+            console.log(`%c✅ Model loaded: ${label}`, "color: #4ade80; font-weight: bold;");
+        } else {
+            console.warn(`❌ Model FAILED to load: ${label} (path: ${data.path})`);
+        }
+        // Flash the dropdown border green/red so there's a visible cue
+        if (modelSelect) {
+            modelSelect.style.transition = 'border-color 0.3s';
+            modelSelect.style.borderColor = data.success ? '#4ade80' : '#f87171';
+            setTimeout(() => { modelSelect.style.borderColor = ''; }, 2000);
+        }
+
     } else if (data.type === "download_images_response") {
         handleDownloadResponse(data);
 

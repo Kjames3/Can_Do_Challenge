@@ -29,7 +29,7 @@ import websockets
 # ----------------- CONFIGURATION -----------------
 import sys
 # Default to the robot's IP, but allow passing a custom one
-ROBOT_IP = "192.168.137.91"
+ROBOT_IP = "192.168.137.121"
 if len(sys.argv) > 1:
     ROBOT_IP = sys.argv[1]
     
@@ -37,7 +37,7 @@ SERVER_URI = f"ws://{ROBOT_IP}:8081"
 
 # Dataset configuration
 TARGET_IMAGES = 600
-OUTPUT_DIR = "images"  # Save directly to the images folder in project directory
+OUTPUT_DIR = "golden_dataset"  # Save directly to the golden_dataset folder in project directory
 
 # Active Sampling Thresholds
 # Note: Native Server sends encoder counts/sec for velocity. Adjust if units differ.
@@ -74,9 +74,13 @@ async def gather_golden_set():
                         print("\n[+] GUI Triggered START! Collecting frames...")
                         was_active = True
                         collected_count = 0
+                        discarded_not_moving = 0
+                        discarded_not_blurry = 0
                         
                     elif not is_active and was_active:
                         print(f"\n[+] GUI Triggered STOP! Finished. Saved {collected_count} images to '{OUTPUT_DIR}'")
+                        print(f"    -> Discarded {discarded_not_moving} frames (robot not moving fast enough)")
+                        print(f"    -> Discarded {discarded_not_blurry} frames (not blurry enough)")
                         was_active = False
                         # We keep running so the user can start another session if needed.
                         print(f"Waiting for 'Golden Set: Start' to be pressed in GUI...")
@@ -88,7 +92,7 @@ async def gather_golden_set():
                         vel_r = motor_vel.get("right", 0.0)
                         linear_velocity_mag = abs((vel_l + vel_r) / 2.0)
     
-                        imu_data = data.get("imu", {})
+                        imu_data = data.get("imu") or {}
                         # IMU yaw rate is typically in deg/s or rad/s
                         angular_velocity_mag = abs(imu_data.get("yaw_rate", 0.0))
                         
@@ -133,6 +137,10 @@ async def gather_golden_set():
                                         print(f"Reached target of {TARGET_IMAGES} images. Stopping...")
                                         await websocket.send(json.dumps({"type": "stop_golden_collection"}))
                                         was_active = False
+                                else:
+                                    discarded_not_blurry += 1
+                        else:
+                            discarded_not_moving += 1
 
     except ConnectionRefusedError:
         print(f"Error: Could not connect to {SERVER_URI}. Is server_native.py running?")
