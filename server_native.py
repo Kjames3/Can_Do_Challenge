@@ -121,7 +121,8 @@ IMAGE_HEIGHT = 864
 VIDEO_FPS_CAP = 20
 JPEG_QUALITY = 70
 DETECTION_INTERVAL = 1
-CONFIDENCE_THRESHOLD = 0.25
+CONFIDENCE_THRESHOLD = 0.25       # Min confidence passed to YOLO inference
+DISPLAY_CONFIDENCE_THRESHOLD = 0.50  # Min confidence to draw box + send to GUI
 INFERENCE_SIZE = 640
 
 # YOLO Model
@@ -234,6 +235,10 @@ def process_detection(frame):
                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                 cls  = int(box.cls[0])
                 conf = float(box.conf[0])
+
+                # Skip detections below the display threshold
+                if conf < DISPLAY_CONFIDENCE_THRESHOLD:
+                    continue
 
                 # Real class name from model (falls back to numeric id)
                 class_name = class_names.get(cls, str(cls))
