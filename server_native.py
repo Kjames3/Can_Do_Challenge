@@ -180,13 +180,15 @@ def initialize_detection():
     try:
         logger.info(f"Loading YOLO model: {YOLO_MODEL}")
         model = YOLO(YOLO_MODEL)
-        logger.info("Model loaded successfully")
+        num_classes = len(model.names) if hasattr(model, 'names') else '?'
+        logger.info(f"Model loaded: {YOLO_MODEL} | classes ({num_classes}): {model.names}")
     except Exception as e:
         logger.warning(f"Failed to load NCNN model: {e}")
         try:
             logger.info(f"Loading fallback model: {YOLO_FALLBACK}")
             model = YOLO(YOLO_FALLBACK)
-            logger.info("Fallback model loaded")
+            num_classes = len(model.names) if hasattr(model, 'names') else '?'
+            logger.info(f"Fallback model loaded: {YOLO_FALLBACK} | classes ({num_classes}): {model.names}")
         except Exception as e2:
             logger.error(f"Failed to load fallback model: {e2}")
             model = None
@@ -219,8 +221,8 @@ def process_detection(frame):
             frame,
             conf=CONFIDENCE_THRESHOLD,
             imgsz=INFERENCE_SIZE,
-            verbose=False,
-            classes=active_target_classes  # None = all classes, [0] = can only
+            verbose=False
+            # No classes= filter: model outputs every class it was trained on
         )
 
         for r in results:
