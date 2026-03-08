@@ -141,11 +141,21 @@
                     </div>
                 </div>
             </div>
-            <div class="card-body">
+            <div class="card-body" style="position: relative;">
                 <img id="camera-feed" class="camera-feed" alt="Camera feed" style="display: none;">
                 <div id="camera-placeholder" class="camera-placeholder">
                     <span class="camera-placeholder-icon">📷</span>
                     <span>Awaiting camera feed...</span>
+                </div>
+
+                <!-- Demo Mode Banner Overlay -->
+                <div id="demo-banner" style="display: none; position: absolute; top: 0; left: 0; right: 0;
+                     background: linear-gradient(90deg, rgba(109,40,217,0.85), rgba(167,139,250,0.85));
+                     color: #fff; padding: 0.35rem 0.7rem; font-size: 0.78rem; font-weight: 600;
+                     z-index: 20; display: none; align-items: center; gap: 0.5rem; border-radius: 4px 4px 0 0;">
+                    <span>🎬 DEMO</span>
+                    <span id="demo-banner-role" style="font-size: 0.68rem; opacity: 0.85;"></span>
+                    <span id="demo-banner-model" style="margin-left: auto; font-size: 0.72rem;"></span>
                 </div>
 
                 <!-- FPS Display Overlay -->
@@ -204,6 +214,14 @@
                                 <button id="auto-drive-btn" class="btn btn-primary"
                                     style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
                                     Auto-Drive
+                                </button>
+                                <button id="demo-mode-btn" class="btn"
+                                    style="font-size: 0.75rem; padding: 0.4rem 0.8rem;
+                                           background: var(--bg-tertiary); color: #a78bfa;
+                                           border: 1px solid #a78bfa; border-radius: 4px;
+                                           cursor: pointer; transition: all 0.25s;"
+                                    title="Cycle teacher/student models every 30s while auto-driving">
+                                    🎬 Demo Mode
                                 </button>
                                 <!-- Compact WASD -->
                                 <div class="d-pad" style="transform: scale(0.8);">

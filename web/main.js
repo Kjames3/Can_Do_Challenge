@@ -8,6 +8,7 @@ const state = {
     lidarEnabled: false,
     autoDriveEnabled: false, // Local toggle tracking
     isAutoDriving: false,    // Server state
+    isDemoMode: false,       // Demo cycling mode
     gamepadIndex: null,
     lastLeftPower: 0,
     lastRightPower: 0,
@@ -57,6 +58,10 @@ const elements = {
     detectionList: document.getElementById('detection-list'),
     autoDriveBtn: document.getElementById('auto-drive-btn'),
     autoDriveWrapper: document.getElementById('auto-drive-wrapper'),
+    demoModeBtn: document.getElementById('demo-mode-btn'),
+    demoBanner: document.getElementById('demo-banner'),
+    demoBannerRole: document.getElementById('demo-banner-role'),
+    demoBannerModel: document.getElementById('demo-banner-model'),
 
     // Power Stats
     powerStatsPanel: document.getElementById('power-stats'),
@@ -386,6 +391,10 @@ function handleMessage(data) {
         // Sync flags
         state.detectionEnabled = data.detection_enabled;
         state.isAutoDriving = data.is_auto_driving;
+        if (data.is_demo_mode !== undefined) {
+            state.isDemoMode = data.is_demo_mode;
+            updateDemoBannerFromReadout(data);
+        }
         state.latestData.navPhase = data.nav_phase;
         state.latestData.autoDriveStart = data.auto_drive_start;
         state.latestData.power = data.power; // Power stats from INA219
@@ -452,6 +461,12 @@ function handleMessage(data) {
             const btn = document.getElementById('class-filter-toggle');
             if (btn) updateClassFilterBtn(btn, data.all_classes);
         }
+
+    } else if (data.type === "demo_model_changed") {
+        updateDemoBannerFromEvent(data);
+
+    } else if (data.type === "demo_status") {
+        console.log(`[DEMO] ${data.msg}`);
 
     } else if (data.type === "classes_updated") {
         // Server confirmed the class filter changed
@@ -926,6 +941,63 @@ function updateAutoDriveButton() {
     }
 }
 
+function demoModeToggle() {
+    if (!state.connected) return;
+    if (state.isDemoMode) {
+        sendMessage({ type: "stop_demo" });
+        state.isDemoMode = false;
+        updateDemoModeButton(false);
+        hideDemoBanner();
+    } else {
+        sendMessage({ type: "start_demo", interval: 30 });
+        state.isDemoMode = true;
+        updateDemoModeButton(true);
+    }
+}
+
+function updateDemoModeButton(active) {
+    const btn = elements.demoModeBtn;
+    if (!btn) return;
+    if (active) {
+        btn.textContent = "⏹ Stop Demo";
+        btn.style.background = "#7c3aed";
+        btn.style.color = "#fff";
+        btn.style.borderColor = "#7c3aed";
+    } else {
+        btn.textContent = "🎬 Demo Mode";
+        btn.style.background = "var(--bg-tertiary)";
+        btn.style.color = "#a78bfa";
+        btn.style.borderColor = "#a78bfa";
+    }
+}
+
+function updateDemoBannerFromEvent(data) {
+    const banner = elements.demoBanner;
+    if (!banner) return;
+    if (data.success) {
+        banner.style.display = "flex";
+        if (elements.demoBannerRole) {
+            elements.demoBannerRole.textContent = data.role === "teacher" ? "TEACHER" : "STUDENT (KD)";
+            elements.demoBannerRole.style.color = data.role === "teacher" ? "#fca5a5" : "#86efac";
+        }
+        if (elements.demoBannerModel) elements.demoBannerModel.textContent = data.display_name;
+    }
+}
+
+function updateDemoBannerFromReadout(data) {
+    if (data.is_demo_mode && data.demo_current_model) {
+        if (elements.demoBanner) elements.demoBanner.style.display = "flex";
+        updateDemoModeButton(true);
+    } else if (!data.is_demo_mode) {
+        hideDemoBanner();
+        updateDemoModeButton(false);
+    }
+}
+
+function hideDemoBanner() {
+    if (elements.demoBanner) elements.demoBanner.style.display = "none";
+}
+
 // Event Listeners (Setup)
 if (elements.connectBtn) elements.connectBtn.addEventListener('click', () => state.connected ? (state.ws.close()) : connect());
 if (elements.disconnectBtn) elements.disconnectBtn.addEventListener('click', () => { if (state.ws) { state.ws.send(JSON.stringify({ type: "disconnect" })); state.ws.close(); } });
@@ -949,11 +1021,18 @@ if (elements.rightSlider) {
 }
 
 if (elements.autoDriveBtn) elements.autoDriveBtn.addEventListener('click', autoDriveToggle);
+if (elements.demoModeBtn) elements.demoModeBtn.addEventListener('click', demoModeToggle);
 
 if (elements.stopBtn) elements.stopBtn.addEventListener('click', () => {
     if (!state.connected) return;
     sendMessage({ type: "stop" });
     if (state.isAutoDriving) sendMessage({ type: "stop_auto_drive" });
+    if (state.isDemoMode) {
+        sendMessage({ type: "stop_demo" });
+        state.isDemoMode = false;
+        updateDemoModeButton(false);
+        hideDemoBanner();
+    }
 
     // Reset UI
     if (elements.leftSlider) { elements.leftSlider.value = 0; elements.leftSliderValue.textContent = "0"; updateVisuals(0, elements.leftFill, elements.leftThumb); }

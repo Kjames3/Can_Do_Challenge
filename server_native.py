@@ -166,6 +166,11 @@ TARGET_GOLDEN_IMAGES = 600
 connected_clients = set()
 latest_log = {"msg": "", "time": 0}
 
+# Demo mode state
+is_demo_mode = False
+demo_task = None            # asyncio.Task for the cycling coroutine
+demo_current_model_key = None  # e.g. "yolov8n_teacher"
+
 def broadcast_log(msg):
     """Update the latest log message to be sent to clients."""
     global latest_log
@@ -389,6 +394,129 @@ def cleanup():
 
 
 # =============================================================================
+# DEMO MODE HELPERS
+# =============================================================================
+
+# Ordered sequence for the live demo cycle
+DEMO_SEQUENCE = [
+    ("yolov8n_teacher",  "YOLOv8 Teacher",       "teacher"),
+    ("yolov8n_student",  "YOLOv8 Student (KD)",  "student"),
+    ("yolo11n_teacher",  "YOLOv11 Teacher",       "teacher"),
+    ("yolo11n_student",  "YOLOv11 Student (KD)", "student"),
+    ("yolo26n_teacher",  "YOLOv26 Teacher",       "teacher"),
+    ("yolo26n_student",  "YOLOv26 Student (KD)", "student"),
+]
+
+# Shared MODEL_MAP used by set_model handler and demo mode
+_MODEL_MAP = {
+    # ── Standard pretrained COCO weights (full 80-class) ─────────────────
+    "yolo11n_standard":     ('models/yolo11n.pt',              None,                      True),
+    "yolov8n_standard":     ('models/yolov8n.pt',              None,                      True),
+    "yolo26n_standard":     ('models/yolo26n.pt',              None,                      True),
+    # ── Trained on cans data (NCNN on-device + .pt fallback) ──────────────────
+    "yolo11n_cans":         ('models/yolo11n_cans_ncnn_model',  'models/yolo11n_cans.pt',  False),
+    "yolov8n_cans":         ('models/yolov8n_cans_ncnn_model',  'models/yolov8n_cans.pt',  False),
+    "yolo26n_cans":         ('models/yolo26n_cans_ncnn_model',  'models/yolo26n_cans.pt',  False),
+    # ── Colab teacher models (full COCO head) ────────────────────────────
+    "yolo11n_teacher": ('colab_results/teacher/yolov11/weights/best.pt', None, True),
+    "yolov8n_teacher": ('colab_results/teacher/yolov8/weights/best.pt',  None, True),
+    "yolo26n_teacher": ('colab_results/teacher/yolov26/weights/best.pt', None, True),
+    # ── Colab student models (distilled / detection fine-tuned) ──────────
+    "yolo11n_student": ('colab_results/detect/yolov11/weights/best.pt',  None, True),
+    "yolov8n_student": ('colab_results/detect/yolov8/weights/best.pt',   None, True),
+    "yolo26n_student": ('colab_results/detect/yolov26/weights/best.pt',  None, True),
+}
+
+
+def _apply_model_switch(key: str) -> bool:
+    """Load the model identified by *key* from _MODEL_MAP.
+
+    Updates YOLO_MODEL, YOLO_FALLBACK, active_target_classes, and model globals.
+    Returns True on success, False on failure (globals are left unchanged on failure).
+    """
+    global model, YOLO_MODEL, YOLO_FALLBACK, active_target_classes
+
+    if key not in _MODEL_MAP:
+        logger.warning(f"_apply_model_switch: unknown key '{key}'")
+        return False
+
+    primary, fallback, all_classes = _MODEL_MAP[key]
+
+    # Save current state for rollback
+    prev_model        = model
+    prev_yolo_model   = YOLO_MODEL
+    prev_yolo_fb      = YOLO_FALLBACK
+    prev_active_cls   = active_target_classes
+
+    YOLO_MODEL    = primary
+    YOLO_FALLBACK = fallback if fallback else primary
+    initialize_detection()
+    loaded_ok = model is not None
+
+    if loaded_ok:
+        active_target_classes = None if all_classes else [0]
+        logger.info(f"Model switch OK: {key} -> {YOLO_MODEL} "
+                    f"(classes: {'ALL' if all_classes else 'can only'})")
+    else:
+        logger.error(f"Model switch FAILED for '{key}'. Rolling back.")
+        model                 = prev_model
+        YOLO_MODEL            = prev_yolo_model
+        YOLO_FALLBACK         = prev_yolo_fb
+        active_target_classes = prev_active_cls
+
+    return loaded_ok
+
+
+async def _demo_cycle_loop(interval_sec: float = 30.0):
+    """Cycle through DEMO_SEQUENCE, switching models every *interval_sec* seconds.
+
+    Broadcasts a ``demo_model_changed`` message to all connected clients after
+    each successful switch so the GUI overlay can update in real time.
+    """
+    global is_demo_mode, demo_current_model_key
+
+    idx = 0
+    while True:
+        key, display_name, role = DEMO_SEQUENCE[idx % len(DEMO_SEQUENCE)]
+        logger.info(f"[DEMO] Switching to {key} ({display_name})")
+        success = _apply_model_switch(key)
+
+        if success:
+            demo_current_model_key = key
+            msg = json.dumps({
+                "type":         "demo_model_changed",
+                "model_key":    key,
+                "display_name": display_name,
+                "role":         role,
+                "success":      True,
+            })
+        else:
+            msg = json.dumps({
+                "type":         "demo_model_changed",
+                "model_key":    key,
+                "display_name": display_name,
+                "role":         role,
+                "success":      False,
+                "error":        f"Failed to load {key}",
+            })
+
+        if connected_clients:
+            await asyncio.gather(
+                *[c.send(msg) for c in connected_clients],
+                return_exceptions=True,
+            )
+
+        broadcast_log(f"[DEMO] Active: {display_name}")
+        idx += 1
+
+        try:
+            await asyncio.sleep(interval_sec)
+        except asyncio.CancelledError:
+            logger.info("[DEMO] Cycle loop cancelled.")
+            return
+
+
+# =============================================================================
 # WEBSOCKET HANDLER
 # =============================================================================
 async def handle_client(websocket):
@@ -397,6 +525,7 @@ async def handle_client(websocket):
     # any elif block — avoids 'used prior to global declaration' SyntaxErrors.
     global YOLO_MODEL, YOLO_FALLBACK, active_target_classes
     global detection_enabled, is_auto_driving, model, show_labels
+    global is_demo_mode, demo_task, demo_current_model_key
 
     logger.info("Client connected")
     connected_clients.add(websocket)
@@ -448,29 +577,7 @@ async def handle_client(websocket):
                     req_model = data.get("model", "yolo11n")
                     logger.info(f"Received request to change active YOLO model to: {req_model}")
 
-                    # Map of dropdown value -> (primary path, fallback path, all_classes)
-                    # all_classes=True  -> active_target_classes = None  (every COCO class)
-                    # all_classes=False -> active_target_classes = [0]   (can only)
-                    MODEL_MAP = {
-                        # ── Standard pretrained COCO weights (full 80-class) ─────────────────
-                        "yolo11n_standard":     ('models/yolo11n.pt',              None,                      True),
-                        "yolov8n_standard":     ('models/yolov8n.pt',              None,                      True),
-                        "yolo26n_standard":     ('models/yolo26n.pt',              None,                      True),
-                        # ── Trained on cans data (NCNN on-device + .pt fallback) ──────────────────
-                        "yolo11n_cans":         ('models/yolo11n_cans_ncnn_model',  'models/yolo11n_cans.pt',  False),
-                        "yolov8n_cans":         ('models/yolov8n_cans_ncnn_model',  'models/yolov8n_cans.pt',  False),
-                        "yolo26n_cans":         ('models/yolo26n_cans_ncnn_model',  'models/yolo26n_cans.pt',  False),
-                        # ── Colab teacher models (full COCO head) ────────────────────────────
-                        "yolo11n_teacher": ('colab_results/teacher/yolov11/weights/best.pt', None, True),
-                        "yolov8n_teacher": ('colab_results/teacher/yolov8/weights/best.pt',  None, True),
-                        "yolo26n_teacher": ('colab_results/teacher/yolov26/weights/best.pt', None, True),
-                        # ── Colab student models (distilled / detection fine-tuned) ──────────
-                        "yolo11n_student": ('colab_results/detect/yolov11/weights/best.pt',  None, True),
-                        "yolov8n_student": ('colab_results/detect/yolov8/weights/best.pt',   None, True),
-                        "yolo26n_student": ('colab_results/detect/yolov26/weights/best.pt',  None, True),
-                    }
-
-                    if req_model not in MODEL_MAP:
+                    if req_model not in _MODEL_MAP:
                         logger.warning(f"Unknown model key '{req_model}', ignoring.")
                         await websocket.send(json.dumps({
                             "type": "model_changed", "model": req_model,
@@ -478,43 +585,14 @@ async def handle_client(websocket):
                             "error": f"Unknown model key: {req_model}"
                         }))
                     else:
-                        # ── Save current working state so we can roll back on failure ──
-                        prev_model_obj        = model
-                        prev_yolo_model       = YOLO_MODEL
-                        prev_yolo_fb          = YOLO_FALLBACK
-                        prev_active_classes   = active_target_classes
-
-                        primary, fallback, all_classes = MODEL_MAP[req_model]
-                        YOLO_MODEL    = primary
-                        YOLO_FALLBACK = fallback if fallback else primary
-
-                        # Attempt to load new model
-                        initialize_detection()
-                        loaded_ok = model is not None
-
-                        if loaded_ok:
-                            # Set class filter: None = detect all COCO classes
-                            active_target_classes = None if all_classes else [0]
-                            logger.info(f"Model switch succeeded: {req_model} -> {YOLO_MODEL} "
-                                        f"(classes: {'ALL' if all_classes else 'can only'})")
-                        else:
-                            # ── ROLLBACK: restore the previously working model ──────────
-                            logger.error(f"Model switch FAILED for '{req_model}'. Rolling back.")
-                            model                 = prev_model_obj
-                            YOLO_MODEL            = prev_yolo_model
-                            YOLO_FALLBACK         = prev_yolo_fb
-                            active_target_classes = prev_active_classes
-                            logger.info(f"Rolled back to: {YOLO_MODEL} (detection still active)")
-
-                        # Notify the client of the outcome
-                        # all_classes tells the GUI whether to sync the toggle button
+                        loaded_ok = _apply_model_switch(req_model)
                         await websocket.send(json.dumps({
-                            "type":       "model_changed",
-                            "model":      req_model,
-                            "path":       YOLO_MODEL,
-                            "success":    loaded_ok,
+                            "type":        "model_changed",
+                            "model":       req_model,
+                            "path":        YOLO_MODEL,
+                            "success":     loaded_ok,
                             "all_classes": active_target_classes is None,
-                            "error":      None if loaded_ok else f"Failed to load {primary}. Previous model restored.",
+                            "error":       None if loaded_ok else f"Failed to load {req_model}. Previous model restored.",
                         }))
 
                 elif msg_type == "set_classes":
@@ -565,7 +643,50 @@ async def handle_client(websocket):
                     broadcast_log("AUTO-DRIVE DISENGAGED")
                     if left_motor: left_motor.stop()
                     if right_motor: right_motor.stop()
-                    
+
+                elif msg_type == "start_demo":
+                    interval = float(data.get("interval", 30.0))
+                    if is_demo_mode:
+                        await websocket.send(json.dumps({
+                            "type": "demo_status", "active": True,
+                            "msg": "Demo mode already running."
+                        }))
+                    else:
+                        is_demo_mode = True
+                        demo_current_model_key = None
+                        # Also engage auto-drive so the rover is moving during the demo
+                        is_auto_driving = True
+                        if robot_state:
+                            robot_state.x = 0.0
+                            robot_state.y = 0.0
+                            robot_state.theta = 0.0
+                            robot_state.initialized = False
+                        if imu:
+                            imu.reset_heading()
+                        if fsm:
+                            await fsm.start()
+                        demo_task = asyncio.create_task(_demo_cycle_loop(interval))
+                        broadcast_log(f"[DEMO] Demo mode started (interval={interval}s)")
+                        await websocket.send(json.dumps({
+                            "type": "demo_status", "active": True,
+                            "msg": f"Demo mode started. Cycling every {interval}s."
+                        }))
+
+                elif msg_type == "stop_demo":
+                    if demo_task and not demo_task.done():
+                        demo_task.cancel()
+                    demo_task = None
+                    is_demo_mode = False
+                    demo_current_model_key = None
+                    is_auto_driving = False
+                    if left_motor: left_motor.stop()
+                    if right_motor: right_motor.stop()
+                    broadcast_log("[DEMO] Demo mode stopped.")
+                    await websocket.send(json.dumps({
+                        "type": "demo_status", "active": False,
+                        "msg": "Demo mode stopped."
+                    }))
+
                 elif msg_type == "capture_image":
                     # Capture current frame and save for training
                     if camera:
@@ -1003,6 +1124,8 @@ async def broadcast_loop():
                     "detection_enabled": bool(detection_enabled),
                     "detections": last_detections,
                     "is_auto_driving": bool(is_auto_driving),
+                    "is_demo_mode": bool(is_demo_mode),
+                    "demo_current_model": demo_current_model_key,
                     "is_stuck": bool(is_stuck),
                     "is_tilted": bool(is_tilted),
                     "golden_collection_active": bool(golden_collection_active),
