@@ -385,6 +385,11 @@ def cleanup():
 # =============================================================================
 async def handle_client(websocket):
     """Handle incoming WebSocket connections."""
+    # Declare all module-level globals here once so Python sees them before
+    # any elif block — avoids 'used prior to global declaration' SyntaxErrors.
+    global YOLO_MODEL, YOLO_FALLBACK, active_target_classes
+    global detection_enabled, is_auto_driving, model
+
     logger.info("Client connected")
     connected_clients.add(websocket)
     
@@ -432,7 +437,6 @@ async def handle_client(websocket):
                         logger.debug("Camera set to autofocus")
 
                 elif msg_type == "set_model":
-                    global YOLO_MODEL, YOLO_FALLBACK, active_target_classes
                     req_model = data.get("model", "yolo11n")
                     logger.info(f"Received request to change active YOLO model to: {req_model}")
 
