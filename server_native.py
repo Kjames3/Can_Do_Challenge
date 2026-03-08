@@ -122,7 +122,7 @@ VIDEO_FPS_CAP = 20
 JPEG_QUALITY = 70
 DETECTION_INTERVAL = 1
 CONFIDENCE_THRESHOLD = 0.25       # Min confidence passed to YOLO inference
-DISPLAY_CONFIDENCE_THRESHOLD = 0.50  # Min confidence to draw box + send to GUI
+DISPLAY_CONFIDENCE_THRESHOLD = 0.70  # Min confidence to draw box + send to GUI
 INFERENCE_SIZE = 640
 
 # YOLO Model
