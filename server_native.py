@@ -447,10 +447,14 @@ async def handle_client(websocket):
                     # all_classes=True  -> active_target_classes = None  (every COCO class)
                     # all_classes=False -> active_target_classes = [0]   (can only)
                     MODEL_MAP = {
-                        # ── Original models (NCNN on-device + .pt fallback) ──────────────────
-                        "yolo11n":         ('models/yolo11n_cans_ncnn_model',  'models/yolo11n_cans.pt',  False),
-                        "yolov8n":         ('models/yolov8n_cans_ncnn_model',  'models/yolov8n_cans.pt',  False),
-                        "yolo26n":         ('models/yolo26n_cans_ncnn_model',  'models/yolo26n_cans.pt',  False),
+                        # ── Standard pretrained COCO weights (full 80-class) ─────────────────
+                        "yolo11n_standard":     ('models/yolo11n.pt',              None,                      True),
+                        "yolov8n_standard":     ('models/yolov8n.pt',              None,                      True),
+                        "yolo26n_standard":     ('models/yolo26n.pt',              None,                      True),
+                        # ── Trained on cans data (NCNN on-device + .pt fallback) ──────────────────
+                        "yolo11n_cans":         ('models/yolo11n_cans_ncnn_model',  'models/yolo11n_cans.pt',  False),
+                        "yolov8n_cans":         ('models/yolov8n_cans_ncnn_model',  'models/yolov8n_cans.pt',  False),
+                        "yolo26n_cans":         ('models/yolo26n_cans_ncnn_model',  'models/yolo26n_cans.pt',  False),
                         # ── Colab teacher models (full COCO head) ────────────────────────────
                         "yolo11n_teacher": ('colab_results/teacher/yolov11/weights/best.pt', None, True),
                         "yolov8n_teacher": ('colab_results/teacher/yolov8/weights/best.pt',  None, True),

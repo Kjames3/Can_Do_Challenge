@@ -101,10 +101,15 @@
                     <div style="display: flex; align-items: center; gap: 0.5rem; margin-left: 0.5rem;">
                         <select id="model-select" class="btn"
                             style="padding: 0.3rem 0.6rem; font-size: 0.75rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); outline: none;">
+                            <optgroup label="── Standard COCO ──">
+                                <option value="yolo11n_standard">YOLOv11n (Standard)</option>
+                                <option value="yolov8n_standard">YOLOv8n (Standard)</option>
+                                <option value="yolo26n_standard">YOLOv26n (Standard)</option>
+                            </optgroup>
                             <optgroup label="── On-Device ──">
-                                <option value="yolo11n">YOLOv11n (NCNN)</option>
-                                <option value="yolov8n">YOLOv8n (NCNN)</option>
-                                <option value="yolo26n">YOLOv26n (NCNN)</option>
+                                <option value="yolo11n_cans">YOLOv11n (NCNN)</option>
+                                <option value="yolov8n_cans">YOLOv8n (NCNN)</option>
+                                <option value="yolo26n_cans">YOLOv26n (NCNN)</option>
                             </optgroup>
                             <optgroup label="── Colab Teacher ──">
                                 <option value="yolo11n_teacher">YOLOv11 Teacher</option>
