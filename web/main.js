@@ -149,12 +149,24 @@ const elements = {
 function updateClassFilterBtn(btn, allClasses) {
     if (allClasses) {
         btn.textContent = '🌐 All Classes';
-        btn.style.color = '#4ade80';                   // green
+        btn.style.color = '#4ade80';
         btn.style.borderColor = '#4ade80';
     } else {
         btn.textContent = '🥫 Cans Only';
-        btn.style.color = 'var(--accent-warning, #facc15)'; // yellow
+        btn.style.color = 'var(--accent-warning, #facc15)';
         btn.style.borderColor = 'var(--accent-warning, #facc15)';
+    }
+}
+
+function updateLabelToggleBtn(btn, labelsOn) {
+    if (labelsOn) {
+        btn.textContent = '🏷️ Labels On';
+        btn.style.color = '#60a5fa';   // blue
+        btn.style.borderColor = '#60a5fa';
+    } else {
+        btn.textContent = '🏷️ Labels Off';
+        btn.style.color = '#6b7280';   // grey
+        btn.style.borderColor = '#6b7280';
     }
 }
 
@@ -185,13 +197,22 @@ document.addEventListener('DOMContentLoaded', () => {
     // Class filter toggle — Cans Only ↔ All Classes
     const classFilterBtn = document.getElementById('class-filter-toggle');
     if (classFilterBtn) {
-        // Track state locally so button is instant-feeling
         let allClassesActive = false;
-
         classFilterBtn.addEventListener('click', () => {
             allClassesActive = !allClassesActive;
             sendMessage({ type: "set_classes", all_classes: allClassesActive });
             updateClassFilterBtn(classFilterBtn, allClassesActive);
+        });
+    }
+
+    // Label overlay toggle — Labels On ↔ Labels Off
+    const labelToggleBtn = document.getElementById('label-toggle');
+    if (labelToggleBtn) {
+        let labelsOn = true;
+        labelToggleBtn.addEventListener('click', () => {
+            labelsOn = !labelsOn;
+            sendMessage({ type: "set_labels", show_labels: labelsOn });
+            updateLabelToggleBtn(labelToggleBtn, labelsOn);
         });
     }
 
@@ -437,6 +458,11 @@ function handleMessage(data) {
         const btn = document.getElementById('class-filter-toggle');
         if (btn) updateClassFilterBtn(btn, data.all_classes);
         console.log(`%c🔍 Class filter: ${data.all_classes ? 'All COCO classes' : 'Cans only'}`, 'color: #60a5fa;');
+
+    } else if (data.type === "labels_updated") {
+        const btn = document.getElementById('label-toggle');
+        if (btn) updateLabelToggleBtn(btn, data.show_labels);
+        console.log(`%c🏷️ Labels: ${data.show_labels ? 'ON' : 'OFF'}`, 'color: #60a5fa;');
 
     } else if (data.type === "download_images_response") {
         handleDownloadResponse(data);

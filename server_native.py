@@ -108,6 +108,9 @@ FOCAL_LENGTH = 1298
 TARGET_CLASSES = [0]  # 0=can (original can-only models)
 # Active filter applied at runtime — None means all classes (used for colab/COCO models)
 active_target_classes = None
+# Whether to draw class/confidence labels on the frame (toggle from GUI)
+show_labels = True
+
 
 # Camera Settings
 CAMERA_HFOV_DEG = 66.0  # IMX708 Standard FOV
@@ -248,14 +251,14 @@ def process_detection(frame):
                 # Draw bounding box
                 cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
 
-                # Overlay label  (show distance only for the can class)
-                if cls == 0 and active_target_classes == [0]:
-                    overlay = f"{class_name}: {distance_cm:.1f}cm ({conf:.0%})"
-                else:
-                    overlay = f"{class_name} ({conf:.0%})"
-
-                cv2.putText(frame, overlay, (int(x1), int(y1) - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                # Overlay label (only when labels are enabled)
+                if show_labels:
+                    if cls == 0 and active_target_classes == [0]:
+                        overlay = f"{class_name}: {distance_cm:.1f}cm ({conf:.0%})"
+                    else:
+                        overlay = f"{class_name} ({conf:.0%})"
+                    cv2.putText(frame, overlay, (int(x1), int(y1) - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
                 detections.append({
                     'class':       cls,
@@ -388,7 +391,7 @@ async def handle_client(websocket):
     # Declare all module-level globals here once so Python sees them before
     # any elif block — avoids 'used prior to global declaration' SyntaxErrors.
     global YOLO_MODEL, YOLO_FALLBACK, active_target_classes
-    global detection_enabled, is_auto_driving, model
+    global detection_enabled, is_auto_driving, model, show_labels
 
     logger.info("Client connected")
     connected_clients.add(websocket)
@@ -514,6 +517,14 @@ async def handle_client(websocket):
                         "type":       "classes_updated",
                         "all_classes": want_all,
                         "mode":        mode_str,
+                    }))
+
+                elif msg_type == "set_labels":
+                    show_labels = data.get("show_labels", True)
+                    logger.info(f"Label overlay: {'ON' if show_labels else 'OFF'}")
+                    await websocket.send(json.dumps({
+                        "type":        "labels_updated",
+                        "show_labels":  show_labels,
                     }))
 
                 elif msg_type == "start_auto_drive":
