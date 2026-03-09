@@ -169,6 +169,30 @@
                     </span>
                 </div>
 
+                <!-- Navigation Metrics Overlay -->
+                <div id="nav-metrics-overlay" class="nav-metrics" style="display: none;">
+                    <div class="metric-row">
+                        <span class="metric-label">Model:</span>
+                        <span id="metric-model" class="metric-value" style="color: var(--accent-purple);">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Detecting:</span>
+                        <span id="metric-label" class="metric-value">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Moving:</span>
+                        <span id="metric-frames" class="metric-value">0 fr</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Ratio:</span>
+                        <span id="metric-ratio" class="metric-value" style="color: var(--accent-cyan);">0.0%</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Latency:</span>
+                        <span id="metric-latency" class="metric-value" style="color: var(--accent-yellow);">0 ms</span>
+                    </div>
+                </div>
+
                 <!-- Detection Results -->
                 <div id="detection-panel" class="detection-panel" style="display: none;">
                     <div class="detection-header">
@@ -215,8 +239,7 @@
                                     style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
                                     Auto-Drive
                                 </button>
-                                <button id="demo-mode-btn" class="btn"
-                                    style="font-size: 0.75rem; padding: 0.4rem 0.8rem;
+                                <button id="demo-mode-btn" class="btn" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;
                                            background: var(--bg-tertiary); color: #a78bfa;
                                            border: 1px solid #a78bfa; border-radius: 4px;
                                            cursor: pointer; transition: all 0.25s;"

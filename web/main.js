@@ -31,6 +31,11 @@ const state = {
     needsLidarUpdate: false,
     needs3DUpdate: false,
 
+    // Nav Metrics tracking
+    trackedModelName: null,
+    movingFrameCount: 0,
+    movingDetectionCount: 0,
+
     // Logging
     logThrottle: 0
 };
@@ -48,6 +53,14 @@ const elements = {
     statusText: document.getElementById('status-text'),
     controlArea: document.getElementById('control-area'),
     robotIp: document.getElementById('robot-ip'),
+
+    // Navigation Metrics
+    navMetricsOverlay: document.getElementById('nav-metrics-overlay'),
+    metricModel: document.getElementById('metric-model'),
+    metricLabel: document.getElementById('metric-label'),
+    metricFrames: document.getElementById('metric-frames'),
+    metricRatio: document.getElementById('metric-ratio'),
+    metricLatency: document.getElementById('metric-latency'),
 
     // Camera & Detection
     cameraFeed: document.getElementById('camera-feed'),
@@ -520,7 +533,40 @@ function updateUI() {
         }
     }
 
-    // 4. Detections UI
+    // 4. Nav Metrics Update
+    if (state.detectionEnabled && data.active_model_name !== undefined) {
+        if (elements.navMetricsOverlay) elements.navMetricsOverlay.style.display = 'flex';
+
+        // Reset tracking if model changes
+        if (state.trackedModelName !== data.active_model_name) {
+            state.trackedModelName = data.active_model_name;
+            state.movingFrameCount = 0;
+            state.movingDetectionCount = 0;
+        }
+
+        // Track moving frames
+        const isMoving = Math.abs(data.left_power) > 0.05 || Math.abs(data.right_power) > 0.05;
+        if (isMoving) {
+            state.movingFrameCount++;
+            if (data.detections && data.detections.length > 0) {
+                state.movingDetectionCount++;
+            }
+        }
+
+        const ratio = state.movingFrameCount > 0 ? (state.movingDetectionCount / state.movingFrameCount) * 100 : 0;
+        const detectingLabel = data.detections && data.detections.length > 0 ? data.detections[0].label : "--";
+        const latency = data.inference_latency_ms !== undefined ? data.inference_latency_ms.toFixed(1) : "--";
+
+        if (elements.metricModel) elements.metricModel.textContent = data.active_model_name;
+        if (elements.metricLabel) elements.metricLabel.textContent = detectingLabel;
+        if (elements.metricFrames) elements.metricFrames.textContent = state.movingFrameCount;
+        if (elements.metricRatio) elements.metricRatio.textContent = ratio.toFixed(1) + "%";
+        if (elements.metricLatency) elements.metricLatency.textContent = latency + " ms";
+    } else {
+        if (elements.navMetricsOverlay) elements.navMetricsOverlay.style.display = 'none';
+    }
+
+    // 5. Detections UI
     if (data.detections !== undefined) {
         updateDetectionsList(state.latestData.detections);
     }

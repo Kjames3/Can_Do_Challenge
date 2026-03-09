@@ -297,6 +297,44 @@ body {
 }
 
 /* =================================================================
+   Navigation Metrics Overlay
+   ================================================================= */
+.nav-metrics {
+    position: absolute;
+    bottom: 0.5rem;
+    right: 0.5rem;
+    background: rgba(15, 23, 42, 0.85); /* matches theme base with alpha */
+    backdrop-filter: blur(4px);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 0.5rem 0.75rem;
+    font-family: 'SF Mono', 'Monaco', 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    z-index: 20;
+    min-width: 170px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    box-shadow: var(--shadow-lg);
+}
+
+.metric-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
+.metric-label {
+    color: var(--text-secondary);
+}
+
+.metric-value {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+/* =================================================================
    Buttons
    ================================================================= */
 .btn {

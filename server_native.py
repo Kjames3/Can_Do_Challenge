@@ -170,6 +170,7 @@ latest_log = {"msg": "", "time": 0}
 is_demo_mode = False
 demo_task = None            # asyncio.Task for the cycling coroutine
 demo_current_model_key = None  # e.g. "yolov8n_teacher"
+current_model_key = "yolo11n_cans" # default loaded
 
 def broadcast_log(msg):
     """Update the latest log message to be sent to clients."""
@@ -206,9 +207,10 @@ def process_detection(frame):
     """Run object detection on the frame."""
     global model
     if model is None:
-        return frame, []
+        return frame, [], 0.0
 
     detections = []
+    latency_ms = 0.0
 
     # Resolve real class names from the model (works for any YOLO model)
     class_names = model.names if hasattr(model, 'names') else {}
@@ -226,6 +228,7 @@ def process_detection(frame):
     ]
 
     try:
+        t_start = time.perf_counter()
         results = model.predict(
             frame,
             conf=CONFIDENCE_THRESHOLD,
@@ -233,6 +236,7 @@ def process_detection(frame):
             verbose=False
             # No classes= filter: model outputs every class it was trained on
         )
+        latency_ms = (time.perf_counter() - t_start) * 1000.0
 
         for r in results:
             boxes = r.boxes
@@ -285,7 +289,7 @@ def process_detection(frame):
     except Exception as e:
         logger.error(f"Detection error: {e}")
 
-    return frame, detections
+    return frame, detections, latency_ms
 
 
 # =============================================================================
@@ -410,7 +414,7 @@ DEMO_SEQUENCE = [
 # Shared MODEL_MAP used by set_model handler and demo mode
 _MODEL_MAP = {
     # ── Standard pretrained COCO weights (full 80-class) ─────────────────
-    "yolo11n_standard":     ('models/yolo11n.pt',              None,                      True),
+    "yolo11n_standard":     ('models/yolo11n.pt',             None,                      True),
     "yolov8n_standard":     ('models/yolov8n.pt',              None,                      True),
     "yolo26n_standard":     ('models/yolo26n.pt',              None,                      True),
     # ── Trained on cans data (NCNN on-device + .pt fallback) ──────────────────
@@ -434,7 +438,7 @@ def _apply_model_switch(key: str) -> bool:
     Updates YOLO_MODEL, YOLO_FALLBACK, active_target_classes, and model globals.
     Returns True on success, False on failure (globals are left unchanged on failure).
     """
-    global model, YOLO_MODEL, YOLO_FALLBACK, active_target_classes
+    global model, YOLO_MODEL, YOLO_FALLBACK, active_target_classes, current_model_key
 
     if key not in _MODEL_MAP:
         logger.warning(f"_apply_model_switch: unknown key '{key}'")
@@ -455,6 +459,7 @@ def _apply_model_switch(key: str) -> bool:
 
     if loaded_ok:
         active_target_classes = None if all_classes else [0]
+        current_model_key = key
         logger.info(f"Model switch OK: {key} -> {YOLO_MODEL} "
                     f"(classes: {'ALL' if all_classes else 'can only'})")
     else:
@@ -585,11 +590,12 @@ async def handle_client(websocket):
                             "error": f"Unknown model key: {req_model}"
                         }))
                     else:
+                        attempted_path = _MODEL_MAP[req_model][0]
                         loaded_ok = _apply_model_switch(req_model)
                         await websocket.send(json.dumps({
                             "type":        "model_changed",
                             "model":       req_model,
-                            "path":        YOLO_MODEL,
+                            "path":        YOLO_MODEL if loaded_ok else attempted_path,
                             "success":     loaded_ok,
                             "all_classes": active_target_classes is None,
                             "error":       None if loaded_ok else f"Failed to load {req_model}. Previous model restored.",
@@ -913,6 +919,7 @@ async def broadcast_loop():
     fps_last_time = time.time()
     fps_camera = 0.0
     fps_detection = 0.0
+    last_inference_latency_ms = 0.0
     
     while True:
         if connected_clients:
@@ -1014,7 +1021,8 @@ async def broadcast_loop():
                     
                     # Run detection
                     if detection_enabled and frame_count % DETECTION_INTERVAL == 0:
-                        frame, last_detections = process_detection(frame)
+                        frame, last_detections,_latency_ms = process_detection(frame)
+                        last_inference_latency_ms = _latency_ms
                         fps_detection_count += 1
                     elif detection_enabled:
                         for d in last_detections:
@@ -1126,6 +1134,8 @@ async def broadcast_loop():
                     "is_auto_driving": bool(is_auto_driving),
                     "is_demo_mode": bool(is_demo_mode),
                     "demo_current_model": demo_current_model_key,
+                    "active_model_name": current_model_key,
+                    "inference_latency_ms": float(last_inference_latency_ms),
                     "is_stuck": bool(is_stuck),
                     "is_tilted": bool(is_tilted),
                     "golden_collection_active": bool(golden_collection_active),
