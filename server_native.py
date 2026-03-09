@@ -426,9 +426,11 @@ _MODEL_MAP = {
     "yolov8n_teacher": ('colab_results/teacher/yolov8/weights/best.pt',  None, True),
     "yolo26n_teacher": ('colab_results/teacher/yolov26/weights/best.pt', None, True),
     # ── Colab student models (distilled / detection fine-tuned) ──────────
-    "yolo11n_student": ('colab_results/detect/yolov11/weights/best.pt',  None, True),
-    "yolov8n_student": ('colab_results/detect/yolov8/weights/best.pt',   None, True),
-    "yolo26n_student": ('colab_results/detect/yolov26/weights/best.pt',  None, True),
+    # NOTE: .pt files require 'fixed_distillation_trainer' (custom KD module).
+    # Export from Colab via model.export(format="ncnn") to get Pi-compatible versions.
+    "yolo11n_student": ('colab_results/detect/yolov11/weights/best_ncnn_model', 'colab_results/detect/yolov11/weights/best.pt', True),
+    "yolov8n_student": ('colab_results/detect/yolov8/weights/best_ncnn_model',  'colab_results/detect/yolov8/weights/best.pt',  True),
+    "yolo26n_student": ('colab_results/detect/yolov26/weights/best_ncnn_model', 'colab_results/detect/yolov26/weights/best.pt', True),
 }
 
 

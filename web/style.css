@@ -301,9 +301,10 @@ body {
    ================================================================= */
 .nav-metrics {
     position: absolute;
-    bottom: 0.5rem;
+    top: 0.5rem;
     right: 0.5rem;
-    background: rgba(15, 23, 42, 0.85); /* matches theme base with alpha */
+    background: rgba(15, 23, 42, 0.85);
+    /* matches theme base with alpha */
     backdrop-filter: blur(4px);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
