@@ -54,7 +54,7 @@ class NavigationConfig:
     # Motor speeds (higher = fewer small movements = fewer API calls)
     rotate_speed: float = 0.35            # Reduced for smoother turning
     pivot_speed: float = 0.35             # Reduced for smoother pivoting
-    drive_speed: float = 0.40             # Forward drive speed (increased for faster approach)
+    drive_speed: float = 0.6             # Forward drive speed (increased for faster approach)
     search_speed: float = 0.20            # Search rotation speed (slowed to not miss objects)
     backup_speed: float = 0.25            # Backup speed for avoiding
     
