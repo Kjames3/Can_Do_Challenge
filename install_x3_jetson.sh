@@ -1,266 +1,350 @@
 #!/bin/bash
 # =============================================================================
-# install_x3_jetson.sh - Install dependencies for Yahboom X3 on Jetson Orin Nano
+# install_x3_jetson.sh
+# Yahboom X3 rover on Jetson Orin Nano — ROS2 Humble full setup
 #
 # Hardware:
-#   - Yahboom X3 rover chassis
-#   - NVIDIA Jetson Orin Nano (JetPack 5.x or 6.x)
-#   - Orbbec Astra Pro SC depth camera
-#   - YDLidar 4ROS lidar
-#   - Rosmaster controller board (motors/servos via serial)
+#   - NVIDIA Jetson Orin Nano (JetPack 5.x / Ubuntu 22.04)
+#   - Orbbec Astra Pro SC depth camera  (ros2_astra_camera)
+#   - YDLidar 4ROS lidar                (ydlidar_ros2_driver)
+#   - Yahboom Rosmaster controller board (yahboom_bringup)
 #
 # Run with: sudo bash install_x3_jetson.sh
 # =============================================================================
 
 set -e
 
+BOLD='\033[1m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+ok()   { echo -e "  ${GREEN}OK${NC} $1"; }
+warn() { echo -e "  ${YELLOW}!!${NC} $1"; }
+info() { echo -e "  -- $1"; }
+
 echo "=============================================="
-echo "  Yahboom X3 Jetson Orin Nano - Installer"
+echo -e "  ${BOLD}Yahboom X3 — ROS2 Humble Installer${NC}"
 echo "=============================================="
 echo ""
 
-# Check if running as root
+# ---------------- root check ----------------
 if [ "$EUID" -ne 0 ]; then
-    echo "Please run as root: sudo bash install_x3_jetson.sh"
+    echo "Run as root:  sudo bash install_x3_jetson.sh"
     exit 1
 fi
 
-# Get the non-root user who called sudo
 REAL_USER=${SUDO_USER:-$USER}
-echo "Installing for user: $REAL_USER"
+USER_HOME="/home/$REAL_USER"
+ROS2_WS="$USER_HOME/ros2_ws"
 
-# Detect JetPack version for awareness (non-blocking)
-JETPACK_VERSION="unknown"
+echo "User      : $REAL_USER"
+echo "Home      : $USER_HOME"
+echo "Workspace : $ROS2_WS"
+
 if [ -f /etc/nv_tegra_release ]; then
-    JETPACK_VERSION=$(head -1 /etc/nv_tegra_release)
+    echo "JetPack   : $(head -1 /etc/nv_tegra_release)"
 fi
-echo "JetPack: $JETPACK_VERSION"
+
+# Confirm Ubuntu 22.04 (Humble requirement)
+UBUNTU_VERSION=$(. /etc/os-release && echo "$VERSION_ID")
+if [ "$UBUNTU_VERSION" != "22.04" ]; then
+    warn "Ubuntu 22.04 expected for ROS2 Humble — found $UBUNTU_VERSION"
+    warn "Proceeding anyway, but package names may differ."
+fi
 echo ""
 
 # =============================================================================
-# [1/7] System Dependencies
+# [1/9] Locale (required for ROS2 apt repo)
 # =============================================================================
-echo "[1/7] Installing system dependencies..."
-apt-get update
+echo "[1/9] Configuring locale..."
+apt-get install -y locales > /dev/null
+locale-gen en_US en_US.UTF-8
+update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+export LANG=en_US.UTF-8
+ok "Locale set to en_US.UTF-8"
+echo ""
+
+# =============================================================================
+# [2/9] System dependencies
+# =============================================================================
+echo "[2/9] Installing system dependencies..."
+apt-get update -q
 apt-get install -y \
-    python3-pip \
-    python3-venv \
-    python3-dev \
-    build-essential \
-    cmake \
-    git \
+    software-properties-common \
+    apt-transport-https \
+    gnupg2 \
+    lsb-release \
     curl \
     wget \
-    libopencv-dev \
-    python3-opencv \
+    git \
+    build-essential \
+    cmake \
+    ninja-build \
+    python3-pip \
+    python3-dev \
+    python3-venv \
+    python3-serial \
     i2c-tools \
     libi2c-dev \
+    libusb-1.0-0-dev \
+    libopenni2-dev \
+    openni2-utils \
+    libopencv-dev \
+    python3-opencv \
     libopenblas-dev \
-    libhdf5-dev \
     libgstreamer1.0-dev \
     libgstreamer-plugins-base1.0-dev \
     libavcodec-dev \
     libavformat-dev \
     libswscale-dev \
-    libv4l-dev \
-    libjpeg-dev \
-    libpng-dev \
-    libtiff-dev \
-    libusb-1.0-0-dev \
     udev \
-    python3-serial \
-    minicom
-
-echo "  OK System dependencies installed"
+    minicom \
+    htop
+ok "System dependencies installed"
 echo ""
 
 # =============================================================================
-# [2/7] I2C Setup (Jetson style - no dtparam)
+# [3/9] I2C (Jetson — no dtparam, just kernel module)
 # =============================================================================
-echo "[2/7] Enabling I2C..."
+echo "[3/9] Enabling I2C..."
 modprobe i2c-dev 2>/dev/null || true
-
-# Persist i2c-dev across reboots
-if ! grep -q "^i2c-dev" /etc/modules 2>/dev/null; then
-    echo "i2c-dev" >> /etc/modules
-    echo "  OK i2c-dev added to /etc/modules"
-else
-    echo "  OK i2c-dev already in /etc/modules"
-fi
-
-# Set permissions on I2C buses
-for i2c_bus in /dev/i2c-*; do
-    chmod 666 "$i2c_bus" 2>/dev/null || true
-done
+grep -q "^i2c-dev" /etc/modules 2>/dev/null || echo "i2c-dev" >> /etc/modules
+ok "i2c-dev module active and persistent"
 echo ""
 
 # =============================================================================
-# [3/7] Orbbec Astra Pro SC Camera (OpenNI2 + pyorbbecsdk)
+# [4/9] ROS2 Humble
 # =============================================================================
-echo "[3/7] Setting up Orbbec Astra Pro SC camera..."
+echo "[4/9] Installing ROS2 Humble..."
 
-# Install libopenni2 for depth camera access
-apt-get install -y libopenni2-dev openni2-utils 2>/dev/null || \
-    echo "  NOTE: openni2-utils not in repo - install manually from Orbbec SDK"
+# Add ROS2 apt repository
+add-apt-repository universe -y > /dev/null 2>&1
+curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+    -o /usr/share/keyrings/ros-archive-keyring.gpg
 
-# Install udev rules for Orbbec cameras
-ORBBEC_UDEV_RULES="/etc/udev/rules.d/99-orbbec.rules"
-if [ ! -f "$ORBBEC_UDEV_RULES" ]; then
-    cat > "$ORBBEC_UDEV_RULES" << 'UDEV'
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo "$UBUNTU_CODENAME") main" \
+    > /etc/apt/sources.list.d/ros2.list
+
+apt-get update -q
+
+# Desktop install includes rviz2, rqt, and all common packages
+apt-get install -y \
+    ros-humble-desktop \
+    ros-humble-ros-base \
+    ros-humble-rosbridge-suite \
+    ros-humble-tf2-ros \
+    ros-humble-tf2-tools \
+    ros-humble-nav2-bringup \
+    ros-humble-robot-localization \
+    ros-humble-joy \
+    ros-humble-teleop-twist-joy \
+    ros-humble-teleop-twist-keyboard \
+    ros-humble-image-transport \
+    ros-humble-image-transport-plugins \
+    ros-humble-cv-bridge \
+    ros-humble-vision-msgs \
+    ros-humble-sensor-msgs \
+    ros-humble-std-msgs \
+    ros-humble-geometry-msgs \
+    python3-rosdep \
+    python3-colcon-common-extensions \
+    python3-colcon-mixin \
+    python3-vcstool
+
+ok "ROS2 Humble installed"
+echo ""
+
+# Initialise rosdep
+echo "  Initialising rosdep..."
+rosdep init 2>/dev/null || info "rosdep already initialised"
+sudo -u "$REAL_USER" rosdep update
+ok "rosdep ready"
+echo ""
+
+# =============================================================================
+# [5/9] YDLidar C++ SDK  (prereq for ydlidar_ros2_driver)
+# =============================================================================
+echo "[5/9] Building YDLidar SDK..."
+YDLIDAR_SDK_DIR="/opt/YDLidar-SDK"
+
+if [ ! -d "$YDLIDAR_SDK_DIR" ]; then
+    git clone --depth=1 https://github.com/YDLIDAR/YDLidar-SDK.git "$YDLIDAR_SDK_DIR"
+    mkdir -p "$YDLIDAR_SDK_DIR/build"
+    cmake -S "$YDLIDAR_SDK_DIR" -B "$YDLIDAR_SDK_DIR/build" -DCMAKE_BUILD_TYPE=Release
+    make -C "$YDLIDAR_SDK_DIR/build" -j"$(nproc)"
+    make -C "$YDLIDAR_SDK_DIR/build" install
+    ldconfig
+    ok "YDLidar SDK built and installed to /usr/local"
+else
+    ok "YDLidar SDK already present at $YDLIDAR_SDK_DIR"
+fi
+echo ""
+
+# =============================================================================
+# [6/9] udev rules  (Orbbec, YDLidar, Rosmaster)
+# =============================================================================
+echo "[6/9] Writing udev rules..."
+
 # Orbbec Astra Pro SC
+cat > /etc/udev/rules.d/99-orbbec.rules << 'UDEV'
+# Orbbec Astra / Astra Pro SC
 SUBSYSTEM=="usb", ATTR{idVendor}=="2bc5", MODE="0666", GROUP="plugdev"
 SUBSYSTEM=="usb", ATTR{idVendor}=="1d27", MODE="0666", GROUP="plugdev"
 UDEV
-    echo "  OK Orbbec udev rules written to $ORBBEC_UDEV_RULES"
-else
-    echo "  OK Orbbec udev rules already exist"
-fi
+ok "Orbbec udev rules → /etc/udev/rules.d/99-orbbec.rules"
 
-udevadm control --reload-rules && udevadm trigger 2>/dev/null || true
-echo ""
-
-# =============================================================================
-# [4/7] YDLidar 4ROS - udev rule + SDK
-# =============================================================================
-echo "[4/7] Setting up YDLidar 4ROS..."
-
-YDLIDAR_UDEV="/etc/udev/rules.d/60-ydlidar.rules"
-if [ ! -f "$YDLIDAR_UDEV" ]; then
-    cat > "$YDLIDAR_UDEV" << 'UDEV'
-# YDLidar - create stable symlink at /dev/ydlidar
-KERNEL=="ttyUSB*", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", \
-    SYMLINK+="ydlidar", MODE="0666", GROUP="dialout"
-KERNEL=="ttyUSB*", ATTRS{idVendor}=="067b", ATTRS{idProduct}=="2303", \
-    SYMLINK+="ydlidar", MODE="0666", GROUP="dialout"
-# Fallback: any ttyUSB gets dialout-accessible
-KERNEL=="ttyUSB*", MODE="0666", GROUP="dialout"
+# YDLidar 4ROS  (CP2102: 10c4:ea60 | PL2303: 067b:2303 | CH340: 1a86:7523)
+cat > /etc/udev/rules.d/60-ydlidar.rules << 'UDEV'
+# YDLidar — stable /dev/ydlidar symlink
+KERNEL=="ttyUSB*", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="ydlidar",  MODE="0666", GROUP="dialout"
+KERNEL=="ttyUSB*", ATTRS{idVendor}=="067b", ATTRS{idProduct}=="2303", SYMLINK+="ydlidar",  MODE="0666", GROUP="dialout"
+KERNEL=="ttyUSB*", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="ydlidar",  MODE="0666", GROUP="dialout"
 UDEV
-    echo "  OK YDLidar udev rules written to $YDLIDAR_UDEV"
-else
-    echo "  OK YDLidar udev rules already exist"
-fi
+ok "YDLidar udev rules → /etc/udev/rules.d/60-ydlidar.rules"
 
-udevadm control --reload-rules && udevadm trigger 2>/dev/null || true
-echo ""
-
-# =============================================================================
-# [5/7] Rosmaster Controller Board - udev rule
-# =============================================================================
-echo "[5/7] Setting up Rosmaster controller board..."
-
-ROSMASTER_UDEV="/etc/udev/rules.d/61-rosmaster.rules"
-if [ ! -f "$ROSMASTER_UDEV" ]; then
-    cat > "$ROSMASTER_UDEV" << 'UDEV'
-# Yahboom Rosmaster controller board - CH340/CP210x USB-serial
-KERNEL=="ttyUSB*", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", \
-    SYMLINK+="rosmaster", MODE="0666", GROUP="dialout"
-KERNEL=="ttyUSB*", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", \
-    SYMLINK+="rosmaster", MODE="0666", GROUP="dialout"
-# Rosmaster may also enumerate on ttyACM
+# Rosmaster board  (CH340: 1a86:7523 — same chip, different unit)
+# If both lidar and rosmaster share the same VID:PID you'll need to
+# differentiate by KERNELS (physical USB port) — see post-install note.
+cat > /etc/udev/rules.d/61-rosmaster.rules << 'UDEV'
+# Yahboom Rosmaster controller board
+KERNEL=="ttyUSB*", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="rosmaster", MODE="0666", GROUP="dialout"
 KERNEL=="ttyACM*", MODE="0666", GROUP="dialout"
 UDEV
-    echo "  OK Rosmaster udev rules written to $ROSMASTER_UDEV"
-else
-    echo "  OK Rosmaster udev rules already exist"
-fi
+ok "Rosmaster udev rules → /etc/udev/rules.d/61-rosmaster.rules"
 
-udevadm control --reload-rules && udevadm trigger 2>/dev/null || true
-echo ""
-
-# =============================================================================
-# [6/7] Python Virtual Environment + Packages
-# =============================================================================
-VENV_PATH="/home/$REAL_USER/viam_projects/.venv"
-echo "[6/7] Setting up Python venv at $VENV_PATH..."
-
-if [ ! -d "$VENV_PATH" ]; then
-    sudo -u "$REAL_USER" python3 -m venv --system-site-packages "$VENV_PATH"
-    echo "  OK Virtual environment created"
-else
-    echo "  OK Virtual environment already exists"
-fi
-
-sudo -u "$REAL_USER" bash << PYEOF
-source "$VENV_PATH/bin/activate"
-pip install --upgrade pip
-
-echo ""
-echo "  -- Core packages --"
-pip install numpy
-pip install websockets
-pip install pyserial           # Rosmaster + YDLidar serial comms
-
-echo ""
-echo "  -- Computer vision --"
-# opencv-python-headless: use system libopencv on Jetson for CUDA support
-pip install opencv-python-headless || echo "  NOTE: falling back to system opencv"
-
-echo ""
-echo "  -- YOLO inference --"
-# On Jetson, prefer TensorRT backend. ultralytics handles this automatically.
-pip install ultralytics
-
-echo ""
-echo "  -- Depth camera (Orbbec Astra Pro SC) --"
-# pyorbbecsdk wraps the Orbbec SDK; open3d is a heavier alternative
-pip install pyorbbecsdk || echo "  NOTE: pyorbbecsdk not on PyPI - install from Orbbec GitHub (see notes below)"
-# open3d provides OrbbecSDK support on Jetson JetPack 5+
-pip install open3d || echo "  NOTE: open3d optional (heavy), pyorbbecsdk preferred"
-
-echo ""
-echo "  -- YDLidar --"
-pip install ydlidar || echo "  NOTE: ydlidar PyPI package unavailable - use ydlidar-sdk C++ bindings (see notes)"
-
-echo ""
-echo "  -- Rosmaster controller board --"
-# Yahboom provides a Python library for the Rosmaster board
-pip install pyserial
-# Yahboom SDK is typically installed from their repo, not PyPI:
-pip install Rosmaster-Lib 2>/dev/null || echo "  NOTE: Rosmaster-Lib not on PyPI - clone from Yahboom GitHub (see notes)"
-
-echo ""
-echo "  -- IMU / I2C --"
-pip install smbus2
-pip install mpu6050-raspberrypi || true  # works on any Linux I2C
-
-echo ""
-echo "  -- Jetson GPIO (replaces gpiozero/rpi-lgpio) --"
-pip install Jetson.GPIO || echo "  NOTE: Jetson.GPIO may need manual setup (see JetPack docs)"
-
-echo ""
-echo "  -- INA219 power sensor --"
-pip install pi-ina219
-
-echo "  OK Python packages installed"
-PYEOF
-
-echo ""
-
-# =============================================================================
-# [7/7] User Groups & Permissions
-# =============================================================================
-echo "[7/7] Setting up user permissions..."
-
-usermod -a -G dialout  "$REAL_USER" 2>/dev/null || true   # serial ports (lidar, rosmaster)
-usermod -a -G i2c      "$REAL_USER" 2>/dev/null || true   # I2C (IMU, misc)
-usermod -a -G video    "$REAL_USER" 2>/dev/null || true   # camera
-usermod -a -G plugdev  "$REAL_USER" 2>/dev/null || true   # USB devices (Orbbec)
-usermod -a -G gpio     "$REAL_USER" 2>/dev/null || true   # Jetson GPIO
-
-# Jetson.GPIO needs a udev rule so normal users can access GPIO
-JETSON_GPIO_UDEV="/etc/udev/rules.d/99-gpio.rules"
-if [ ! -f "$JETSON_GPIO_UDEV" ]; then
-    cat > "$JETSON_GPIO_UDEV" << 'UDEV'
+# Jetson GPIO
+cat > /etc/udev/rules.d/99-gpio.rules << 'UDEV'
 SUBSYSTEM=="gpio", KERNEL=="gpiochip*", ACTION=="add", \
-    PROGRAM="/bin/sh -c 'chown root:gpio /sys/class/gpio/export /sys/class/gpio/unexport; chmod 220 /sys/class/gpio/export /sys/class/gpio/unexport'"
+    PROGRAM="/bin/sh -c 'chown root:gpio /sys/class/gpio/export /sys/class/gpio/unexport ; chmod 220 /sys/class/gpio/export /sys/class/gpio/unexport'"
 SUBSYSTEM=="gpio", KERNEL=="gpio*", ACTION=="add", \
-    PROGRAM="/bin/sh -c 'chown root:gpio /sys%p/active_low /sys%p/direction /sys%p/edge /sys%p/value; chmod 660 /sys%p/active_low /sys%p/direction /sys%p/edge /sys%p/value'"
+    PROGRAM="/bin/sh -c 'chown root:gpio /sys%p/active_low /sys%p/direction /sys%p/edge /sys%p/value ; chmod 660 /sys%p/active_low /sys%p/direction /sys%p/edge /sys%p/value'"
 UDEV
-    echo "  OK Jetson GPIO udev rules written"
-fi
+ok "Jetson GPIO udev rules → /etc/udev/rules.d/99-gpio.rules"
 
 udevadm control --reload-rules && udevadm trigger 2>/dev/null || true
-echo "  OK User '$REAL_USER' added to: dialout, i2c, video, plugdev, gpio"
+echo ""
+
+# =============================================================================
+# [7/9] ROS2 workspace — clone + build
+# =============================================================================
+echo "[7/9] Setting up ROS2 workspace at $ROS2_WS..."
+
+sudo -u "$REAL_USER" mkdir -p "$ROS2_WS/src"
+
+# Source ROS2 for subsequent commands
+ROS_SETUP="/opt/ros/humble/setup.bash"
+source "$ROS_SETUP"
+
+# ── Clone driver packages ────────────────────────────────────────────────────
+
+echo ""
+echo "  Cloning ROS2 driver packages..."
+
+# 1. YDLidar ROS2 driver
+YDLIDAR_ROS_DIR="$ROS2_WS/src/ydlidar_ros2_driver"
+if [ ! -d "$YDLIDAR_ROS_DIR" ]; then
+    sudo -u "$REAL_USER" git clone --depth=1 \
+        https://github.com/YDLIDAR/ydlidar_ros2_driver.git \
+        "$YDLIDAR_ROS_DIR"
+    ok "ydlidar_ros2_driver cloned"
+else
+    ok "ydlidar_ros2_driver already present"
+fi
+
+# 2. Orbbec ros2_astra_camera  (OpenNI2-based — correct driver for Astra Pro SC)
+ASTRA_ROS_DIR="$ROS2_WS/src/ros2_astra_camera"
+if [ ! -d "$ASTRA_ROS_DIR" ]; then
+    sudo -u "$REAL_USER" git clone --depth=1 \
+        https://github.com/orbbec/ros2_astra_camera.git \
+        "$ASTRA_ROS_DIR"
+    ok "ros2_astra_camera cloned"
+else
+    ok "ros2_astra_camera already present"
+fi
+
+# 3. Yahboom X3 ROS2 bringup / Rosmaster driver
+#    The official Yahboom repo contains ROS2 packages under the ros2 branch.
+#    URL verified at: https://github.com/YahboomTechnology/Rosmaster-X3
+YAHBOOM_ROS_DIR="$ROS2_WS/src/Rosmaster-X3"
+if [ ! -d "$YAHBOOM_ROS_DIR" ]; then
+    sudo -u "$REAL_USER" git clone --depth=1 \
+        --branch ros2 \
+        https://github.com/YahboomTechnology/Rosmaster-X3.git \
+        "$YAHBOOM_ROS_DIR" 2>/dev/null || \
+    sudo -u "$REAL_USER" git clone --depth=1 \
+        https://github.com/YahboomTechnology/Rosmaster-X3.git \
+        "$YAHBOOM_ROS_DIR" && \
+    warn "Could not find 'ros2' branch — cloned default branch. Check Yahboom's repo for the correct ROS2 branch."
+    ok "Rosmaster-X3 cloned"
+else
+    ok "Rosmaster-X3 already present"
+fi
+
+# ── rosdep install ───────────────────────────────────────────────────────────
+echo ""
+echo "  Running rosdep install..."
+sudo -u "$REAL_USER" bash -c "
+    source $ROS_SETUP
+    cd $ROS2_WS
+    rosdep install --from-paths src --ignore-src -r -y --rosdistro humble
+" && ok "rosdep dependencies installed" || warn "rosdep had some failures — check output above"
+
+# ── colcon build ─────────────────────────────────────────────────────────────
+echo ""
+echo "  Building workspace with colcon (this may take 5–10 minutes)..."
+sudo -u "$REAL_USER" bash -c "
+    source $ROS_SETUP
+    cd $ROS2_WS
+    colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release 2>&1
+" && ok "Workspace built successfully" || warn "Build had errors — see output above"
+
+echo ""
+
+# =============================================================================
+# [8/9] Python extras  (YOLO/ultralytics for custom ROS2 detection node)
+# =============================================================================
+echo "[8/9] Installing Python extras (YOLO)..."
+
+# Install into system Python so ROS2 Python nodes can import without a venv
+pip3 install --upgrade pip
+pip3 install ultralytics numpy websockets smbus2 pyserial
+ok "ultralytics (YOLO), numpy, websockets, smbus2, pyserial installed system-wide"
+echo ""
+
+# =============================================================================
+# [9/9] User groups + .bashrc
+# =============================================================================
+echo "[9/9] Setting up groups and shell environment..."
+
+usermod -a -G dialout "$REAL_USER" 2>/dev/null || true
+usermod -a -G i2c     "$REAL_USER" 2>/dev/null || true
+usermod -a -G video   "$REAL_USER" 2>/dev/null || true
+usermod -a -G plugdev "$REAL_USER" 2>/dev/null || true
+usermod -a -G gpio    "$REAL_USER" 2>/dev/null || true
+ok "User '$REAL_USER' added to: dialout, i2c, video, plugdev, gpio"
+
+# Add ROS2 + workspace sourcing to .bashrc if not already present
+BASHRC="$USER_HOME/.bashrc"
+if ! grep -q "ros/humble/setup.bash" "$BASHRC" 2>/dev/null; then
+    cat >> "$BASHRC" << BASHLINES
+
+# === ROS2 Humble (added by install_x3_jetson.sh) ===
+source /opt/ros/humble/setup.bash
+source $ROS2_WS/install/local_setup.bash 2>/dev/null || true
+export ROS_DOMAIN_ID=0
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+
+# Convenient aliases
+alias cb='cd $ROS2_WS && colcon build --symlink-install'
+alias cs='source $ROS2_WS/install/local_setup.bash'
+BASHLINES
+    ok ".bashrc updated with ROS2 and workspace sourcing"
+else
+    ok ".bashrc already has ROS2 sourcing"
+fi
 echo ""
 
 # =============================================================================
@@ -270,68 +354,77 @@ echo "=============================================="
 echo "  Verification"
 echo "=============================================="
 
+# ROS2
+if [ -f /opt/ros/humble/setup.bash ]; then
+    ok "ROS2 Humble installed at /opt/ros/humble"
+else
+    warn "ROS2 Humble not found at /opt/ros/humble"
+fi
+
+# Workspace build artifacts
+if [ -d "$ROS2_WS/install" ]; then
+    ok "ROS2 workspace built: $ROS2_WS/install"
+else
+    warn "Workspace install/ not found — build may have failed"
+fi
+
+# YDLidar SDK
+if ldconfig -p | grep -q libydlidar; then
+    ok "YDLidar SDK library found in ldconfig"
+else
+    warn "YDLidar SDK library not found — driver build may fail"
+fi
+
 # I2C
-if ls /dev/i2c-* &>/dev/null; then
-    echo "OK I2C buses: $(ls /dev/i2c-*)"
-    echo "   Scanning /dev/i2c-7 (Jetson Orin Nano main bus)..."
-    i2cdetect -y 7 2>/dev/null | head -12 || \
-    i2cdetect -y 1 2>/dev/null | head -12 || \
-    echo "   (bus scan unavailable)"
+if ls /dev/i2c-* &>/dev/null 2>&1; then
+    ok "I2C buses: $(ls /dev/i2c-* | tr '\n' ' ')"
 else
-    echo "!! I2C bus not found"
+    warn "No I2C buses found (reboot may be needed)"
 fi
 
-# Camera / Orbbec (USB)
+# USB hardware
 echo ""
-echo "USB devices:"
-lsusb 2>/dev/null | grep -i -E "orbbec|astra|2bc5|1d27" && \
-    echo "   OK Orbbec camera detected" || \
-    echo "   -- Orbbec camera not currently connected"
-
-# YDLidar
-if [ -e /dev/ydlidar ]; then
-    echo "OK YDLidar at /dev/ydlidar"
-elif ls /dev/ttyUSB* &>/dev/null 2>&1; then
-    echo "OK Serial devices: $(ls /dev/ttyUSB*) (ydlidar udev symlink pending reconnect)"
-else
-    echo "-- YDLidar not connected (plug in to verify)"
-fi
-
-# Rosmaster
-if [ -e /dev/rosmaster ]; then
-    echo "OK Rosmaster board at /dev/rosmaster"
-else
-    echo "-- Rosmaster board symlink not active (plug in to verify)"
-fi
+echo "  USB device scan:"
+lsusb 2>/dev/null | grep -i -E "orbbec|astra|2bc5|1d27" \
+    && ok "Orbbec camera detected" \
+    || info "Orbbec camera not currently connected"
+[ -e /dev/ydlidar ]   && ok "YDLidar at /dev/ydlidar"    || info "YDLidar not connected (symlink created on plug-in)"
+[ -e /dev/rosmaster ] && ok "Rosmaster at /dev/rosmaster" || info "Rosmaster not connected (symlink created on plug-in)"
 
 echo ""
 echo "=============================================="
 echo "  Installation Complete!"
 echo "=============================================="
 echo ""
-echo "IMPORTANT - Manual steps still required:"
+echo -e "${BOLD}Next steps:${NC}"
 echo ""
-echo "  1. Orbbec Astra Pro SC SDK (if pyorbbecsdk failed):"
-echo "       git clone https://github.com/orbbec/pyorbbecsdk"
-echo "       cd pyorbbecsdk && pip install ."
-echo ""
-echo "  2. YDLidar SDK (if ydlidar pip failed):"
-echo "       git clone https://github.com/YDLIDAR/YDLidar-SDK"
-echo "       cd YDLidar-SDK && mkdir build && cd build"
-echo "       cmake .. && make -j4 && sudo make install"
-echo "       cd ../python && pip install ."
-echo ""
-echo "  3. Rosmaster Python library (if Rosmaster-Lib pip failed):"
-echo "       git clone https://github.com/YahboomTechnology/Rosmaster-X3"
-echo "       # Follow Yahboom's README for the Python SDK install"
-echo ""
-echo "  4. Reboot to activate group memberships and udev rules:"
+echo "  1. Reboot to activate udev rules and group memberships:"
 echo "       sudo reboot"
 echo ""
-echo "  5. After reboot, activate venv and run:"
-echo "       source $VENV_PATH/bin/activate"
-echo "       python server_native.py --sim   # test without hardware first"
+echo "  2. After reboot — launch the full sensor stack:"
+echo "       ros2 launch yahboom_bringup x3_bringup.launch.py"
 echo ""
-echo "Lidar port: check 'ls /dev/ttyUSB*' or use /dev/ydlidar symlink"
-echo "Rosmaster port: check 'ls /dev/ttyUSB*' or use /dev/rosmaster symlink"
+echo "  3. Launch individual drivers:"
+echo "       # YDLidar"
+echo "       ros2 launch ydlidar_ros2_driver ydlidar_launch.py"
+echo ""
+echo "       # Orbbec Astra Pro SC"
+echo "       ros2 launch astra_camera astra_pro.launch.xml"
+echo ""
+echo "       # Check topics"
+echo "       ros2 topic list"
+echo "       ros2 topic echo /scan               # lidar"
+echo "       ros2 topic echo /camera/depth/image  # depth"
+echo ""
+echo "  4. Visualise in rviz2:"
+echo "       rviz2"
+echo ""
+echo -e "${YELLOW}NOTE:${NC} If YDLidar and Rosmaster share the same USB VID:PID (1a86:7523)"
+echo "  both udev symlinks will race. Run 'udevadm info /dev/ttyUSB0' with each"
+echo "  device plugged in separately to get their KERNELS (physical port path)"
+echo "  and add KERNELS==\"...\" to differentiate them in the udev rules."
+echo ""
+echo "  Workspace: $ROS2_WS"
+echo "  Build alias: cb   (colcon build --symlink-install)"
+echo "  Source alias: cs  (source install/local_setup.bash)"
 echo ""
